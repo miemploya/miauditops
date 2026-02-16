@@ -1,0 +1,28 @@
+# PHP
+*.log
+*.tmp
+*.bak
+
+# Config with secrets
+config/db.php
+
+# OS
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dependencies
+vendor/
+node_modules/
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# Gemini
+.gemini/
