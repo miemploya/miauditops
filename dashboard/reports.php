@@ -61,6 +61,110 @@ $count_surplus   = array_filter($stock_counts, fn($c) => ($c['physical_count'] -
 $shortage_value  = array_sum(array_map(fn($c) => abs(($c['physical_count'] - $c['system_count']) * $c['unit_cost']), $count_shortages));
 $surplus_value   = array_sum(array_map(fn($c) => (($c['physical_count'] - $c['system_count']) * $c['unit_cost']), $count_surplus));
 
+// ---- 2B. Stock Count Reconciliation (Department vs Daily Audit) ----
+// Get all departments WITH outlet links
+$stmt = $pdo->prepare("SELECT sd.id, sd.name, sd.type, sd.outlet_id, COALESCE(co.name, '') as outlet_name 
+    FROM stock_departments sd 
+    LEFT JOIN client_outlets co ON sd.outlet_id = co.id 
+    WHERE sd.company_id = ? AND sd.client_id = ? AND sd.deleted_at IS NULL ORDER BY sd.name");
+$stmt->execute([$company_id, $client_id]);
+$recon_departments = $stmt->fetchAll();
+
+$recon_sections = [];
+$recon_grand_stock_sales = 0;
+$recon_grand_declared = 0;
+
+foreach ($recon_departments as $rd) {
+    $dept_id = $rd['id'];
+    $outlet_id = intval($rd['outlet_id'] ?? 0);
+    
+    // Get stock count data for this department on the report date
+    $stmt = $pdo->prepare("SELECT ds.product_id, p.name as product_name, p.selling_price,
+        ds.opening_stock, ds.added, ds.return_in, ds.transfer_out, ds.transfer_to_main, 
+        ds.adjustment_add, ds.adjustment_sub, ds.qty_sold, ds.id as stock_id
+        FROM department_stock ds 
+        JOIN products p ON ds.product_id = p.id 
+        WHERE ds.department_id = ? AND ds.stock_date = ? AND ds.company_id = ? AND ds.client_id = ?
+        ORDER BY p.name");
+    $stmt->execute([$dept_id, $date_to, $company_id, $client_id]);
+    $dept_stock = $stmt->fetchAll();
+    
+    // Calculate stock count sales
+    $stock_sales_total = 0;
+    $stock_sold_qty = 0;
+    $stock_products = [];
+    foreach ($dept_stock as $ds) {
+        $sys_total = intval($ds['opening_stock']) + intval($ds['added']) + intval($ds['return_in']) 
+                   - intval($ds['transfer_out']) - intval($ds['transfer_to_main']);
+        $adj = intval($ds['adjustment_add']) - intval($ds['adjustment_sub']);
+        $qty_sold = intval($ds['qty_sold']);
+        $sell_price = floatval($ds['selling_price']);
+        $sales_value = $qty_sold * $sell_price;
+        $is_counted = !empty($ds['stock_id']);
+        
+        $stock_products[] = [
+            'name' => $ds['product_name'],
+            'system_total' => $sys_total,
+            'adj' => $adj,
+            'physical' => ($sys_total + $adj) - $qty_sold,
+            'qty_sold' => $qty_sold,
+            'price' => $sell_price,
+            'sales_value' => $sales_value,
+            'counted' => $is_counted,
+        ];
+        $stock_sales_total += $sales_value;
+        $stock_sold_qty += $qty_sold;
+    }
+    
+    // Get outlet sales from daily audit
+    $outlet_sales = [];
+    $declared_total = 0;
+    $actual_total = 0;
+    if ($outlet_id) {
+        $stmt = $pdo->prepare("SELECT shift, 
+            COALESCE(pos_amount,0) as pos_amount, 
+            COALESCE(cash_amount,0) as cash_amount, 
+            COALESCE(transfer_amount,0) as transfer_amount, 
+            COALESCE(declared_total,0) as declared_total,
+            (COALESCE(pos_amount,0)+COALESCE(cash_amount,0)+COALESCE(transfer_amount,0)) as actual_total
+            FROM sales_transactions 
+            WHERE company_id = ? AND client_id = ? AND outlet_id = ? AND transaction_date = ? AND deleted_at IS NULL 
+            ORDER BY shift");
+        $stmt->execute([$company_id, $client_id, $outlet_id, $date_to]);
+        $outlet_sales = $stmt->fetchAll();
+        $declared_total = array_sum(array_column($outlet_sales, 'declared_total'));
+        $actual_total = array_sum(array_column($outlet_sales, 'actual_total'));
+    }
+    
+    $variance = $declared_total - $stock_sales_total;
+    
+    // Determine status
+    if (!$outlet_id) $recon_status = 'not_linked';
+    elseif (empty($outlet_sales)) $recon_status = 'no_audit';
+    elseif (empty($dept_stock)) $recon_status = 'no_count';
+    elseif (abs($variance) < 0.01) $recon_status = 'matched';
+    else $recon_status = 'variance';
+    
+    $recon_sections[] = [
+        'dept_name' => $rd['name'],
+        'dept_type' => $rd['type'],
+        'outlet_id' => $outlet_id,
+        'outlet_name' => $rd['outlet_name'],
+        'products' => $stock_products,
+        'stock_sales_total' => $stock_sales_total,
+        'stock_sold_qty' => $stock_sold_qty,
+        'outlet_sales' => $outlet_sales,
+        'declared_total' => $declared_total,
+        'actual_total' => $actual_total,
+        'variance' => $variance,
+        'status' => $recon_status,
+    ];
+    
+    $recon_grand_stock_sales += $stock_sales_total;
+    $recon_grand_declared += $declared_total;
+}
+$recon_grand_variance = $recon_grand_declared - $recon_grand_stock_sales;
+
 // ---- 3. Stock Valuation (Full - Main Store + All Departments) ----
 $valuation_date = $date_to;
 
@@ -298,6 +402,11 @@ $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
             .printable-summary .grid.grid-cols-4 {
                 display: grid !important;
                 grid-template-columns: repeat(4, 1fr) !important;
+                gap: 8px !important;
+            }
+            .printable-summary .grid.grid-cols-3 {
+                display: grid !important;
+                grid-template-columns: repeat(3, 1fr) !important;
                 gap: 8px !important;
             }
             main { margin: 0 !important; padding: 0 !important; overflow: visible !important; height: auto !important; }
@@ -739,9 +848,179 @@ $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
         </div>
     </div>
     <?php endif; ?>
-</div><!-- SECTION 5 - STOCK VALUATION REPORT (All Departments & Store) -->
+</div>
+<!-- SECTION 5 - STOCK COUNT RECONCILIATION -->
+<div x-show="showStockRecon">
+    <div class="flex items-center justify-between mb-4">
+        <p class="text-[11px] font-black text-slate-400 uppercase tracking-widest">Section 5 - Stock Count Reconciliation</p>
+        <label class="flex items-center gap-2 no-print cursor-pointer">
+            <input type="checkbox" x-model="showStockRecon" checked class="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500">
+            <span class="text-[9px] font-bold text-slate-400 uppercase">Show in Report</span>
+        </label>
+    </div>
+
+    <!-- Grand Summary Cards -->
+    <div class="grid grid-cols-4 gap-3 mb-5">
+        <div class="p-3 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100/50 relative overflow-hidden">
+            <p class="text-lg font-black text-emerald-700"><?php echo format_currency($recon_grand_stock_sales); ?></p>
+            <p class="text-[9px] font-bold text-emerald-400 uppercase mt-1">Stock Count Sales</p>
+            <div class="absolute -right-2 -bottom-2 w-10 h-10 rounded-full bg-emerald-200 opacity-30"></div>
+        </div>
+        <div class="p-3 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-blue-100/50 relative overflow-hidden">
+            <p class="text-lg font-black text-blue-700"><?php echo format_currency($recon_grand_declared); ?></p>
+            <p class="text-[9px] font-bold text-blue-400 uppercase mt-1">System Sales (Audit)</p>
+            <div class="absolute -right-2 -bottom-2 w-10 h-10 rounded-full bg-blue-200 opacity-30"></div>
+        </div>
+        <div class="p-3 rounded-xl border <?php echo $recon_grand_variance == 0 ? 'border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100/50' : ($recon_grand_variance > 0 ? 'border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100/50' : 'border-red-200 bg-gradient-to-br from-red-50 to-red-100/50'); ?> relative overflow-hidden">
+            <p class="text-lg font-black <?php echo $recon_grand_variance == 0 ? 'text-slate-700' : ($recon_grand_variance > 0 ? 'text-amber-700' : 'text-red-700'); ?>"><?php echo ($recon_grand_variance > 0 ? '+' : '') . format_currency($recon_grand_variance); ?></p>
+            <p class="text-[9px] font-bold <?php echo $recon_grand_variance == 0 ? 'text-slate-400' : ($recon_grand_variance > 0 ? 'text-amber-400' : 'text-red-400'); ?> uppercase mt-1">Grand Variance</p>
+            <div class="absolute -right-2 -bottom-2 w-10 h-10 rounded-full <?php echo $recon_grand_variance > 0 ? 'bg-amber-200' : 'bg-red-200'; ?> opacity-30"></div>
+        </div>
+        <div class="p-3 rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50 to-purple-100/50 relative overflow-hidden">
+            <p class="text-lg font-black text-purple-700"><?php echo count($recon_sections); ?></p>
+            <p class="text-[9px] font-bold text-purple-400 uppercase mt-1">Departments</p>
+            <div class="absolute -right-2 -bottom-2 w-10 h-10 rounded-full bg-purple-200 opacity-30"></div>
+        </div>
+    </div>
+
+    <!-- Per-Department Reconciliation Cards -->
+    <?php foreach ($recon_sections as $rs): 
+        $status_config = [
+            'matched'    => ['bg' => 'bg-emerald-100', 'text' => 'text-emerald-700', 'label' => 'MATCHED', 'icon' => '✓'],
+            'variance'   => ['bg' => 'bg-amber-100', 'text' => 'text-amber-700', 'label' => 'VARIANCE', 'icon' => '⚠'],
+            'not_linked' => ['bg' => 'bg-slate-100', 'text' => 'text-slate-500', 'label' => 'NOT LINKED', 'icon' => '⊘'],
+            'no_audit'   => ['bg' => 'bg-red-100', 'text' => 'text-red-600', 'label' => 'NO AUDIT', 'icon' => '✗'],
+            'no_count'   => ['bg' => 'bg-slate-100', 'text' => 'text-slate-500', 'label' => 'NO COUNT', 'icon' => '—'],
+        ];
+        $sc = $status_config[$rs['status']] ?? $status_config['no_count'];
+        $dept_colors = [
+            'bar' => ['border' => 'border-indigo-200', 'header_bg' => 'bg-indigo-50', 'text' => 'text-indigo-700', 'dot' => 'bg-indigo-500'],
+            'kitchen' => ['border' => 'border-amber-200', 'header_bg' => 'bg-amber-50', 'text' => 'text-amber-700', 'dot' => 'bg-amber-500'],
+            'restaurant' => ['border' => 'border-rose-200', 'header_bg' => 'bg-rose-50', 'text' => 'text-rose-700', 'dot' => 'bg-rose-500'],
+        ];
+        $dc = $dept_colors[$rs['dept_type']] ?? ['border' => 'border-purple-200', 'header_bg' => 'bg-purple-50', 'text' => 'text-purple-700', 'dot' => 'bg-purple-500'];
+    ?>
+    <div class="mb-4 border <?php echo $dc['border']; ?> rounded-xl overflow-hidden">
+        <!-- Department Header -->
+        <div class="<?php echo $dc['header_bg']; ?> px-4 py-2.5 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full <?php echo $dc['dot']; ?>"></span>
+                <span class="text-[10px] font-black <?php echo $dc['text']; ?> uppercase tracking-widest"><?php echo htmlspecialchars($rs['dept_name']); ?></span>
+                <?php if ($rs['outlet_id']): ?>
+                <span class="text-[9px] font-semibold text-slate-400">→ <?php echo htmlspecialchars($rs['outlet_name']); ?></span>
+                <?php else: ?>
+                <span class="text-[9px] font-bold text-red-400 bg-red-50 px-1.5 py-0.5 rounded">⊘ No outlet linked</span>
+                <?php endif; ?>
+            </div>
+            <span class="<?php echo $sc['bg']; ?> <?php echo $sc['text']; ?> text-[9px] font-black px-2.5 py-1 rounded-full"><?php echo $sc['icon']; ?> <?php echo $sc['label']; ?></span>
+        </div>
+
+        <!-- Summary Row -->
+        <div class="grid grid-cols-3 gap-3 px-4 py-3 bg-white border-b border-slate-100">
+            <div class="text-center">
+                <p class="text-[9px] font-bold text-slate-400 uppercase">Stock Count Sales</p>
+                <p class="text-sm font-black text-emerald-700"><?php echo format_currency($rs['stock_sales_total']); ?></p>
+                <p class="text-[8px] text-slate-400"><?php echo $rs['stock_sold_qty']; ?> items sold</p>
+            </div>
+            <div class="text-center">
+                <p class="text-[9px] font-bold text-slate-400 uppercase">System Sales</p>
+                <p class="text-sm font-black text-blue-700"><?php echo $rs['outlet_id'] ? format_currency($rs['declared_total']) : '—'; ?></p>
+                <p class="text-[8px] text-slate-400"><?php echo $rs['outlet_id'] ? count($rs['outlet_sales']).' txn(s)' : 'Not linked'; ?></p>
+            </div>
+            <div class="text-center">
+                <p class="text-[9px] font-bold text-slate-400 uppercase">Variance</p>
+                <p class="text-sm font-black <?php echo $rs['variance'] == 0 ? 'text-slate-600' : ($rs['variance'] > 0 ? 'text-amber-700' : 'text-red-700'); ?>">
+                    <?php echo $rs['outlet_id'] ? (($rs['variance'] > 0 ? '+' : '') . format_currency($rs['variance'])) : '—'; ?>
+                </p>
+                <p class="text-[8px] text-slate-400"><?php echo $rs['outlet_id'] ? ($rs['variance'] == 0 ? 'Balanced' : ($rs['variance'] > 0 ? 'System higher' : 'Stock count higher')) : 'N/A'; ?></p>
+            </div>
+        </div>
+
+        <?php if (!empty($rs['products'])): ?>
+        <!-- Per-Product Table -->
+        <table class="w-full text-[9px] text-left border-collapse">
+            <thead>
+                <tr class="bg-slate-50 border-b border-slate-200">
+                    <th class="px-3 py-1.5 font-black text-slate-500 uppercase">#</th>
+                    <th class="px-3 py-1.5 font-black text-slate-500 uppercase">Product</th>
+                    <th class="px-3 py-1.5 text-center font-black text-blue-500 uppercase">Sys Total</th>
+                    <th class="px-3 py-1.5 text-center font-black text-amber-500 uppercase">Adj</th>
+                    <th class="px-3 py-1.5 text-center font-black text-emerald-500 uppercase">Physical</th>
+                    <th class="px-3 py-1.5 text-center font-black text-purple-500 uppercase">Sold</th>
+                    <th class="px-3 py-1.5 text-right font-black text-slate-500 uppercase">Price</th>
+                    <th class="px-3 py-1.5 text-right font-black text-emerald-600 uppercase">Sales Val</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($rs['products'] as $pi => $p): ?>
+                <tr class="border-b border-slate-100 hover:bg-slate-50/40">
+                    <td class="px-3 py-1.5 text-slate-400"><?php echo $pi+1; ?></td>
+                    <td class="px-3 py-1.5 font-semibold text-slate-700"><?php echo htmlspecialchars($p['name']); ?></td>
+                    <td class="px-3 py-1.5 text-center font-bold text-blue-600"><?php echo $p['system_total']; ?></td>
+                    <td class="px-3 py-1.5 text-center font-bold <?php echo $p['adj'] > 0 ? 'text-emerald-600' : ($p['adj'] < 0 ? 'text-red-600' : 'text-slate-400'); ?>">
+                        <?php echo $p['adj'] != 0 ? ($p['adj'] > 0 ? '+'.$p['adj'] : $p['adj']) : '—'; ?>
+                    </td>
+                    <td class="px-3 py-1.5 text-center font-bold text-emerald-600"><?php echo $p['physical']; ?></td>
+                    <td class="px-3 py-1.5 text-center font-bold text-purple-600"><?php echo $p['qty_sold']; ?></td>
+                    <td class="px-3 py-1.5 text-right text-slate-500"><?php echo format_currency($p['price']); ?></td>
+                    <td class="px-3 py-1.5 text-right font-bold text-emerald-600"><?php echo format_currency($p['sales_value']); ?></td>
+                </tr>
+                <?php endforeach; ?>
+                <tr class="border-t-2 border-slate-200 bg-slate-50 font-black">
+                    <td colspan="5" class="px-3 py-2 text-right text-slate-500 uppercase">Totals</td>
+                    <td class="px-3 py-2 text-center text-purple-600"><?php echo $rs['stock_sold_qty']; ?></td>
+                    <td class="px-3 py-2"></td>
+                    <td class="px-3 py-2 text-right text-emerald-600"><?php echo format_currency($rs['stock_sales_total']); ?></td>
+                </tr>
+            </tbody>
+        </table>
+        <?php endif; ?>
+
+        <?php if (!empty($rs['outlet_sales'])): ?>
+        <!-- Daily Audit Breakdown -->
+        <div class="px-3 py-1.5 bg-blue-50/50 border-t border-blue-100">
+            <p class="text-[8px] font-black text-blue-500 uppercase tracking-widest">Daily Audit — <?php echo htmlspecialchars($rs['outlet_name']); ?></p>
+        </div>
+        <table class="w-full text-[9px] text-left border-collapse">
+            <thead>
+                <tr class="bg-blue-50/30 border-b border-blue-100">
+                    <th class="px-3 py-1.5 font-black text-blue-500 uppercase">Shift</th>
+                    <th class="px-3 py-1.5 text-right font-black text-blue-500 uppercase">POS</th>
+                    <th class="px-3 py-1.5 text-right font-black text-emerald-500 uppercase">Cash</th>
+                    <th class="px-3 py-1.5 text-right font-black text-purple-500 uppercase">Transfer</th>
+                    <th class="px-3 py-1.5 text-right font-black text-amber-500 uppercase">Declared</th>
+                    <th class="px-3 py-1.5 text-right font-black text-slate-700 uppercase">System Sales</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($rs['outlet_sales'] as $os): ?>
+                <tr class="border-b border-slate-100">
+                    <td class="px-3 py-1.5 font-semibold text-slate-600"><?php echo ucwords(str_replace('_',' ',$os['shift'])); ?></td>
+                    <td class="px-3 py-1.5 text-right font-semibold text-blue-600"><?php echo format_currency($os['pos_amount']); ?></td>
+                    <td class="px-3 py-1.5 text-right font-semibold text-emerald-600"><?php echo format_currency($os['cash_amount']); ?></td>
+                    <td class="px-3 py-1.5 text-right font-semibold text-purple-600"><?php echo format_currency($os['transfer_amount']); ?></td>
+                    <td class="px-3 py-1.5 text-right font-bold text-amber-600"><?php echo format_currency($os['actual_total']); ?></td>
+                    <td class="px-3 py-1.5 text-right font-black text-slate-800"><?php echo format_currency($os['declared_total']); ?></td>
+                </tr>
+                <?php endforeach; ?>
+                <tr class="border-t-2 border-blue-200 bg-blue-50/50 font-black">
+                    <td class="px-3 py-2 text-slate-500 uppercase">Total</td>
+                    <td class="px-3 py-2 text-right text-blue-600"><?php echo format_currency(array_sum(array_column($rs['outlet_sales'], 'pos_amount'))); ?></td>
+                    <td class="px-3 py-2 text-right text-emerald-600"><?php echo format_currency(array_sum(array_column($rs['outlet_sales'], 'cash_amount'))); ?></td>
+                    <td class="px-3 py-2 text-right text-purple-600"><?php echo format_currency(array_sum(array_column($rs['outlet_sales'], 'transfer_amount'))); ?></td>
+                    <td class="px-3 py-2 text-right text-amber-600"><?php echo format_currency($rs['actual_total']); ?></td>
+                    <td class="px-3 py-2 text-right text-slate-800"><?php echo format_currency($rs['declared_total']); ?></td>
+                </tr>
+            </tbody>
+        </table>
+        <?php endif; ?>
+    </div>
+    <?php endforeach; ?>
+</div>
+
+<!-- SECTION 6 - STOCK VALUATION REPORT (All Departments & Store) -->
 <div>
-    <p class="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Section 5 - Stock Valuation Report
+    <p class="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Section 6 - Stock Valuation Report
     </p>
 
     <!-- KPI Summary -->
@@ -1270,6 +1549,7 @@ $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
     function reportApp() {
         return {
             currentTab: 'recon',
+            showStockRecon: true,
             tabs: [
                 { id: 'recon', label: 'Sales Reconciliation', icon: 'scale' },
                 { id: 'stock', label: 'Stock Count', icon: 'clipboard-list' },

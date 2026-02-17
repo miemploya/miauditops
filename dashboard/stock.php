@@ -12,6 +12,14 @@ $company_id = $_SESSION['company_id'];
 $client_id  = get_active_client();
 $page_title = 'Stock Audit';
 
+// Auto-migration: parent_department_id for sub-department hierarchy
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM stock_departments LIKE 'parent_department_id'")->fetchAll();
+    if (empty($cols)) {
+        $pdo->exec("ALTER TABLE stock_departments ADD COLUMN parent_department_id INT DEFAULT NULL AFTER description");
+    }
+} catch (Exception $e) { error_log('Sub-dept migration: ' . $e->getMessage()); }
+
 // Summary KPIs
 $stmt = $pdo->prepare("SELECT COUNT(*) as total, COALESCE(SUM(current_stock * unit_cost),0) as value FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL");
 $stmt->execute([$company_id, $client_id]);
@@ -22,7 +30,7 @@ $stmt->execute([$company_id, $client_id]);
 $low_stock = $stmt->fetch()['cnt'];
 
 // Departments
-$stmt = $pdo->prepare("SELECT sd.*, co.name as outlet_name, u.first_name, u.last_name FROM stock_departments sd LEFT JOIN client_outlets co ON sd.outlet_id = co.id LEFT JOIN users u ON sd.created_by = u.id WHERE sd.company_id = ? AND sd.client_id = ? AND sd.deleted_at IS NULL ORDER BY sd.name");
+$stmt = $pdo->prepare("SELECT sd.*, sd.parent_department_id, co.name as outlet_name, u.first_name, u.last_name FROM stock_departments sd LEFT JOIN client_outlets co ON sd.outlet_id = co.id LEFT JOIN users u ON sd.created_by = u.id WHERE sd.company_id = ? AND sd.client_id = ? AND sd.deleted_at IS NULL ORDER BY sd.name");
 $stmt->execute([$company_id, $client_id]);
 $departments = $stmt->fetchAll();
 
@@ -44,18 +52,7 @@ if (empty($client_outlets)) {
 }
 
 $js_all_departments = json_encode($departments, JSON_HEX_TAG | JSON_HEX_APOS);
-// Separate kitchen from regular departments
-$kitchen = null;
-$regular_departments = [];
-foreach ($departments as $d) {
-    if (($d['type'] ?? '') === 'kitchen') {
-        $kitchen = $d;
-    } else {
-        $regular_departments[] = $d;
-    }
-}
-$js_departments = json_encode($regular_departments, JSON_HEX_TAG | JSON_HEX_APOS);
-$js_kitchen = json_encode($kitchen, JSON_HEX_TAG | JSON_HEX_APOS);
+$js_departments = $js_all_departments; // Alpine.js form uses this
 $js_outlets = json_encode($client_outlets, JSON_HEX_TAG | JSON_HEX_APOS);
 
 // Product categories
@@ -148,73 +145,97 @@ $js_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
                 </a>
-
-                <!-- Kitchen Card (shown only if a Kitchen exists) -->
-                <?php if ($kitchen): ?>
-                <a href="department_store.php?dept_id=<?= $kitchen['id'] ?>" class="block glass-card rounded-2xl border border-amber-200/60 dark:border-amber-700/40 shadow-lg hover:shadow-xl hover:scale-[1.005] transition-all overflow-hidden group cursor-pointer mt-3">
-                    <div class="flex items-center gap-5 p-6">
-                        <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/30 group-hover:shadow-amber-500/50 transition-all">
-                            <i data-lucide="chef-hat" class="w-7 h-7 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <h3 class="text-lg font-black text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors">Kitchen</h3>
-                            <p class="text-sm text-slate-500 mt-0.5">Food preparation — Receives raw materials from Main Store, supplies finished goods to Restaurant outlets</p>
-                            <div class="flex items-center gap-4 mt-2">
-                                <span class="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[10px] font-bold">🍳 Shared Kitchen</span>
-                                <span class="text-xs text-slate-400">Serves all Restaurant departments</span>
-                            </div>
-                        </div>
-                        <div class="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center group-hover:bg-amber-100 dark:group-hover:bg-amber-900/40 transition-all">
-                            <i data-lucide="arrow-right" class="w-5 h-5 text-amber-600"></i>
-                        </div>
-                    </div>
-                </a>
-                <?php endif; ?>
             </div>
 
-            <!-- Departments Section -->
+            <!-- ALL Departments Section (unified) -->
             <div>
                 <div class="flex items-center justify-between mb-3">
                     <h2 class="text-xs font-bold uppercase text-slate-400 tracking-wider">Departments</h2>
-                    <p class="text-xs text-slate-500">Departments are linked to sales outlets for audit reconciliation</p>
+                    <p class="text-xs text-slate-500">Sales & production departments linked to outlets</p>
                 </div>
 
-                <!-- Department Cards Grid -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <template x-for="d in departments" :key="d.id">
-                        <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-md hover:shadow-lg transition-all overflow-hidden">
-                            <a :href="'department_store.php?dept_id=' + d.id" class="block p-5 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                                <div class="flex items-start justify-between mb-3">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-md">
-                                            <i data-lucide="building-2" class="w-4.5 h-4.5 text-white"></i>
-                                        </div>
-                                        <div>
-                                            <h3 class="font-bold text-slate-900 dark:text-white text-sm" x-text="d.name"></h3>
-                                            <p class="text-[10px] text-slate-500" x-text="'Created by ' + (d.first_name||'') + ' ' + (d.last_name||'')"></p>
+                <?php
+                // Build a lookup for parent names
+                $dept_name_map = [];
+                foreach ($departments as $_d) { $dept_name_map[$_d['id']] = $_d['name']; }
+
+                // Separate: parents first (no parent_department_id), then sub-departments
+                $parent_depts = [];
+                $child_depts = [];
+                foreach ($departments as $d) {
+                    if (!empty($d['parent_department_id']) && isset($dept_name_map[$d['parent_department_id']])) {
+                        $child_depts[$d['parent_department_id']][] = $d;
+                    } else {
+                        $parent_depts[] = $d;
+                    }
+                }
+
+                // Type config: icon, gradient, badge, label
+                $type_config = [
+                    'standard' => ['icon' => 'building-2', 'from' => 'violet-500', 'to' => 'purple-600', 'shadow' => 'violet', 'badge_bg' => 'violet', 'emoji' => '🏬', 'label' => 'Department', 'desc' => 'Sales department linked to an outlet'],
+                    'kitchen'  => ['icon' => 'chef-hat',   'from' => 'amber-500',  'to' => 'orange-600', 'shadow' => 'amber',  'badge_bg' => 'amber',  'emoji' => '🍳', 'label' => 'Kitchen',    'desc' => 'Food prep — receives ingredients, supplies finished goods'],
+                    'shisha'   => ['icon' => 'wind',       'from' => 'teal-500',   'to' => 'cyan-600',   'shadow' => 'teal',   'badge_bg' => 'teal',   'emoji' => '🌬️', 'label' => 'Shisha',     'desc' => 'Tracks flavors, charcoal & accessories via recipes'],
+                    'cocktail' => ['icon' => 'wine',       'from' => 'pink-500',   'to' => 'rose-600',   'shadow' => 'pink',   'badge_bg' => 'pink',   'emoji' => '🍹', 'label' => 'Cocktail',   'desc' => 'Tracks spirits, mixers & garnishes via recipes'],
+                ];
+
+                // Render function
+                function render_dept_card($dept, $type_config, $dept_name_map, $child_depts, $is_child = false) {
+                    $type = $dept['type'] ?? 'standard';
+                    $tc = $type_config[$type] ?? $type_config['standard'];
+                    $id = $dept['id'];
+                    $name = htmlspecialchars($dept['name']);
+                    $safe_name = addslashes(htmlspecialchars($dept['name']));
+                    $children = $child_depts[$id] ?? [];
+                    ?>
+                    <div class="<?= $is_child ? 'ml-8 border-l-2 border-slate-200 dark:border-slate-700 pl-4' : '' ?>">
+                        <div class="glass-card rounded-2xl border border-<?= $tc['badge_bg'] ?>-200/60 dark:border-<?= $tc['badge_bg'] ?>-700/40 shadow-md hover:shadow-lg transition-all overflow-hidden group <?= $is_child ? 'mt-2' : '' ?>">
+                            <div class="flex items-center gap-4 p-5">
+                                <a href="department_store.php?dept_id=<?= $id ?>" class="flex items-center gap-4 flex-1 cursor-pointer">
+                                    <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-<?= $tc['from'] ?> to-<?= $tc['to'] ?> flex items-center justify-center shadow-md shadow-<?= $tc['shadow'] ?>-500/20">
+                                        <i data-lucide="<?= $tc['icon'] ?>" class="w-5 h-5 text-white"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="font-bold text-slate-900 dark:text-white text-sm truncate"><?= $name ?></h3>
+                                        <p class="text-[10px] text-slate-400 mt-0.5"><?= $tc['desc'] ?></p>
+                                        <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+                                            <span class="px-2 py-0.5 rounded-full bg-<?= $tc['badge_bg'] ?>-100 dark:bg-<?= $tc['badge_bg'] ?>-900/30 text-<?= $tc['badge_bg'] ?>-700 dark:text-<?= $tc['badge_bg'] ?>-300 text-[10px] font-bold"><?= $tc['emoji'] ?> <?= $tc['label'] ?></span>
+                                            <?php if (!empty($dept['outlet_name'])): ?>
+                                                <span class="inline-flex items-center gap-1 text-[10px] text-slate-400"><i data-lucide="map-pin" class="w-3 h-3"></i> <?= htmlspecialchars($dept['outlet_name']) ?></span>
+                                            <?php endif; ?>
+                                            <?php if (!empty($dept['parent_department_id']) && isset($dept_name_map[$dept['parent_department_id']])): ?>
+                                                <span class="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 text-[10px] font-bold">↳ under <?= htmlspecialchars($dept_name_map[$dept['parent_department_id']]) ?></span>
+                                            <?php endif; ?>
+                                            <?php if (!empty($children)): ?>
+                                                <span class="px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 text-[10px] font-bold"><?= count($children) ?> sub-dept<?= count($children) > 1 ? 's' : '' ?></span>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
-                                    <button @click.prevent="deleteDepartment(d.id, d.name)" class="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/20 flex items-center justify-center transition-all">
+                                </a>
+                                <div class="flex gap-1.5">
+                                    <button onclick="stockOverviewApp.renameKitchen(<?= $id ?>, '<?= $safe_name ?>')" class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center hover:bg-blue-100 transition-all" title="Rename">
+                                        <i data-lucide="pencil" class="w-3.5 h-3.5 text-blue-600"></i>
+                                    </button>
+                                    <button onclick="stockOverviewApp.deleteKitchen(<?= $id ?>, '<?= $safe_name ?>')" class="w-8 h-8 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center hover:bg-red-100 transition-all" title="Delete">
                                         <i data-lucide="trash-2" class="w-3.5 h-3.5 text-red-500"></i>
                                     </button>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <i data-lucide="map-pin" class="w-3 h-3 text-indigo-500"></i>
-                                    <span class="px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 text-xs font-semibold" x-text="d.outlet_name || 'Not linked'"></span>
-                                </div>
-                                <template x-if="d.description">
-                                    <p class="text-xs text-slate-500 mt-2 line-clamp-2" x-text="d.description"></p>
-                                </template>
-                                <div class="mt-3 flex items-center gap-1.5 text-[10px] font-semibold text-violet-600">
-                                    <span>View Inventory</span>
-                                    <i data-lucide="arrow-right" class="w-3 h-3"></i>
-                                </div>
-                            </a>
+                            </div>
                         </div>
-                    </template>
+                        <?php
+                        // Render children indented
+                        if (!empty($children)) {
+                            foreach ($children as $child) {
+                                render_dept_card($child, $type_config, $dept_name_map, $child_depts, true);
+                            }
+                        }
+                        ?>
+                    </div>
+                    <?php
+                }
+                ?>
 
-                    <!-- Empty State -->
-                    <div x-show="departments.length === 0" class="col-span-full">
+                <div class="space-y-3">
+                    <?php if (empty($parent_depts)): ?>
                         <div class="glass-card rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-12 text-center">
                             <div class="w-16 h-16 rounded-2xl bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center mx-auto mb-4">
                                 <i data-lucide="building-2" class="w-7 h-7 text-violet-400"></i>
@@ -223,7 +244,11 @@ $js_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HEX_APOS);
                             <p class="text-sm text-slate-500 mb-4">Create departments to manage inventory at different locations linked to your sales outlets.</p>
                             <button @click="showDeptModal = true" class="px-4 py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white font-bold rounded-xl text-sm hover:scale-105 transition-all">+ Add Department</button>
                         </div>
-                    </div>
+                    <?php else: ?>
+                        <?php foreach ($parent_depts as $pd): ?>
+                            <?php render_dept_card($pd, $type_config, $dept_name_map, $child_depts); ?>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -242,19 +267,88 @@ $js_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HEX_APOS);
                             <button @click="showDeptModal = false" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-200 transition-all"><i data-lucide="x" class="w-4 h-4 text-slate-500"></i></button>
                         </div>
                     </div>
-                    <form @submit.prevent="createDepartment()" class="p-6 space-y-4">
-                        <div><label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Department Name *</label><input type="text" x-model="deptForm.name" required placeholder="e.g. Kitchen, Bar, Shop Floor" class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all"></div>
-                        <div><label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Linked Sales Outlet *</label>
-                            <select x-model="deptForm.outlet_id" required class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
-                                <option value="">Select an outlet...</option>
-                                <template x-for="o in outlets" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
-                            </select>
-                            <p class="text-[10px] text-slate-400 mt-1.5">Linking to an outlet enables audit reconciliation: department stock count vs outlet sales</p>
+                    <form @submit.prevent="createDepartment()" class="p-4 space-y-3">
+                        <!-- Department Type Selector -->
+                        <div>
+                            <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Department Type *</label>
+                            <div class="grid grid-cols-4 gap-1.5">
+                                <button type="button" @click="deptForm.type = 'standard'"
+                                    :class="deptForm.type === 'standard' ? 'ring-2 ring-violet-500 border-violet-400 bg-violet-50 dark:bg-violet-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
+                                    class="flex flex-col items-center gap-0.5 px-2 py-1.5 border rounded-lg text-center transition-all">
+                                    <span class="text-base">🏬</span>
+                                    <div class="text-[10px] font-bold text-slate-700 dark:text-slate-200">Standard</div>
+                                </button>
+                                <button type="button" @click="deptForm.type = 'kitchen'"
+                                    :class="deptForm.type === 'kitchen' ? 'ring-2 ring-amber-500 border-amber-400 bg-amber-50 dark:bg-amber-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
+                                    class="flex flex-col items-center gap-0.5 px-2 py-1.5 border rounded-lg text-center transition-all">
+                                    <span class="text-base">🍳</span>
+                                    <div class="text-[10px] font-bold text-slate-700 dark:text-slate-200">Kitchen</div>
+                                </button>
+                                <button type="button" @click="deptForm.type = 'shisha'"
+                                    :class="deptForm.type === 'shisha' ? 'ring-2 ring-teal-500 border-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
+                                    class="flex flex-col items-center gap-0.5 px-2 py-1.5 border rounded-lg text-center transition-all">
+                                    <span class="text-base">🌬️</span>
+                                    <div class="text-[10px] font-bold text-slate-700 dark:text-slate-200">Shisha</div>
+                                </button>
+                                <button type="button" @click="deptForm.type = 'cocktail'"
+                                    :class="deptForm.type === 'cocktail' ? 'ring-2 ring-pink-500 border-pink-400 bg-pink-50 dark:bg-pink-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
+                                    class="flex flex-col items-center gap-0.5 px-2 py-1.5 border rounded-lg text-center transition-all">
+                                    <span class="text-base">🍹</span>
+                                    <div class="text-[10px] font-bold text-slate-700 dark:text-slate-200">Cocktail</div>
+                                </button>
+                            </div>
                         </div>
-                        <div><label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Description</label><textarea x-model="deptForm.description" rows="2" placeholder="Optional notes about this department..." class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all resize-none"></textarea></div>
-                        <div class="flex gap-3 pt-2">
-                            <button type="button" @click="showDeptModal = false" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
-                            <button type="submit" class="flex-1 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 text-white font-bold rounded-xl shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-[1.02] transition-all text-sm">Create Department</button>
+
+                        <!-- Guided Suggestions (compact) -->
+                        <div class="rounded-lg border px-2.5 py-1.5 text-[10px] transition-all"
+                            :class="{
+                                'border-violet-200 bg-violet-50/50 text-violet-700': deptForm.type === 'standard',
+                                'border-amber-200 bg-amber-50/50 text-amber-700': deptForm.type === 'kitchen',
+                                'border-teal-200 bg-teal-50/50 text-teal-700': deptForm.type === 'shisha',
+                                'border-pink-200 bg-pink-50/50 text-pink-700': deptForm.type === 'cocktail'
+                            }">
+                            <template x-if="deptForm.type === 'standard'"><p>💡 e.g. Bar 1, VIP Bar, Shop Floor — regular sales department</p></template>
+                            <template x-if="deptForm.type === 'kitchen'"><p>💡 e.g. Main Kitchen — uses <strong>Recipe Builder</strong> for food cost tracking</p></template>
+                            <template x-if="deptForm.type === 'shisha'"><p>💡 e.g. Shisha Lounge — uses <strong>Recipe Builder</strong> for tobacco & accessories</p></template>
+                            <template x-if="deptForm.type === 'cocktail'"><p>💡 e.g. Cocktail Bar — uses <strong>Recipe Builder</strong> for spirits & mixers</p></template>
+                        </div>
+
+                        <!-- Name + Outlet on same row -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Department Name *</label>
+                                <input type="text" x-model="deptForm.name" required
+                                    :placeholder="deptForm.type === 'standard' ? 'e.g. Bar 1' : deptForm.type === 'kitchen' ? 'e.g. Main Kitchen' : deptForm.type === 'shisha' ? 'e.g. Shisha Lounge' : 'e.g. Cocktail Bar'"
+                                    class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
+                            </div>
+                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Linked Outlet *</label>
+                                <select x-model="deptForm.outlet_id" required class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
+                                    <option value="">Select outlet...</option>
+                                    <template x-for="o in outlets" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Parent Department (compact) -->
+                        <div>
+                            <label class="text-[11px] font-semibold mb-1 block text-slate-500">
+                                Parent Dept <span class="font-normal text-slate-400">(optional)</span>
+                            </label>
+                            <select x-model="deptForm.parent_department_id" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
+                                <option value="0">Standalone (independent)</option>
+                                <template x-for="pd in allDepartments.filter(d => d.type !== 'kitchen' || deptForm.type !== 'kitchen')" :key="'pd_'+pd.id">
+                                    <option :value="pd.id" x-text="'↳ under ' + pd.name"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Description (single-line) -->
+                        <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Description <span class="font-normal text-slate-400">(optional)</span></label>
+                            <input type="text" x-model="deptForm.description" placeholder="Optional notes..." class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
+                        </div>
+
+                        <div class="flex gap-3 pt-1">
+                            <button type="button" @click="showDeptModal = false" class="flex-1 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
+                            <button type="submit" class="flex-1 py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white font-bold rounded-xl shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-[1.02] transition-all text-sm">Create Department</button>
                         </div>
                     </form>
                 </div>
@@ -309,9 +403,10 @@ function stockOverview() {
         showDeptModal: false,
         showCatModal: false,
         departments: <?php echo $js_departments; ?>,
+        allDepartments: <?php echo $js_all_departments; ?>,
         outlets: <?php echo $js_outlets; ?>,
         productCategories: <?php echo $js_categories; ?>,
-        deptForm: { name:'', outlet_id:'', description:'' },
+        deptForm: { name:'', outlet_id:'', description:'', type:'standard', parent_department_id: 0 },
         catForm: { name:'' },
 
         async createDepartment() {
@@ -343,6 +438,24 @@ function stockOverview() {
             if (r.success) {
                 this.productCategories = this.productCategories.filter(c => c.id !== id);
             } else alert(r.message);
+        },
+        async renameKitchen(id, currentName) {
+            const newName = prompt('Rename kitchen:', currentName);
+            if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
+            const fd = new FormData();
+            fd.append('action', 'rename_department');
+            fd.append('id', id);
+            fd.append('name', newName.trim());
+            const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
+            if (r.success) location.reload(); else alert(r.message);
+        },
+        async deleteKitchen(id, name) {
+            if (!confirm('Delete kitchen "' + name + '"? This cannot be undone.')) return;
+            const fd = new FormData();
+            fd.append('action', 'delete_department');
+            fd.append('id', id);
+            const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
+            if (r.success) location.reload(); else alert(r.message);
         },
     }
 }

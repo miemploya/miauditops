@@ -51,6 +51,27 @@ try {
             log_audit($company_id, $user_id, 'category_created', 'finance', $cid, "New expense category: $name ($type)");
             echo json_encode(['success' => true, 'id' => $cid]);
             break;
+
+        case 'delete_category':
+            require_non_viewer();
+            $id = intval($_POST['id'] ?? 0);
+            if (!$id) { echo json_encode(['success' => false, 'message' => 'Invalid category ID']); break; }
+
+            // Check if in use
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM expense_entries WHERE category_id = ? AND deleted_at IS NULL");
+            $stmt->execute([$id]);
+            if ($stmt->fetchColumn() > 0) {
+                echo json_encode(['success' => false, 'message' => 'Cannot delete: Category has associated expense records.']);
+                break;
+            }
+
+            // Verify ownership and soft delete
+            $stmt = $pdo->prepare("UPDATE expense_categories SET deleted_at = NOW() WHERE id = ? AND company_id = ?");
+            $stmt->execute([$id, $company_id]);
+
+            log_audit($company_id, $user_id, 'category_deleted', 'finance', $id, "Deleted expense category ID: $id");
+            echo json_encode(['success' => true]);
+            break;
             
         case 'get_pnl':
             $month = intval($_GET['month'] ?? date('m'));

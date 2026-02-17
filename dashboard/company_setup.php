@@ -301,6 +301,7 @@ foreach ($clients as $c) {
                                     <option value="restaurant">Restaurant</option>
                                     <option value="front_desk">Front Desk</option>
                                     <option value="kitchen">Kitchen</option>
+                                    <option value="room_kitchen">Room Kitchen</option>
                                     <option value="store">Store</option>
                                     <option value="lounge">Lounge</option>
                                     <option value="pool">Pool</option>
@@ -308,6 +309,17 @@ foreach ($clients as $c) {
                                     <option value="gym">Gym</option>
                                     <option value="other">Other (Custom)</option>
                                 </select>
+                                <!-- Kitchen Count Selector (shown only for Restaurant) -->
+                                <div x-show="outletForm.type === 'restaurant'" x-transition class="mt-2">
+                                    <label class="text-[10px] font-bold uppercase text-amber-600 mb-1 block">🍳 Number of Kitchens</label>
+                                    <select x-model="outletForm.kitchen_count" class="w-full px-3 py-2.5 rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500">
+                                        <option value="0">0 — No Kitchen</option>
+                                        <option value="1" selected>1 — Single Kitchen</option>
+                                        <option value="2">2 — Two Kitchens</option>
+                                        <option value="3">3 — Three Kitchens</option>
+                                    </select>
+                                    <p class="text-[9px] text-amber-500 mt-1">Kitchen departments will be auto-created for this restaurant</p>
+                                </div>
                                 <div x-show="outletForm.type === 'other'" x-transition class="mt-2">
                                     <input type="text" x-model="outletForm.custom_type" class="w-full px-3 py-2.5 rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent" placeholder="Enter your custom type, e.g. Arcade, Poolside Bar">
                                 </div>
@@ -347,6 +359,7 @@ foreach ($clients as $c) {
                             'restaurant' => ['from-amber-500 to-orange-600', 'amber'],
                             'front_desk' => ['from-cyan-500 to-blue-600', 'cyan'],
                             'kitchen' => ['from-rose-500 to-red-600', 'rose'],
+                            'room_kitchen' => ['from-red-500 to-rose-600', 'red'],
                             'store' => ['from-emerald-500 to-green-600', 'emerald'],
                             'lounge' => ['from-fuchsia-500 to-pink-600', 'fuchsia'],
                             'pool' => ['from-sky-500 to-blue-600', 'sky'],
@@ -356,7 +369,7 @@ foreach ($clients as $c) {
                         ];
                         $outlet_icons = [
                             'reception' => 'bell', 'bar' => 'wine', 'restaurant' => 'utensils',
-                            'front_desk' => 'monitor', 'kitchen' => 'chef-hat', 'store' => 'shopping-bag',
+                            'front_desk' => 'monitor', 'kitchen' => 'chef-hat', 'room_kitchen' => 'chef-hat', 'store' => 'shopping-bag',
                             'lounge' => 'sofa', 'pool' => 'waves', 'spa' => 'sparkles',
                             'gym' => 'dumbbell', 'other' => 'box'
                         ];
@@ -504,7 +517,7 @@ function companySetup() {
         activeTab: (window.location.hash === '#outlets') ? 'outlets' : 'clients',
         saving: false,
         clientForm: { name: '', contact_person: '', email: '', phone: '', address: '', industry: '' },
-        outletForm: { name: '', type: 'reception', code: '', description: '', custom_type: '' },
+        outletForm: { name: '', type: 'reception', code: '', description: '', custom_type: '', kitchen_count: '1' },
 
         switchTab(tab) {
             this.activeTab = tab;
@@ -545,6 +558,10 @@ function companySetup() {
             fd.append('name', this.outletForm.name);
             fd.append('type', finalType);
             fd.append('code', this.outletForm.code);
+            // Send kitchen_count for restaurant outlets
+            if (finalType === 'restaurant') {
+                fd.append('kitchen_count', this.outletForm.kitchen_count);
+            }
             fd.append('description', this.outletForm.description);
             try {
                 const res = await fetch('../ajax/company_setup_api.php', { method: 'POST', body: fd });

@@ -39,16 +39,16 @@ try {
                 break;
             }
             
-            $stmt = $pdo->prepare("INSERT INTO sales_transactions (company_id, client_id, outlet_id, transaction_date, shift, pos_amount, cash_amount, transfer_amount, other_amount, actual_total, declared_total, notes, entered_by) VALUES (?,?,?,?,?,?,?,0,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $outlet_id, $date, $shift, $pos, $cash, $transfer, $actual, $declared, $notes, $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO sales_transactions (company_id, client_id, outlet_id, transaction_date, shift, pos_amount, cash_amount, transfer_amount, other_amount, declared_total, notes, entered_by) VALUES (?,?,?,?,?,?,?,?,0,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $outlet_id, $date, $shift, $pos, $cash, $transfer, $declared, $notes, $user_id]);
             $txn_id = $pdo->lastInsertId();
             
             // Auto-flag variance
             $variance = $actual - $declared;
             if (abs($variance) > 0.01) {
                 $severity = abs($variance) > 50000 ? 'critical' : (abs($variance) > 10000 ? 'major' : (abs($variance) > 1000 ? 'moderate' : 'minor'));
-                $stmt = $pdo->prepare("INSERT INTO variance_reports (company_id, client_id, report_date, category, expected_amount, actual_amount, variance_amount, severity, description, reference_type, reference_id) VALUES (?,?,?,?,?,?,?,?,'Auto-detected: sales transaction variance','sales_transaction',?)");
-                $stmt->execute([$company_id, $client_id, $date, 'sales', $declared, $actual, $variance, $severity, $txn_id]);
+                $stmt = $pdo->prepare("INSERT INTO variance_reports (company_id, client_id, report_date, category, expected_amount, actual_amount, severity, description, reference_type, reference_id) VALUES (?,?,?,?,?,?,?, 'Auto-detected: sales transaction variance','sales_transaction',?)");
+                $stmt->execute([$company_id, $client_id, $date, 'sales', $declared, $actual, $severity, $txn_id]);
             }
             
             log_audit($company_id, $user_id, 'sales_recorded', 'audit', $txn_id, "Sales ₦" . number_format($actual,2) . " (Var: ₦" . number_format($variance,2) . ")");
@@ -238,8 +238,8 @@ try {
                 break;
             }
 
-            $stmt = $pdo->prepare("UPDATE sales_transactions SET transaction_date = ?, shift = ?, outlet_id = ?, pos_amount = ?, cash_amount = ?, transfer_amount = ?, actual_total = ?, declared_total = ?, variance = ?, notes = ?, updated_at = NOW() WHERE id = ? AND company_id = ?");
-            $stmt->execute([$date, $shift, $outlet_id, $pos, $cash, $transfer, $actual, $declared, $variance, $notes, $id, $company_id]);
+            $stmt = $pdo->prepare("UPDATE sales_transactions SET transaction_date = ?, shift = ?, outlet_id = ?, pos_amount = ?, cash_amount = ?, transfer_amount = ?, declared_total = ?, notes = ?, updated_at = NOW() WHERE id = ? AND company_id = ?");
+            $stmt->execute([$date, $shift, $outlet_id, $pos, $cash, $transfer, $declared, $notes, $id, $company_id]);
 
             log_audit($company_id, $user_id, 'sales_updated', 'audit', $id, "Updated sales ₦" . number_format($actual, 2));
             echo json_encode(['success' => true]);

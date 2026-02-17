@@ -53,6 +53,21 @@ try {
         $pdo->exec("ALTER TABLE department_stock MODIFY stock_date DATE NOT NULL");
         $pdo->exec("UPDATE department_stock SET stock_date = CURDATE() WHERE stock_date IS NULL OR stock_date = '0000-00-00'");
     } catch (Exception $ignore) {}
+    // Add selling_unit + yield columns to products (shot conversion)
+    try { $pdo->exec("ALTER TABLE products ADD COLUMN selling_unit VARCHAR(30) DEFAULT NULL AFTER unit"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE products ADD COLUMN yield_per_unit INT DEFAULT 1 AFTER selling_unit"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE products ADD COLUMN selling_unit_price DECIMAL(15,2) DEFAULT 0.00 AFTER yield_per_unit"); } catch (Exception $ignore) {}
+    // Parent product link for derivative products (e.g., "Ciroc Shot" → parent = "Ciroc")
+    try { $pdo->exec("ALTER TABLE products ADD COLUMN parent_product_id INT DEFAULT NULL AFTER selling_unit_price"); } catch (Exception $ignore) {}
+
+    // Add selling_unit + yield columns to department_stock (per-department override)
+    try { $pdo->exec("ALTER TABLE department_stock ADD COLUMN selling_unit VARCHAR(30) DEFAULT NULL AFTER selling_price"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock ADD COLUMN yield_per_unit INT DEFAULT 1 AFTER selling_unit"); } catch (Exception $ignore) {}
+
+    // Adjustment columns for damage/write-off/error corrections
+    try { $pdo->exec("ALTER TABLE department_stock ADD COLUMN adjustment_add INT DEFAULT 0 AFTER qty_sold"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock ADD COLUMN adjustment_sub INT DEFAULT 0 AFTER adjustment_add"); } catch (Exception $ignore) {}
+
 } catch (Exception $e) { error_log('Stock migration: ' . $e->getMessage()); }
 
 // Ensure product_categories table exists
@@ -207,12 +222,17 @@ try {
             $price    = floatval($_POST['selling_price'] ?? 0);
             $stock    = intval($_POST['opening_stock'] ?? 0);
             $reorder  = intval($_POST['reorder_level'] ?? 10);
+            $selling_unit       = clean_input($_POST['selling_unit'] ?? '');
+            $yield_per_unit     = max(1, intval($_POST['yield_per_unit'] ?? 1));
+            $selling_unit_price = floatval($_POST['selling_unit_price'] ?? 0);
+            // If no selling unit specified, reset yield to 1 and shot price to 0
+            if (empty($selling_unit)) { $yield_per_unit = 1; $selling_unit_price = 0; }
             
-            $stmt = $pdo->prepare("INSERT INTO products (company_id, client_id, name, sku, category, unit, unit_cost, selling_price, current_stock, reorder_level) VALUES (?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $name, $sku, $category, $unit, $cost, $price, $stock, $reorder]);
+            $stmt = $pdo->prepare("INSERT INTO products (company_id, client_id, name, sku, category, unit, selling_unit, yield_per_unit, selling_unit_price, unit_cost, selling_price, current_stock, reorder_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $name, $sku, $category, $unit, $selling_unit ?: null, $yield_per_unit, $selling_unit_price, $cost, $price, $stock, $reorder]);
             $pid = $pdo->lastInsertId();
             
-            log_audit($company_id, $user_id, 'product_added', 'stock', $pid, "Product '$name' added with stock $stock");
+            log_audit($company_id, $user_id, 'product_added', 'stock', $pid, "Product '$name' added with stock $stock" . ($selling_unit ? ", sells as $yield_per_unit {$selling_unit}s" : ''));
             echo json_encode(['success' => true, 'id' => $pid]);
             break;
 
@@ -337,6 +357,7 @@ try {
             $product_id    = intval($_POST['product_id'] ?? 0);
             $qty           = intval($_POST['quantity'] ?? 0);
             $issue_date    = $_POST['issue_date'] ?? date('Y-m-d');
+            $transfer_mode = trim($_POST['transfer_mode'] ?? 'unit'); // 'unit' or 'selling_unit'
             
             if ($qty <= 0) {
                 echo json_encode(['success' => false, 'message' => 'Quantity must be greater than 0']);
@@ -352,31 +373,24 @@ try {
             $stmt->execute([$department_id, $company_id, $client_id]);
             $dept_row = $stmt->fetch();
             if (!$dept_row) {
-                echo json_encode(['success' => false, 'message' => 'The selected department does not exist or has been deleted. Please go to Stock Audit and create a department first.']);
+                echo json_encode(['success' => false, 'message' => 'The selected department does not exist or has been deleted.']);
                 break;
             }
             $dept_name = $dept_row['name'];
 
-            // Get product name for messages
-            $stmt = $pdo->prepare("SELECT name FROM products WHERE id = ? AND company_id = ? AND client_id = ?");
+            // Get product info
+            $stmt = $pdo->prepare("SELECT name, selling_unit, yield_per_unit, selling_unit_price, selling_price, category, sku, unit FROM products WHERE id = ? AND company_id = ? AND client_id = ?");
             $stmt->execute([$product_id, $company_id, $client_id]);
-            $prod_name = $stmt->fetchColumn() ?: 'Product#' . $product_id;
-
-            // Validate product is registered in destination department
-            $stmt = $pdo->prepare("SELECT id FROM department_stock WHERE department_id = ? AND product_id = ? AND company_id = ? AND client_id = ? LIMIT 1");
-            $stmt->execute([$department_id, $product_id, $company_id, $client_id]);
-            if (!$stmt->fetch()) {
-                echo json_encode([
-                    'success' => false,
-                    'message' => "Cannot issue stock: \"$prod_name\" has not been added to \"$dept_name\" yet.\n\nPlease go to $dept_name department and add this product first using the \"+ Add Product\" button, then retry.",
-                    'code' => 'DEST_PRODUCT_MISSING'
-                ]);
+            $prod_info = $stmt->fetch();
+            if (!$prod_info) {
+                echo json_encode(['success' => false, 'message' => 'Product not found']);
                 break;
             }
-            
+            $prod_name = $prod_info['name'];
+
             $pdo->beginTransaction();
             
-            // Check stock availability
+            // Check stock availability (in store units — always deduct from the parent product)
             $stmt = $pdo->prepare("SELECT current_stock FROM products WHERE id = ? AND company_id = ? AND client_id = ?");
             $stmt->execute([$product_id, $company_id, $client_id]);
             $current = $stmt->fetchColumn();
@@ -385,15 +399,83 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Insufficient stock (available: ' . ($current ?: 0) . ')']);
                 break;
             }
-            
-            // Insert or update department_stock record (upsert)
-            $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, added, stock_date) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE added = added + VALUES(added)");
-            $stmt->execute([$company_id, $client_id, $department_id, $product_id, $qty, $issue_date]);
-            
-            $pdo->commit();
-            
-            log_audit($company_id, $user_id, 'issue_to_department', 'stock', $product_id, "$qty units of $prod_name issued to $dept_name");
-            echo json_encode(['success' => true]);
+
+            if ($transfer_mode === 'selling_unit' && $prod_info['selling_unit']) {
+                // ===== SHOT/UNIT TRANSFER =====
+                // Convert: qty bottles → qty × yield shots
+                $yield = max(1, intval($prod_info['yield_per_unit'] ?? 1));
+                $selling_unit = $prod_info['selling_unit'];
+                $added_qty = $qty * $yield;
+                $unit_suffix = ucfirst($selling_unit); // "Shot", "Glass", "Tot"
+                $derivative_name = $prod_name . ' ' . $unit_suffix; // "Ciroc Shot"
+                
+                // Find or create the derivative product
+                $stmt = $pdo->prepare("SELECT id FROM products WHERE parent_product_id = ? AND name = ? AND company_id = ? AND client_id = ? AND deleted_at IS NULL LIMIT 1");
+                $stmt->execute([$product_id, $derivative_name, $company_id, $client_id]);
+                $deriv = $stmt->fetch();
+                
+                if ($deriv) {
+                    $target_product_id = $deriv['id'];
+                } else {
+                    // Auto-create derivative product
+                    $shot_price = floatval($prod_info['selling_unit_price'] ?? 0);
+                    $stmt = $pdo->prepare("INSERT INTO products (company_id, client_id, name, sku, category, unit, selling_price, selling_unit, yield_per_unit, selling_unit_price, parent_product_id, current_stock, reorder_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,0)");
+                    $stmt->execute([
+                        $company_id, $client_id, $derivative_name,
+                        ($prod_info['sku'] ? $prod_info['sku'] . '-' . strtoupper($selling_unit) : ''),
+                        $prod_info['category'], $selling_unit,
+                        $shot_price, $selling_unit, $yield, $shot_price, $product_id
+                    ]);
+                    $target_product_id = $pdo->lastInsertId();
+                }
+                
+                // Auto-register derivative in department (if not already)
+                $stmt = $pdo->prepare("SELECT id FROM department_stock WHERE department_id = ? AND product_id = ? AND company_id = ? AND client_id = ? LIMIT 1");
+                $stmt->execute([$department_id, $target_product_id, $company_id, $client_id]);
+                if (!$stmt->fetch()) {
+                    $shot_price = floatval($prod_info['selling_unit_price'] ?? $prod_info['selling_price'] ?? 0);
+                    $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, stock_date, opening_stock, selling_price, selling_unit, yield_per_unit, source) VALUES (?,?,?,?,?,0,?,?,?,?)");
+                    $stmt->execute([$company_id, $client_id, $department_id, $target_product_id, $issue_date, $shot_price, $selling_unit, $yield, 'main_store']);
+                }
+                
+                // Add converted qty to department stock (shots)
+                $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, added, stock_date) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE added = added + VALUES(added)");
+                $stmt->execute([$company_id, $client_id, $department_id, $target_product_id, $added_qty, $issue_date]);
+                
+                // ALSO record the bottle deduction against the PARENT product
+                // This ensures the main store's Dept Req column reflects the bottles that left
+                $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, added, stock_date) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE added = added + VALUES(added)");
+                $stmt->execute([$company_id, $client_id, $department_id, $product_id, $qty, $issue_date]);
+                
+                $pdo->commit();
+                
+                $issue_msg = "$qty {$prod_info['unit']}(s) of $prod_name issued to $dept_name as $added_qty {$unit_suffix}(s)";
+                log_audit($company_id, $user_id, 'issue_to_department', 'stock', $product_id, $issue_msg);
+                echo json_encode(['success' => true, 'added_qty' => $added_qty, 'yield' => $yield, 'selling_unit' => $selling_unit, 'derivative_name' => $derivative_name, 'message' => "$qty {$prod_info['unit']}(s) → $added_qty {$unit_suffix}(s) added to $dept_name"]);
+            } else {
+                // ===== STRAIGHT UNIT TRANSFER (bottle/pcs as-is) =====
+                $added_qty = $qty; // No multiplication
+                
+                // Validate product is registered in destination department
+                $stmt = $pdo->prepare("SELECT id FROM department_stock WHERE department_id = ? AND product_id = ? AND company_id = ? AND client_id = ? LIMIT 1");
+                $stmt->execute([$department_id, $product_id, $company_id, $client_id]);
+                $dept_product = $stmt->fetch();
+                if (!$dept_product) {
+                    // Auto-register the product in the department
+                    $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, stock_date, opening_stock, selling_price, source) VALUES (?,?,?,?,?,0,?,?)");
+                    $stmt->execute([$company_id, $client_id, $department_id, $product_id, $issue_date, floatval($prod_info['selling_price'] ?? 0), 'main_store']);
+                }
+                
+                // Add qty to department stock (straight units)
+                $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, added, stock_date) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE added = added + VALUES(added)");
+                $stmt->execute([$company_id, $client_id, $department_id, $product_id, $added_qty, $issue_date]);
+                
+                $pdo->commit();
+                
+                $issue_msg = "$qty unit(s) of $prod_name issued to $dept_name (as {$prod_info['unit']})";
+                log_audit($company_id, $user_id, 'issue_to_department', 'stock', $product_id, $issue_msg);
+                echo json_encode(['success' => true, 'added_qty' => $added_qty, 'yield' => 1, 'selling_unit' => $prod_info['unit']]);
+            }
             break;
 
         case 'add_dept_product':
@@ -594,7 +676,7 @@ try {
                 // Check availability for each ingredient
                 foreach ($recipe as $ing) {
                     $required = $quantity * $ing['qty_per_plate'];
-                    $stmt = $pdo->prepare("SELECT *, (COALESCE(opening_stock,0) + COALESCE(added,0) + COALESCE(return_in,0) - COALESCE(transfer_out,0) - COALESCE(transfer_to_main,0) - COALESCE(qty_sold,0)) as closing 
+                    $stmt = $pdo->prepare("SELECT *, (COALESCE(opening_stock,0) + COALESCE(added,0) + COALESCE(return_in,0) + COALESCE(adjustment_add,0) - COALESCE(transfer_out,0) - COALESCE(transfer_to_main,0) - COALESCE(qty_sold,0) - COALESCE(adjustment_sub,0)) as closing 
                         FROM department_stock WHERE department_id = ? AND product_id = ? AND stock_date = ? AND company_id = ? AND client_id = ?");
                     $stmt->execute([$kitchen_id, $ing['ingredient_product_id'], $stock_date, $company_id, $client_id]);
                     $stock_row = $stmt->fetch();
@@ -670,14 +752,18 @@ try {
             $unit_cost    = floatval($_POST['unit_cost'] ?? 0);
             $sell_price   = floatval($_POST['selling_price'] ?? 0);
             $reorder      = intval($_POST['reorder_level'] ?? 10);
+            $selling_unit       = clean_input($_POST['selling_unit'] ?? '');
+            $yield_per_unit     = max(1, intval($_POST['yield_per_unit'] ?? 1));
+            $selling_unit_price = floatval($_POST['selling_unit_price'] ?? 0);
+            if (empty($selling_unit)) { $yield_per_unit = 1; $selling_unit_price = 0; }
 
             if (!$prod_id || !$name) {
                 echo json_encode(['success' => false, 'message' => 'Product ID and name are required']);
                 break;
             }
 
-            $stmt = $pdo->prepare("UPDATE products SET name = ?, sku = ?, category = ?, unit = ?, unit_cost = ?, selling_price = ?, reorder_level = ? WHERE id = ? AND company_id = ? AND client_id = ?");
-            $stmt->execute([$name, $sku, $category, $unit, $unit_cost, $sell_price, $reorder, $prod_id, $company_id, $client_id]);
+            $stmt = $pdo->prepare("UPDATE products SET name = ?, sku = ?, category = ?, unit = ?, unit_cost = ?, selling_price = ?, reorder_level = ?, selling_unit = ?, yield_per_unit = ?, selling_unit_price = ? WHERE id = ? AND company_id = ? AND client_id = ?");
+            $stmt->execute([$name, $sku, $category, $unit, $unit_cost, $sell_price, $reorder, $selling_unit ?: null, $yield_per_unit, $selling_unit_price, $prod_id, $company_id, $client_id]);
 
             log_audit($company_id, $user_id, 'catalog_product_updated', 'stock', $prod_id, "Product updated: $name");
             echo json_encode(['success' => true]);
@@ -737,6 +823,7 @@ try {
             $product_id = intval($_POST['product_id'] ?? 0);
             $qty        = intval($_POST['quantity'] ?? 0);
             $type       = clean_input($_POST['type'] ?? 'adjustment_out');
+            $reason     = clean_input($_POST['reason'] ?? 'other');
             $notes      = clean_input($_POST['notes'] ?? '');
             
             if ($qty <= 0) {
@@ -746,13 +833,88 @@ try {
             
             $pdo->beginTransaction();
             
+            // Actually update the stock balance
+            if ($type === 'adjustment_in') {
+                $stmt = $pdo->prepare("UPDATE products SET current_stock = current_stock + ? WHERE id = ? AND company_id = ?");
+                $stmt->execute([$qty, $product_id, $company_id]);
+            } else {
+                // adjustment_out: subtract (but don't go below 0)
+                $stmt = $pdo->prepare("UPDATE products SET current_stock = GREATEST(current_stock - ?, 0) WHERE id = ? AND company_id = ?");
+                $stmt->execute([$qty, $product_id, $company_id]);
+            }
+            
             // Record the movement
+            $full_notes = $reason ? "[$reason] $notes" : $notes;
             $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $product_id, $type, $qty, 'manual_adjustment', $notes, $user_id]);
+            $stmt->execute([$company_id, $client_id, $product_id, $type, $qty, 'manual_adjustment', $full_notes, $user_id]);
             
             $pdo->commit();
-            log_audit($company_id, $user_id, 'stock_adjustment', 'stock', $product_id, "$type: $qty units - $notes");
+            log_audit($company_id, $user_id, 'stock_adjustment', 'stock', $product_id, "$type: $qty units ($reason) - $notes");
             echo json_encode(['success' => true]);
+            break;
+
+        case 'dept_stock_adjustment':
+            $department_id = intval($_POST['department_id'] ?? 0);
+            $product_id    = intval($_POST['product_id'] ?? 0);
+            $qty           = intval($_POST['quantity'] ?? 0);
+            $direction     = clean_input($_POST['direction'] ?? 'subtract'); // 'add' or 'subtract'
+            $reason        = clean_input($_POST['reason'] ?? 'damage');
+            $notes         = clean_input($_POST['notes'] ?? '');
+            $stock_date    = $_POST['stock_date'] ?? date('Y-m-d');
+            
+            if ($qty <= 0) {
+                echo json_encode(['success' => false, 'message' => 'Quantity must be greater than 0']);
+                break;
+            }
+            if ($department_id <= 0) {
+                echo json_encode(['success' => false, 'message' => 'Department is required']);
+                break;
+            }
+            
+            $pdo->beginTransaction();
+            
+            // Ensure today's department_stock row exists
+            $chk = $pdo->prepare("SELECT id FROM department_stock WHERE department_id = ? AND product_id = ? AND stock_date = ? AND company_id = ? AND client_id = ?");
+            $chk->execute([$department_id, $product_id, $stock_date, $company_id, $client_id]);
+            $ds_row = $chk->fetch();
+            
+            if (!$ds_row) {
+                // Create today's row with zero values (opening will be calculated from prior days)
+                $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, stock_date, opening_stock, added, return_in, transfer_out, transfer_to_main, qty_sold, adjustment_add, adjustment_sub) VALUES (?,?,?,?,?,0,0,0,0,0,0,0,0)");
+                $stmt->execute([$company_id, $client_id, $department_id, $product_id, $stock_date]);
+                $ds_id = $pdo->lastInsertId();
+            } else {
+                $ds_id = $ds_row['id'];
+            }
+            
+            // Update the adjustment column
+            if ($direction === 'add') {
+                $stmt = $pdo->prepare("UPDATE department_stock SET adjustment_add = COALESCE(adjustment_add, 0) + ? WHERE id = ?");
+                $stmt->execute([$qty, $ds_id]);
+                $mv_type = 'adjustment_in';
+            } else {
+                $stmt = $pdo->prepare("UPDATE department_stock SET adjustment_sub = COALESCE(adjustment_sub, 0) + ? WHERE id = ?");
+                $stmt->execute([$qty, $ds_id]);
+                $mv_type = 'adjustment_out';
+            }
+            
+            // Also update main store stock
+            if ($direction === 'add') {
+                $stmt = $pdo->prepare("UPDATE products SET current_stock = current_stock + ? WHERE id = ? AND company_id = ?");
+                $stmt->execute([$qty, $product_id, $company_id]);
+            } else {
+                $stmt = $pdo->prepare("UPDATE products SET current_stock = GREATEST(current_stock - ?, 0) WHERE id = ? AND company_id = ?");
+                $stmt->execute([$qty, $product_id, $company_id]);
+            }
+            
+            // Log movement
+            $full_notes = "[$reason] Dept adjustment: $notes";
+            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,?,?,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $product_id, $mv_type, $qty, 'dept_adjustment', $full_notes, $user_id]);
+            
+            $pdo->commit();
+            log_audit($company_id, $user_id, 'dept_stock_adjustment', 'department_stock', $ds_id, "$direction: $qty units ($reason) - $notes");
+            echo json_encode(['success' => true, 'adjustment_add' => $direction === 'add' ? $qty : 0, 'adjustment_sub' => $direction === 'subtract' ? $qty : 0]);
             break;
             
         case 'stock_out':
@@ -816,9 +978,15 @@ try {
             $name        = clean_input($_POST['name'] ?? '');
             $outlet_id   = intval($_POST['outlet_id'] ?? 0);
             $description = clean_input($_POST['description'] ?? '');
+            $type        = clean_input($_POST['type'] ?? 'standard');
+            $parent_id   = intval($_POST['parent_department_id'] ?? 0);
             
-            // Auto-append "Dept" if not already ending with it
-            if ($name && !preg_match('/\bDept$/i', trim($name))) {
+            // Validate type
+            $valid_types = ['standard', 'kitchen', 'shisha', 'cocktail'];
+            if (!in_array($type, $valid_types)) $type = 'standard';
+            
+            // Auto-append "Dept" only for standard departments
+            if ($type === 'standard' && $name && !preg_match('/\bDept$/i', trim($name))) {
                 $name = trim($name) . ' Dept';
             }
             
@@ -827,10 +995,17 @@ try {
                 break;
             }
             
-            $stmt = $pdo->prepare("INSERT INTO stock_departments (company_id, client_id, name, outlet_id, description, created_by) VALUES (?,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $name, $outlet_id, $description, $user_id]);
+            // Validate parent belongs to same company/client if specified
+            if ($parent_id > 0) {
+                $chk = $pdo->prepare("SELECT id FROM stock_departments WHERE id = ? AND company_id = ? AND client_id = ? AND deleted_at IS NULL");
+                $chk->execute([$parent_id, $company_id, $client_id]);
+                if (!$chk->fetch()) $parent_id = 0; // Invalid parent, make standalone
+            }
             
-            log_audit($company_id, $user_id, 'department_created', 'stock', $pdo->lastInsertId(), "Department '$name' created");
+            $stmt = $pdo->prepare("INSERT INTO stock_departments (company_id, client_id, name, outlet_id, description, type, parent_department_id, created_by) VALUES (?,?,?,?,?,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $name, $outlet_id, $description, $type, $parent_id > 0 ? $parent_id : null, $user_id]);
+            
+            log_audit($company_id, $user_id, 'department_created', 'stock', $pdo->lastInsertId(), "Department '$name' (type: $type) created");
             echo json_encode(['success' => true]);
             break;
             
@@ -841,6 +1016,19 @@ try {
             
             log_audit($company_id, $user_id, 'department_deleted', 'stock', $id, "Department soft-deleted");
             echo json_encode(['success' => true]);
+            break;
+
+        case 'rename_department':
+            $id = intval($_POST['id'] ?? 0);
+            $new_name = clean_input($_POST['name'] ?? '');
+            if (!$id || !$new_name) {
+                echo json_encode(['success' => false, 'message' => 'Department ID and name are required']);
+                break;
+            }
+            $stmt = $pdo->prepare("UPDATE stock_departments SET name = ? WHERE id = ? AND company_id = ? AND client_id = ?");
+            $stmt->execute([$new_name, $id, $company_id, $client_id]);
+            log_audit($company_id, $user_id, 'department_renamed', 'stock', $id, "Department renamed to '$new_name'");
+            echo json_encode(['success' => true, 'message' => "Renamed to '$new_name'"]);
             break;
             
         case 'update_product':
@@ -872,6 +1060,10 @@ try {
             $opening    = intval($_POST['opening_stock'] ?? 0);
             $sell_price = floatval($_POST['selling_price'] ?? 0);
             $stock_date = $_POST['stock_date'] ?? date('Y-m-d');
+            $dept_selling_unit   = clean_input($_POST['selling_unit'] ?? '');
+            $dept_yield          = max(1, intval($_POST['yield_per_unit'] ?? 1));
+            // If no selling unit specified for dept, reset yield to 1
+            if (empty($dept_selling_unit)) { $dept_yield = 1; }
             
             if (!$dept_id || !$product_id) {
                 echo json_encode(['success' => false, 'message' => 'Department and product required']);
@@ -886,10 +1078,10 @@ try {
                 break;
             }
             
-            $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, opening_stock, selling_price, stock_date) VALUES (?,?,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $dept_id, $product_id, $opening, $sell_price, $stock_date]);
+            $stmt = $pdo->prepare("INSERT INTO department_stock (company_id, client_id, department_id, product_id, opening_stock, selling_price, selling_unit, yield_per_unit, stock_date) VALUES (?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $dept_id, $product_id, $opening, $sell_price, $dept_selling_unit ?: null, $dept_yield, $stock_date]);
             
-            log_audit($company_id, $user_id, 'dept_product_added', 'stock', $product_id, "Product added to dept $dept_id on $stock_date, opening=$opening");
+            log_audit($company_id, $user_id, 'dept_product_added', 'stock', $product_id, "Product added to dept $dept_id on $stock_date, opening=$opening" . ($dept_selling_unit ? ", selling as {$dept_yield} {$dept_selling_unit}s per unit" : ''));
             echo json_encode(['success' => true]);
             break;
             

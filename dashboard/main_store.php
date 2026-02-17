@@ -39,7 +39,8 @@ $stock_date = $_GET['stock_date'] ?? date('Y-m-d');
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $stock_date)) $stock_date = date('Y-m-d');
 
 // Products (scoped by client — product definitions are date-independent)
-$stmt = $pdo->prepare("SELECT * FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL ORDER BY name");
+// Exclude derivative/shot products (parent_product_id IS NOT NULL) — they only live in departments
+$stmt = $pdo->prepare("SELECT * FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL AND (parent_product_id IS NULL OR parent_product_id = 0) ORDER BY name");
 $stmt->execute([$company_id, $client_id]);
 $products = $stmt->fetchAll();
 
@@ -111,7 +112,7 @@ $stmt->execute([$company_id, $client_id, $stock_date]);
 $prior_return_in = [];
 foreach ($stmt->fetchAll() as $r) $prior_return_in[$r['product_id']] = (int)$r['total'];
 
-// Prior stock movements (return_outward, adjustment_out) before this date — reduces opening
+// Prior stock movements (return_outward, adjustment_out, out) before this date — reduces opening
 $stmt = $pdo->prepare("SELECT product_id, type, SUM(quantity) as total FROM stock_movements WHERE company_id = ? AND client_id = ? AND DATE(created_at) < ? AND type IN ('return_outward','adjustment_out','out') GROUP BY product_id, type");
 $stmt->execute([$company_id, $client_id, $stock_date]);
 $prior_movements_out = [];
@@ -119,6 +120,12 @@ foreach ($stmt->fetchAll() as $r) {
     $pid = $r['product_id'];
     $prior_movements_out[$pid] = ($prior_movements_out[$pid] ?? 0) + (int)$r['total'];
 }
+
+// Prior adjustment_in movements before this date — increases opening
+$stmt = $pdo->prepare("SELECT product_id, SUM(quantity) as total FROM stock_movements WHERE company_id = ? AND client_id = ? AND DATE(created_at) < ? AND type = 'adjustment_in' GROUP BY product_id");
+$stmt->execute([$company_id, $client_id, $stock_date]);
+$prior_adj_in = [];
+foreach ($stmt->fetchAll() as $r) $prior_adj_in[$r['product_id']] = (int)$r['total'];
 
 // Prior wastage before this date — reduces opening
 $stmt = $pdo->prepare("SELECT product_id, SUM(quantity) as total FROM wastage_log WHERE company_id = ? AND client_id = ? AND wastage_date < ? GROUP BY product_id");
@@ -133,8 +140,9 @@ foreach ($products as $p) {
     $prior_balances[$pid] = 
         ($prior_deliveries[$pid] ?? 0)     // + purchases
         + ($prior_return_in[$pid] ?? 0)    // + return in from depts
+        + ($prior_adj_in[$pid] ?? 0)       // + adjustment additions
         - ($prior_dept_req[$pid] ?? 0)     // - dept requisitions
-        - ($prior_movements_out[$pid] ?? 0) // - return outward, adjustments, stock out
+        - ($prior_movements_out[$pid] ?? 0) // - return outward, adj out, stock out
         - ($prior_wastage[$pid] ?? 0);      // - wastage
 }
 $js_prior_balances = json_encode($prior_balances, JSON_HEX_TAG | JSON_HEX_APOS);
@@ -308,13 +316,32 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                                         <template x-for="c in categories" :key="c.id"><option :value="c.name" x-text="c.name"></option></template>
                                     </select>
                                 </div>
-                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Unit</label>
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Store Unit</label>
                                     <select x-model="catalogForm.unit" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
-                                        <option value="pcs">Pieces</option><option value="kg">Kilograms</option><option value="litres">Litres</option><option value="cartons">Cartons</option><option value="packs">Packs</option><option value="bags">Bags</option><option value="crates">Crates</option>
+                                        <option value="pcs">Pieces</option><option value="bottle">Bottle</option><option value="kg">Kilograms</option><option value="litres">Litres</option><option value="cartons">Cartons</option><option value="packs">Packs</option><option value="bags">Bags</option><option value="crates">Crates</option>
                                     </select>
                                 </div>
                                 <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Unit Cost (₦)</label><input type="number" step="0.01" x-model="catalogForm.unit_cost" placeholder="0.00" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
-                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Price (₦)</label><input type="number" step="0.01" x-model="catalogForm.selling_price" placeholder="0.00" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Price (₦) <span class="text-slate-400 text-[9px]">(per store unit)</span></label><input type="number" step="0.01" x-model="catalogForm.selling_price" placeholder="0.00" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                            </div>
+                            <!-- Shot / Selling Unit Conversion -->
+                            <div class="mb-4">
+                                <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" x-model="catalogForm._hasSellingUnit" class="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500">
+                                    <span class="text-[11px] font-bold text-violet-600">🥃 Sold in different unit (e.g. shots, glasses)</span>
+                                </label>
+                                <div x-show="catalogForm._hasSellingUnit" x-transition class="grid grid-cols-3 gap-4 mt-3 pl-6 border-l-2 border-violet-200 dark:border-violet-800">
+                                    <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Unit</label>
+                                        <select x-model="catalogForm.selling_unit" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
+                                            <option value="shot">Shot</option><option value="glass">Glass</option><option value="tot">Tot</option><option value="portion">Portion</option><option value="cup">Cup</option><option value="slice">Slice</option><option value="piece">Piece</option>
+                                        </select>
+                                    </div>
+                                    <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Yield per <span x-text="catalogForm.unit || 'unit'" class="capitalize"></span></label><input type="number" min="1" x-model.number="catalogForm.yield_per_unit" placeholder="e.g. 20" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                                    <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Price per <span x-text="catalogForm.selling_unit || 'shot'" class="capitalize"></span> (₦)</label><input type="number" step="0.01" x-model="catalogForm.selling_unit_price" placeholder="0.00" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                                </div>
+                                <p x-show="catalogForm._hasSellingUnit && catalogForm.yield_per_unit > 1" class="text-[10px] text-violet-500 mt-2 pl-6">
+                                    💡 1 <span x-text="catalogForm.unit" class="capitalize"></span> = <span x-text="catalogForm.yield_per_unit"></span> <span x-text="catalogForm.selling_unit + 's'" class="capitalize"></span> · Revenue per unit: ₦<span x-text="(catalogForm.yield_per_unit * parseFloat(catalogForm.selling_unit_price || 0)).toLocaleString()"></span>
+                                </p>
                             </div>
                             <div class="flex items-center justify-between">
                                 <div class="text-xs text-slate-400"><span class="font-semibold">Reorder Level:</span> <input type="number" x-model="catalogForm.reorder_level" class="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center inline-block"></div>
@@ -335,6 +362,7 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                                     <th class="px-4 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Unit</th>
                                     <th class="px-4 py-3 text-right text-[10px] font-bold text-slate-500 uppercase">Unit Cost</th>
                                     <th class="px-4 py-3 text-right text-[10px] font-bold text-slate-500 uppercase">Selling Price</th>
+                                    <th class="px-4 py-3 text-center text-[10px] font-bold text-violet-500 uppercase">🥃 Shot Info</th>
                                     <th class="px-4 py-3 text-center text-[10px] font-bold text-slate-500 uppercase w-16">Action</th>
                                 </tr>
                             </thead>
@@ -348,6 +376,16 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                                         <td class="px-4 py-2.5 text-xs text-slate-500 capitalize" x-text="p.unit || 'pcs'"></td>
                                         <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-600 dark:text-slate-300" x-text="fmt(p.unit_cost || 0)"></td>
                                         <td class="px-4 py-2.5 text-right font-mono text-xs font-semibold text-emerald-600" x-text="fmt(p.selling_price || 0)"></td>
+                                        <td class="px-4 py-2.5 text-center text-[10px]">
+                                            <template x-if="p.selling_unit">
+                                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 font-bold">
+                                                    🥃 <span x-text="p.yield_per_unit"></span> <span x-text="p.selling_unit + 's'"></span> · ₦<span x-text="parseFloat(p.selling_unit_price||0).toLocaleString()"></span>
+                                                </span>
+                                            </template>
+                                            <template x-if="!p.selling_unit">
+                                                <span class="text-slate-300">—</span>
+                                            </template>
+                                        </td>
                                         <td class="px-4 py-2.5 text-center">
                                             <div class="inline-flex items-center gap-1">
                                                 <button @click="openEditCatalog(p)" class="w-7 h-7 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center transition-all" title="Edit Product">
@@ -360,7 +398,7 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </td>
                                     </tr>
                                 </template>
-                                <tr x-show="products.length === 0"><td colspan="8" class="px-4 py-12 text-center text-slate-400">No products created yet. Click "Add Product" to get started.</td></tr>
+                                <tr x-show="products.length === 0"><td colspan="9" class="px-4 py-12 text-center text-slate-400">No products created yet. Click "Add Product" to get started.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -573,8 +611,24 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                         <div class="grid grid-cols-3 gap-4">
                             <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Unit Cost (₦)</label><input type="number" step="0.01" x-model="editCatalogForm.unit_cost" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Price (₦)</label><input type="number" step="0.01" x-model="editCatalogForm.selling_price" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Price (₦) <span class="text-[9px] text-slate-400">(per store unit)</span></label><input type="number" step="0.01" x-model="editCatalogForm.selling_price" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
                             <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Reorder Level</label><input type="number" x-model="editCatalogForm.reorder_level" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                        </div>
+                        <!-- Shot / Selling Unit Conversion (Edit) -->
+                        <div class="mt-4">
+                            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" x-model="editCatalogForm._hasSellingUnit" class="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500">
+                                <span class="text-[11px] font-bold text-violet-600">🥃 Sold in different unit (e.g. shots, glasses)</span>
+                            </label>
+                            <div x-show="editCatalogForm._hasSellingUnit" x-transition class="grid grid-cols-3 gap-4 mt-3 pl-6 border-l-2 border-violet-200 dark:border-violet-800">
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Unit</label>
+                                    <select x-model="editCatalogForm.selling_unit" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
+                                        <option value="shot">Shot</option><option value="glass">Glass</option><option value="tot">Tot</option><option value="portion">Portion</option><option value="cup">Cup</option><option value="slice">Slice</option><option value="piece">Piece</option>
+                                    </select>
+                                </div>
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Yield per <span x-text="editCatalogForm.unit || 'unit'" class="capitalize"></span></label><input type="number" min="1" x-model.number="editCatalogForm.yield_per_unit" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Price per <span x-text="editCatalogForm.selling_unit || 'shot'" class="capitalize"></span> (₦)</label><input type="number" step="0.01" x-model="editCatalogForm.selling_unit_price" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                            </div>
                         </div>
                         <div class="flex items-center justify-end gap-3">
                             <button type="button" @click="editCatalogModal = false" class="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
@@ -640,6 +694,27 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                                             <input type="number" x-model.number="editForm.issue_dept_qty" min="0" placeholder="Qty" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-800 rounded-lg text-xs text-center font-bold">
                                         </div>
                                     </div>
+                                    <!-- Transfer Mode: Bottle vs Shot -->
+                                    <template x-if="editForm._hasSelling && editForm.issue_dept_id">
+                                        <div class="mt-2">
+                                            <div class="flex gap-1.5 mb-1.5">
+                                                <button type="button" @click="editForm.issue_mode = 'unit'" :class="editForm.issue_mode === 'unit' ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'" class="flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all">
+                                                    📦 As <span x-text="(editForm._prodUnit || 'unit').charAt(0).toUpperCase() + (editForm._prodUnit || 'unit').slice(1)" class="capitalize"></span>
+                                                </button>
+                                                <button type="button" @click="editForm.issue_mode = 'selling_unit'" :class="editForm.issue_mode === 'selling_unit' ? 'bg-violet-500 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'" class="flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all">
+                                                    🥃 As <span x-text="(editForm._sellingUnit || 'shot').charAt(0).toUpperCase() + (editForm._sellingUnit || 'shot').slice(1)" class="capitalize"></span>
+                                                </button>
+                                            </div>
+                                            <div x-show="editForm.issue_mode === 'selling_unit' && editForm.issue_dept_qty > 0" x-transition class="p-2 rounded-lg bg-violet-50 dark:bg-violet-900/10 border border-violet-200/50 dark:border-violet-800/30 text-[10px]">
+                                                <p class="font-bold text-violet-600">
+                                                    <span x-text="editForm.issue_dept_qty"></span> <span x-text="editForm._prodUnit + (editForm.issue_dept_qty > 1 ? 's' : '')" class="capitalize"></span>
+                                                    → <span class="text-lg" x-text="editForm.issue_dept_qty * editForm._yield"></span> <span x-text="editForm._sellingUnit + 's'" class="capitalize"></span>
+                                                    <span class="text-violet-400">@ ₦<span x-text="parseFloat(editForm._shotPrice || 0).toLocaleString()"></span>/<span x-text="editForm._sellingUnit"></span></span>
+                                                </p>
+                                                <p class="text-violet-400 mt-0.5">Dept receives: <strong x-text="editForm.name + ' ' + (editForm._sellingUnit || 'Shot').charAt(0).toUpperCase() + (editForm._sellingUnit || 'Shot').slice(1)" class="text-violet-600"></strong></p>
+                                            </div>
+                                        </div>
+                                    </template>
                                     <!-- Show existing dept requisitions -->
                                     <div class="grid gap-1 mt-2" :style="'grid-template-columns: repeat('+Math.min(departments.length,3)+',1fr)'">
                                         <template x-for="dept in departments" :key="'ed_'+dept.id">
@@ -963,21 +1038,62 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                     </div>
                     <!-- Collapsible Issue Form -->
                     <div x-show="showForm" x-transition.duration.200ms class="border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-rose-500/5 via-pink-500/3 to-transparent">
-                        <form @submit.prevent="issueToDepartment()" class="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Department *</label>
-                                <select x-model="deptIssueForm.department_id" required class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
-                                    <option value="">Select department...</option>
-                                    <template x-for="d in departments" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
-                                </select>
+                        <form @submit.prevent="issueToDepartment()" class="p-5 space-y-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Department *</label>
+                                    <select x-model="deptIssueForm.department_id" required class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
+                                        <option value="">Select department...</option>
+                                        <template x-for="d in departments" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+                                    </select>
+                                </div>
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Product *</label>
+                                    <select x-model="deptIssueForm.product_id" @change="onIssueProductSelect()" required class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
+                                        <option value="">Select product...</option>
+                                        <template x-for="p in products.filter(pp => !pp.parent_product_id)" :key="p.id"><option :value="p.id" x-text="p.name + ' (Stock: ' + p.current_stock + ')'"></option></template>
+                                    </select>
+                                </div>
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Quantity *</label><input type="number" x-model="deptIssueForm.quantity" required min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                                <div class="flex items-end"><button type="submit" class="w-full px-8 py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all text-sm">Issue to Department</button></div>
                             </div>
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Product *</label>
-                                <select x-model="deptIssueForm.product_id" required class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
-                                    <option value="">Select product...</option>
-                                    <template x-for="p in products" :key="p.id"><option :value="p.id" x-text="p.name + ' (Stock: ' + p.current_stock + ')'"></option></template>
-                                </select>
-                            </div>
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Quantity *</label><input type="number" x-model="deptIssueForm.quantity" required min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
-                            <div class="flex items-end"><button type="submit" class="w-full px-8 py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all text-sm">Issue to Department</button></div>
+                            <!-- Transfer Mode Toggle -->
+                            <template x-if="deptIssueForm._hasSelling">
+                                <div class="p-4 rounded-xl bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-900/10 dark:to-purple-900/10 border border-violet-200/50 dark:border-violet-800/30">
+                                    <p class="text-[10px] font-bold text-slate-500 mb-2 uppercase">Transfer As</p>
+                                    <div class="flex gap-2 mb-3">
+                                        <button type="button" @click="deptIssueForm.transfer_mode = 'unit'" :class="deptIssueForm.transfer_mode === 'unit' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'" class="flex-1 py-2.5 text-xs font-bold rounded-xl transition-all">
+                                            📦 <span x-text="(deptIssueForm._prodUnit || 'unit').charAt(0).toUpperCase() + (deptIssueForm._prodUnit || 'unit').slice(1)" class="capitalize"></span>
+                                            <span class="block text-[9px] font-normal mt-0.5 opacity-70">Original unit & price</span>
+                                        </button>
+                                        <button type="button" @click="deptIssueForm.transfer_mode = 'selling_unit'" :class="deptIssueForm.transfer_mode === 'selling_unit' ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/30' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'" class="flex-1 py-2.5 text-xs font-bold rounded-xl transition-all">
+                                            🥃 <span x-text="(deptIssueForm._sellingUnit || 'Shot').charAt(0).toUpperCase() + (deptIssueForm._sellingUnit || 'Shot').slice(1)" class="capitalize"></span>
+                                            <span class="block text-[9px] font-normal mt-0.5 opacity-70">Convert to <span x-text="deptIssueForm._yield"></span> per <span x-text="deptIssueForm._prodUnit"></span></span>
+                                        </button>
+                                    </div>
+                                    <!-- Conversion Preview -->
+                                    <div x-show="deptIssueForm.transfer_mode === 'selling_unit' && deptIssueForm.quantity > 0" x-transition class="p-3 rounded-xl bg-white/80 dark:bg-slate-900/50 border border-violet-200 dark:border-violet-800">
+                                        <div class="flex items-center gap-3">
+                                            <div class="text-center">
+                                                <p class="text-2xl font-black text-slate-700" x-text="deptIssueForm.quantity"></p>
+                                                <p class="text-[9px] text-slate-400 font-bold" x-text="(deptIssueForm._prodUnit || 'unit') + (deptIssueForm.quantity > 1 ? 's' : '')" class="capitalize"></p>
+                                            </div>
+                                            <div class="text-xl text-violet-400">→</div>
+                                            <div class="text-center">
+                                                <p class="text-2xl font-black text-violet-600" x-text="deptIssueForm.quantity * deptIssueForm._yield"></p>
+                                                <p class="text-[9px] text-violet-400 font-bold" x-text="(deptIssueForm._sellingUnit || 'shot') + 's'" class="capitalize"></p>
+                                            </div>
+                                            <div class="text-xl text-slate-300">@</div>
+                                            <div class="text-center">
+                                                <p class="text-lg font-black text-emerald-600">₦<span x-text="parseFloat(deptIssueForm._shotPrice || 0).toLocaleString()"></span></p>
+                                                <p class="text-[9px] text-slate-400 font-bold">per <span x-text="deptIssueForm._sellingUnit || 'shot'"></span></p>
+                                            </div>
+                                        </div>
+                                        <p class="text-[10px] text-violet-500 mt-2 text-center">Dept receives: <strong x-text="deptIssueForm._prodName + ' ' + ((deptIssueForm._sellingUnit || 'Shot').charAt(0).toUpperCase() + (deptIssueForm._sellingUnit || 'Shot').slice(1))" class="text-violet-700"></strong></p>
+                                    </div>
+                                    <div x-show="deptIssueForm.transfer_mode === 'unit'" x-transition class="p-2 rounded-lg bg-blue-50/50 dark:bg-blue-900/10 text-[10px] text-blue-500 text-center">
+                                        📦 Department receives <span x-text="deptIssueForm._prodName"></span> as-is at original price
+                                    </div>
+                                </div>
+                            </template>
                         </form>
                     </div>
                     <!-- Department Issues History Table -->
@@ -1066,85 +1182,90 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <tr>
                                     <th class="px-4 py-3 text-center text-xs font-bold text-slate-500 w-12">Status</th>
                                     <th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Product</th>
-                                    <th class="px-4 py-3 text-left text-xs font-bold text-slate-500 w-28">Category</th>
                                     <th class="px-4 py-3 text-right text-xs font-bold text-slate-500 w-20">System</th>
                                     <th class="px-4 py-3 text-center text-xs font-bold text-slate-500 w-28">Physical Count</th>
                                     <th class="px-4 py-3 text-right text-xs font-bold text-slate-500 w-20">Variance</th>
                                     <th class="px-4 py-3 text-center text-xs font-bold text-slate-500 w-28">Action</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                <template x-for="p in filteredCountProducts" :key="p.id">
-                                    <tr class="border-b border-slate-100 dark:border-slate-800 transition-all duration-300"
-                                        :class="isProductCounted(p.id) ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : 'hover:bg-violet-50/50 dark:hover:bg-slate-800/30'">
-                                        <!-- Status Icon -->
-                                        <td class="px-4 py-3 text-center">
-                                            <template x-if="isProductCounted(p.id)">
-                                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/30">
-                                                    <i data-lucide="check" class="w-4 h-4 text-emerald-600"></i>
+                            <!-- Each category group -->
+                            <template x-for="group in groupedCountProducts" :key="'cg_'+group.category">
+                                <tbody>
+                                    <tr @click="toggleGroup('count_'+group.category)" class="bg-slate-50 dark:bg-slate-800/80 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                        <td colspan="100%" class="px-4 py-2 border-y border-slate-200 dark:border-slate-700">
+                                            <div class="flex items-center justify-between">
+                                                <span class="inline-flex items-center gap-2 font-bold text-xs text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                                                    <i data-lucide="chevron-down" class="w-4 h-4 transition-transform duration-200" :class="isExpanded('count_'+group.category) ? 'rotate-0' : '-rotate-90'"></i>
+                                                    <span class="w-2 h-2 rounded-full bg-violet-500"></span>
+                                                    <span x-text="group.category"></span>
+                                                    <span class="text-slate-400 normal-case" x-text="'(' + group.items.length + ' items)'"></span>
                                                 </span>
-                                            </template>
-                                            <template x-if="!isProductCounted(p.id)">
-                                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800">
-                                                    <i data-lucide="minus" class="w-4 h-4 text-slate-400"></i>
-                                                </span>
-                                            </template>
+                                            </div>
                                         </td>
-                                        <!-- Product Name -->
-                                        <td class="px-4 py-3">
-                                            <div class="font-semibold text-slate-800 dark:text-white" x-text="p.name"></div>
-                                            <div class="text-[10px] text-slate-400" x-text="p.sku || ''" x-show="p.sku"></div>
-                                        </td>
-                                        <!-- Category -->
-                                        <td class="px-4 py-3">
-                                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400" x-text="p.category || 'General'"></span>
-                                        </td>
-                                        <!-- System Count -->
-                                        <td class="px-4 py-3 text-right font-bold text-blue-600" x-text="getSystemCount(p.id)"></td>
-                                        <!-- Physical Count Input -->
-                                        <td class="px-4 py-3 text-center">
-                                            <template x-if="!isProductCounted(p.id)">
+                                    </tr>
+                                    <template x-for="p in group.items" :key="'cp_'+p.id">
+                                        <tr x-show="isExpanded('count_'+group.category)" x-transition class="border-b border-slate-100 dark:border-slate-800 transition-all duration-300"
+                                            :class="isProductCounted(p.id) ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : 'hover:bg-violet-50/50 dark:hover:bg-slate-800/30'">
+                                            <!-- Status Icon -->
+                                            <td class="px-4 py-3 text-center">
+                                                <template x-if="isProductCounted(p.id)">
+                                                    <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+                                                        <i data-lucide="check" class="w-4 h-4 text-emerald-600"></i>
+                                                    </span>
+                                                </template>
+                                                <template x-if="!isProductCounted(p.id)">
+                                                    <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800">
+                                                        <i data-lucide="minus" class="w-4 h-4 text-slate-400"></i>
+                                                    </span>
+                                                </template>
+                                            </td>
+                                            <!-- Product Name -->
+                                            <td class="px-4 py-3">
+                                                <div class="font-semibold text-slate-800 dark:text-white" x-text="p.name"></div>
+                                                <div class="text-[10px] text-slate-400" x-text="p.sku || ''" x-show="p.sku"></div>
+                                            </td>
+                                            <!-- System Count -->
+                                            <td class="px-4 py-3 text-right font-bold text-blue-600" x-text="getSystemCount(p.id)"></td>
+                                            <!-- Physical Count Input (always editable) -->
+                                            <td class="px-4 py-3 text-center">
                                                 <input type="number" min="0"
                                                     :id="'count-input-' + p.id"
                                                     x-model.number="countInputs[p.id]"
+                                                    x-init="if (isProductCounted(p.id)) { countInputs[p.id] = getCountedPhysical(p.id); }"
                                                     @keydown.enter.prevent="saveCountItem(p.id)"
                                                     placeholder="0"
-                                                    class="w-20 px-2 py-1.5 bg-white dark:bg-slate-900 border-2 border-violet-300 dark:border-violet-700 rounded-lg text-sm text-center font-bold focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500 transition-all">
-                                            </template>
-                                            <template x-if="isProductCounted(p.id)">
-                                                <span class="font-bold text-emerald-700" x-text="getCountedPhysical(p.id)"></span>
-                                            </template>
-                                        </td>
-                                        <!-- Variance -->
-                                        <td class="px-4 py-3 text-right">
-                                            <template x-if="isProductCounted(p.id)">
-                                                <span class="font-bold" :class="getCountedVariance(p.id) == 0 ? 'text-emerald-600' : 'text-red-600'" x-text="getCountedVariance(p.id)"></span>
-                                            </template>
-                                            <template x-if="!isProductCounted(p.id) && (countInputs[p.id] !== undefined && countInputs[p.id] !== '')">
-                                                <span class="font-bold text-slate-400" x-text="(countInputs[p.id] || 0) - getSystemCount(p.id)"></span>
-                                            </template>
-                                            <template x-if="!isProductCounted(p.id) && (countInputs[p.id] === undefined || countInputs[p.id] === '')">
-                                                <span class="text-slate-300">&mdash;</span>
-                                            </template>
-                                        </td>
-                                        <!-- Action -->
-                                        <td class="px-4 py-3 text-center">
-                                            <template x-if="!isProductCounted(p.id)">
+                                                    class="w-20 px-2 py-1.5 bg-white dark:bg-slate-900 border-2 rounded-lg text-sm text-center font-bold focus:ring-2 transition-all"
+                                                    :class="isProductCounted(p.id) 
+                                                        ? 'border-emerald-400 dark:border-emerald-700 text-emerald-700 focus:ring-emerald-500/40 focus:border-emerald-500' 
+                                                        : 'border-violet-300 dark:border-violet-700 focus:ring-violet-500/40 focus:border-violet-500'">
+                                            </td>
+                                            <!-- Variance -->
+                                            <td class="px-4 py-3 text-right">
+                                                <template x-if="countInputs[p.id] !== undefined && countInputs[p.id] !== ''">
+                                                    <span class="font-bold" :class="((countInputs[p.id] || 0) - getSystemCount(p.id)) == 0 ? 'text-emerald-600' : 'text-red-600'" x-text="(countInputs[p.id] || 0) - getSystemCount(p.id)"></span>
+                                                </template>
+                                                <template x-if="countInputs[p.id] === undefined || countInputs[p.id] === ''">
+                                                    <span class="text-slate-300">&mdash;</span>
+                                                </template>
+                                            </td>
+                                            <!-- Action -->
+                                            <td class="px-4 py-3 text-center">
                                                 <button @click="saveCountItem(p.id)"
                                                     :disabled="countInputs[p.id] === undefined || countInputs[p.id] === ''"
-                                                    class="inline-flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm disabled:opacity-40 disabled:hover:scale-100">
-                                                    <i data-lucide="check" class="w-3 h-3"></i> Count
+                                                    class="inline-flex items-center gap-1 px-3 py-1.5 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm disabled:opacity-40 disabled:hover:scale-100"
+                                                    :class="isProductCounted(p.id) 
+                                                        ? 'bg-gradient-to-r from-emerald-500 to-green-600' 
+                                                        : 'bg-gradient-to-r from-violet-500 to-purple-600'">
+                                                    <i :data-lucide="isProductCounted(p.id) ? 'refresh-cw' : 'check'" class="w-3 h-3"></i>
+                                                    <span x-text="isProductCounted(p.id) ? 'Update' : 'Count'"></span>
                                                 </button>
-                                            </template>
-                                            <template x-if="isProductCounted(p.id)">
-                                                <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 text-[10px] font-bold rounded-full">
-                                                    <i data-lucide="check-circle" class="w-3 h-3"></i> Done
-                                                </span>
-                                            </template>
-                                        </td>
-                                    </tr>
-                                </template>
-                                <tr x-show="filteredCountProducts.length === 0">
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </template>
+                            <tbody>
+                                <tr x-show="groupedCountProducts.length === 0">
                                     <td colspan="7" class="px-4 py-12 text-center text-slate-400">
                                         <i data-lucide="search-x" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                                         <p>No products match your filter</p>
@@ -1508,7 +1629,7 @@ function mainStoreApp() {
         stockDate: '<?php echo $stock_date; ?>',
         todayStr: new Date().toISOString().split('T')[0],
         editForm: { product_id:'', name:'', sku:'', category:'', unit_cost:0, selling_price:0, opening:0, purchase:0, reorder_level:10 },
-        editCatalogForm: { id:'', name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10 },
+        editCatalogForm: { id:'', name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false },
         tabs: [
             { id: 'catalog', label: 'Product', icon: 'package-plus' },
             { id: 'products', label: 'Store', icon: 'package' },
@@ -1543,7 +1664,7 @@ function mainStoreApp() {
         editDeliveryForm: { delivery_id: 0, product_name: '', quantity: 0, unit_cost: 0, supplier_name: '', invoice_number: '' },
 
         productForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, opening_stock:0, reorder_level:10 },
-        catalogForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10 },
+        catalogForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false },
         catForm: { name:'' },
         productSearch: '',
         showCategoryModal: false,
@@ -1556,7 +1677,7 @@ function mainStoreApp() {
             lines: [{ product_id: '', quantity: 0, total_amount: 0 }]
         },
         stockOutForm: { product_id:'', quantity:0, reason:'sales', notes:'' },
-        deptIssueForm: { department_id:'', product_id:'', quantity:0 },
+        deptIssueForm: { department_id:'', product_id:'', quantity:0, transfer_mode:'unit', _hasSelling:false, _sellingUnit:'', _yield:1, _shotPrice:0, _prodUnit:'pcs', _prodName:'' },
         allDeptIssues: <?php echo $js_all_dept_issues; ?>,
         deptIssueDateFilter: 'all',
         deptIssueDateFrom: '',
@@ -1578,10 +1699,12 @@ function mainStoreApp() {
         },
         get adjustmentMap() {
             const map = {};
-            this.wastageRecords.forEach(w => { map[w.product_id] = (map[w.product_id] || 0) + parseInt(w.quantity || 0); });
+            // Wastage always reduces stock (negative)
+            this.wastageRecords.forEach(w => { map[w.product_id] = (map[w.product_id] || 0) - parseInt(w.quantity || 0); });
             this.movements.forEach(m => {
-                if (m.type === 'adjustment_out') map[m.product_id] = (map[m.product_id] || 0) + parseInt(m.quantity || 0);
-                // if we had adjustment_in, we'd subtract or handle separately.
+                // adjustment_out reduces stock (negative), adjustment_in adds stock (positive)
+                if (m.type === 'adjustment_out') map[m.product_id] = (map[m.product_id] || 0) - parseInt(m.quantity || 0);
+                if (m.type === 'adjustment_in') map[m.product_id] = (map[m.product_id] || 0) + parseInt(m.quantity || 0);
             });
             return map;
         },
@@ -1733,6 +1856,25 @@ function mainStoreApp() {
                 return aCounted - bCounted;
             });
         },
+        // Group stock count products by category
+        get groupedCountProducts() {
+            const groups = {};
+            this.filteredCountProducts.forEach(p => {
+                const cat = p.category || 'Uncategorized';
+                if (!groups[cat]) groups[cat] = [];
+                groups[cat].push(p);
+            });
+            const catOrder = this.categories.map(c => c.name);
+            return Object.keys(groups)
+                .sort((a, b) => {
+                    const ia = catOrder.indexOf(a), ib = catOrder.indexOf(b);
+                    if (ia === -1 && ib === -1) return a.localeCompare(b);
+                    if (ia === -1) return 1;
+                    if (ib === -1) return -1;
+                    return ia - ib;
+                })
+                .map(cat => ({ category: cat, items: groups[cat] }));
+        },
 
         getSystemCount(pid) { const p = this.products.find(x => x.id == pid); return p ? p.current_stock : 0; },
         getProductCost(pid) { const p = this.products.find(x => x.id == pid); return p ? p.unit_cost : 0; },
@@ -1795,8 +1937,8 @@ function mainStoreApp() {
         getReturnOutward(pid) { return this.returnOutwardMap[pid] || 0; },
         // Total = Opening + Purchase + Total Return In
         getTotal(pid) { return this.getOpening(pid) + this.getPurchase(pid) + this.getTotalReturnIn(pid); },
-        // Closing = Total - Total Dept Req - Return Outward - Adjustment
-        getClosing(pid) { return this.getTotal(pid) - this.getTotalDeptReq(pid) - this.getReturnOutward(pid) - this.getAdjustment(pid); },
+        // Closing = Total - Total Dept Req - Return Outward + Adjustment (positive=add, negative=subtract)
+        getClosing(pid) { return this.getTotal(pid) - this.getTotalDeptReq(pid) - this.getReturnOutward(pid) + this.getAdjustment(pid); },
         // Edit modal helpers
         editTotal() { 
             const prior = this.priorBalances[this.editForm.product_id] || 0;
@@ -1804,8 +1946,8 @@ function mainStoreApp() {
             return currentOpening + (parseInt(this.editForm.purchase)||0) + this.getTotalReturnIn(this.editForm.product_id); 
         },
         editClosing() {
-            // Base closing from formula: Total - existing DeptReq - RTN Out - new Adjustment
-            const base = this.editTotal() - this.getTotalDeptReq(this.editForm.product_id) - this.getReturnOutward(this.editForm.product_id) - (parseInt(this.editForm.adjustment) || 0);
+            // Base closing from formula: Total - existing DeptReq - RTN Out + Adjustment (positive=add, negative=subtract)
+            const base = this.editTotal() - this.getTotalDeptReq(this.editForm.product_id) - this.getReturnOutward(this.editForm.product_id) + (parseInt(this.editForm.adjustment) || 0);
             // Preview: also subtract pending dept issue qty (not yet saved)
             return base - (parseInt(this.editForm.issue_dept_qty) || 0);
         },
@@ -1831,7 +1973,11 @@ function mainStoreApp() {
                 unit: p.unit || 'pcs',
                 unit_cost: parseFloat(p.unit_cost || 0),
                 selling_price: parseFloat(p.selling_price || 0),
-                reorder_level: parseInt(p.reorder_level || 10)
+                reorder_level: parseInt(p.reorder_level || 10),
+                selling_unit: p.selling_unit || 'shot',
+                yield_per_unit: parseInt(p.yield_per_unit || 1),
+                selling_unit_price: parseFloat(p.selling_unit_price || 0),
+                _hasSellingUnit: !!p.selling_unit
             };
             this.editCatalogModal = true;
         },
@@ -1848,6 +1994,11 @@ function mainStoreApp() {
             fd.append('unit_cost', this.editCatalogForm.unit_cost);
             fd.append('selling_price', this.editCatalogForm.selling_price);
             fd.append('reorder_level', this.editCatalogForm.reorder_level);
+            if (this.editCatalogForm._hasSellingUnit) {
+                fd.append('selling_unit', this.editCatalogForm.selling_unit);
+                fd.append('yield_per_unit', this.editCatalogForm.yield_per_unit);
+                fd.append('selling_unit_price', this.editCatalogForm.selling_unit_price);
+            }
             try {
                 const r = await (await fetch('../ajax/stock_api.php', {method:'POST', body:fd})).json();
                 if (r.success) { this.editCatalogModal = false; location.reload(); }
@@ -1891,7 +2042,11 @@ function mainStoreApp() {
             else this.expandedGroups[cat] = !this.expandedGroups[cat];
             this.$nextTick(() => lucide.createIcons());
         },
-        isExpanded(cat) { return this.expandedGroups[cat] === true; },
+        isExpanded(cat) {
+            // Stock count groups (count_*) default to expanded; inventory groups default to collapsed
+            if (this.expandedGroups[cat] === undefined) return cat.startsWith('count_');
+            return this.expandedGroups[cat] === true;
+        },
         goToday() {
             this.stockDate = this.todayStr;
             this.goToDate();
@@ -1917,7 +2072,13 @@ function mainStoreApp() {
                 reorder_level: parseInt(p.reorder_level || 10),
                 adjustment: 0,
                 issue_dept_id: '',
-                issue_dept_qty: 0
+                issue_dept_qty: 0,
+                issue_mode: 'unit',
+                _hasSelling: !!(p.selling_unit),
+                _sellingUnit: p.selling_unit || '',
+                _yield: parseInt(p.yield_per_unit || 1),
+                _shotPrice: parseFloat(p.selling_unit_price || 0),
+                _prodUnit: p.unit || 'pcs'
             };
             this.editModal = true;
         },
@@ -1933,7 +2094,8 @@ function mainStoreApp() {
                 adjFd.append('action', 'stock_adjustment');
                 adjFd.append('product_id', this.editForm.product_id);
                 adjFd.append('quantity', Math.abs(adjDiff));
-                adjFd.append('type', adjDiff > 0 ? 'adjustment_out' : 'adjustment_in');
+                // Positive diff = user adding stock = adjustment_in, Negative diff = removing = adjustment_out
+                adjFd.append('type', adjDiff > 0 ? 'adjustment_in' : 'adjustment_out');
                 adjFd.append('notes', 'Adjusted via Stock Management modal');
                 await fetch('../ajax/stock_api.php', {method:'POST', body: adjFd});
             }
@@ -1946,12 +2108,13 @@ function mainStoreApp() {
                 issFd.append('product_id', this.editForm.product_id);
                 issFd.append('quantity', issueQty);
                 issFd.append('issue_date', this.stockDate);
+                issFd.append('transfer_mode', this.editForm.issue_mode || 'unit');
                 const issR = await (await fetch('../ajax/stock_api.php', {method:'POST', body: issFd})).json();
                 if (!issR.success) { alert('Department issue failed: ' + (issR.message || '')); }
             }
-            // current_stock = closing computed from the formula (Total - DeptReq - RTNOut - Adjustment)
+            // current_stock = closing computed from the formula (Total - DeptReq - RTNOut + Adjustment)
             // The dept issue and adjustment are now recorded as transactions, so include them
-            const closing = this.editTotal() - this.getTotalDeptReq(this.editForm.product_id) - issueQty - this.getReturnOutward(this.editForm.product_id) - (parseInt(this.editForm.adjustment) || 0);
+            const closing = this.editTotal() - this.getTotalDeptReq(this.editForm.product_id) - issueQty - this.getReturnOutward(this.editForm.product_id) + (parseInt(this.editForm.adjustment) || 0);
             const fd = new FormData(); fd.append('action','update_product');
             fd.append('product_id', this.editForm.product_id);
             fd.append('name', this.editForm.name);
@@ -1985,22 +2148,32 @@ function mainStoreApp() {
             fd.append('selling_price', this.catalogForm.selling_price);
             fd.append('opening_stock', 0);
             fd.append('reorder_level', this.catalogForm.reorder_level);
+            if (this.catalogForm._hasSellingUnit) {
+                fd.append('selling_unit', this.catalogForm.selling_unit);
+                fd.append('yield_per_unit', this.catalogForm.yield_per_unit);
+                fd.append('selling_unit_price', this.catalogForm.selling_unit_price);
+            }
             const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
             if (r.success) {
-                this.products.push({ id: r.id, name: this.catalogForm.name, sku: this.catalogForm.sku, category: this.catalogForm.category, unit: this.catalogForm.unit, unit_cost: this.catalogForm.unit_cost, selling_price: this.catalogForm.selling_price, current_stock: 0, reorder_level: this.catalogForm.reorder_level });
-                this.catalogForm = { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10 };
+                this.products.push({ id: r.id, name: this.catalogForm.name, sku: this.catalogForm.sku, category: this.catalogForm.category, unit: this.catalogForm.unit, unit_cost: this.catalogForm.unit_cost, selling_price: this.catalogForm.selling_price, current_stock: 0, reorder_level: this.catalogForm.reorder_level, selling_unit: this.catalogForm._hasSellingUnit ? this.catalogForm.selling_unit : null, yield_per_unit: this.catalogForm._hasSellingUnit ? this.catalogForm.yield_per_unit : 1, selling_unit_price: this.catalogForm._hasSellingUnit ? this.catalogForm.selling_unit_price : 0 });
+                this.catalogForm = { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false };
                 this.$nextTick(() => lucide.createIcons());
             } else alert(r.message);
         },
 
         async addCatalogCategory() {
             if (!this.catForm.name.trim()) { alert('Please enter a category name'); return; }
-            const fd = new FormData(); fd.append('action','add_category'); fd.append('name', this.catForm.name.trim());
+            const catName = this.catForm.name.trim();
+            const fd = new FormData(); fd.append('action','add_category'); fd.append('name', catName);
             const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
             if (r.success) {
+                // Add category to local list so it appears immediately
+                this.categories.push({ id: r.id, name: catName });
                 this.catForm.name = '';
-                this.showCategoryModal = false;
-                window.location.href = 'main_store.php?stock_date=' + this.stockDate + '&tab=catalog';
+                this.$nextTick(() => lucide.createIcons());
+                // Brief green flash on the input to confirm success
+                const inp = this.$el.querySelector('[x-model="catForm.name"]');
+                if (inp) { inp.style.borderColor = '#10b981'; inp.placeholder = '✓ "' + catName + '" added!'; setTimeout(() => { inp.style.borderColor = ''; inp.placeholder = 'e.g. Beverages, Food, Cleaning...'; }, 2000); }
             } else alert(r.message);
         },
         async deleteCatalogCategory(id, name) {
@@ -2093,11 +2266,34 @@ function mainStoreApp() {
             fd.append('product_id', this.deptIssueForm.product_id);
             fd.append('quantity', this.deptIssueForm.quantity);
             fd.append('issue_date', this.stockDate);
+            fd.append('transfer_mode', this.deptIssueForm.transfer_mode || 'unit');
             const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
             if (r.success) {
-                this.deptIssueForm = { department_id:'', product_id:'', quantity:0 };
+                const msg = r.message || 'Stock issued successfully';
+                alert('✅ ' + msg);
+                this.deptIssueForm = { department_id:'', product_id:'', quantity:0, transfer_mode:'unit', _hasSelling:false, _sellingUnit:'', _yield:1, _shotPrice:0, _prodUnit:'pcs', _prodName:'' };
                 this.reloadTab();
             } else alert(r.message);
+        },
+        onIssueProductSelect() {
+            const p = this.products.find(pp => pp.id == this.deptIssueForm.product_id);
+            if (p && p.selling_unit) {
+                this.deptIssueForm._hasSelling = true;
+                this.deptIssueForm._sellingUnit = p.selling_unit;
+                this.deptIssueForm._yield = parseInt(p.yield_per_unit || 1);
+                this.deptIssueForm._shotPrice = parseFloat(p.selling_unit_price || 0);
+                this.deptIssueForm._prodUnit = p.unit || 'pcs';
+                this.deptIssueForm._prodName = p.name;
+                this.deptIssueForm.transfer_mode = 'unit'; // default to bottle
+            } else {
+                this.deptIssueForm._hasSelling = false;
+                this.deptIssueForm._sellingUnit = '';
+                this.deptIssueForm._yield = 1;
+                this.deptIssueForm._shotPrice = 0;
+                this.deptIssueForm._prodUnit = p ? (p.unit || 'pcs') : 'pcs';
+                this.deptIssueForm._prodName = p ? p.name : '';
+                this.deptIssueForm.transfer_mode = 'unit';
+            }
         },
         async saveCount() {
             const fd = new FormData(); fd.append('action','save_count');

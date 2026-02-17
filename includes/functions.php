@@ -244,6 +244,57 @@ function register_company_and_user($company_name, $email, $password, $first_name
     }
 }
 
+/**
+ * Register new company and admin user via Google OAuth
+ */
+function register_company_and_user_google($company_name, $email, $google_id, $first_name, $last_name, $avatar_url = '') {
+    global $pdo;
+    
+    try {
+        $pdo->beginTransaction();
+        
+        // Generate company code
+        $code = strtoupper(substr(preg_replace('/[^a-zA-Z]/', '', $company_name), 0, 4));
+        $code .= rand(100, 999);
+        
+        // Create company
+        $stmt = $pdo->prepare("INSERT INTO companies (name, code, email) VALUES (?, ?, ?)");
+        $stmt->execute([$company_name, $code, $email]);
+        $company_id = $pdo->lastInsertId();
+        
+        // Create admin user (no password — Google-authenticated)
+        $stmt = $pdo->prepare("INSERT INTO users (company_id, first_name, last_name, email, google_id, avatar_url, role) VALUES (?, ?, ?, ?, ?, ?, 'business_owner')");
+        $stmt->execute([$company_id, $first_name, $last_name, $email, $google_id, $avatar_url ?: null]);
+        $user_id = $pdo->lastInsertId();
+        
+        // Create default expense categories
+        $categories = [
+            ['Cost of Sales', 'cost_of_sales'],
+            ['Utilities', 'operating'],
+            ['Salaries & Wages', 'operating'],
+            ['Logistics & Transport', 'operating'],
+            ['Maintenance', 'operating'],
+            ['Office Supplies', 'administrative'],
+            ['Marketing', 'operating'],
+            ['Miscellaneous', 'other']
+        ];
+        $stmt = $pdo->prepare("INSERT INTO expense_categories (company_id, name, type) VALUES (?, ?, ?)");
+        foreach ($categories as $cat) {
+            $stmt->execute([$company_id, $cat[0], $cat[1]]);
+        }
+        
+        log_audit($company_id, $user_id, 'company_registered_google', 'core', $company_id, "Company '$company_name' registered via Google OAuth");
+        
+        $pdo->commit();
+        
+        return ['company_id' => $company_id, 'user_id' => $user_id, 'code' => $code];
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
 // =====================================================
 // CLIENT & OUTLET HELPERS
 // =====================================================
@@ -416,7 +467,10 @@ function require_permission($permission) {
         echo '<svg class="w-10 h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg></div>';
         echo '<h1 class="text-2xl font-black mb-2">Access Denied</h1>';
         echo '<p class="text-slate-400 mb-6">You do not have permission to access this module. Contact your administrator to request access.</p>';
+        echo '<div class="flex gap-3 justify-center">';
         echo '<a href="index.php" class="inline-block px-6 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl transition-all">← Back to Dashboard</a>';
+        echo '<a href="../auth/logout.php" class="inline-block px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">Sign Out</a>';
+        echo '</div>';
         echo '</div></body></html>';
         exit;
     }

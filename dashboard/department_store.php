@@ -60,8 +60,23 @@ $stmt->execute([$dept_id, $company_id, $client_id]);
 $dept = $stmt->fetch();
 if (!$dept) { header('Location: stock.php'); exit; }
 
-$is_kitchen = ($dept['type'] ?? '') === 'kitchen';
+$dept_type = $dept['type'] ?? 'standard';
+$is_kitchen = in_array($dept_type, ['kitchen', 'shisha', 'cocktail']);
 $is_restaurant = strtolower($dept['outlet_type'] ?? '') === 'restaurant';
+
+// Type-aware labels for UI
+$recipe_labels = ['kitchen' => 'Kitchen', 'shisha' => 'Shisha', 'cocktail' => 'Cocktail'];
+$recipe_emojis = ['kitchen' => '🍳', 'shisha' => '🌬️', 'cocktail' => '🍹'];
+$recipe_label = $recipe_labels[$dept_type] ?? 'Recipe';
+$recipe_emoji = $recipe_emojis[$dept_type] ?? '📋';
+
+// Get parent department for sub-department breadcrumb
+$parent_dept = null;
+if (!empty($dept['parent_department_id'])) {
+    $stmt = $pdo->prepare("SELECT id, name FROM stock_departments WHERE id = ? AND company_id = ? AND client_id = ? AND deleted_at IS NULL");
+    $stmt->execute([$dept['parent_department_id'], $company_id, $client_id]);
+    $parent_dept = $stmt->fetch();
+}
 
 $page_title = $dept['name'];
 
@@ -69,10 +84,11 @@ $page_title = $dept['name'];
 // Logic: Fetch product details + Left Join today's stock + Subquery for Prior Balance (Opening)
 $stmt = $pdo->prepare("
     SELECT 
-        p.id as product_id, p.name as product_name, p.sku, p.category, p.unit_cost, p.selling_price as master_price,
+        p.id as product_id, p.name as product_name, p.sku, p.category, p.unit_cost, p.selling_price as master_price, p.parent_product_id, p.selling_unit,
         ds.id, ds.opening_stock, ds.added, ds.return_in, ds.transfer_out, ds.transfer_to_main, ds.qty_sold, ds.selling_price,
+        COALESCE(ds.adjustment_add, 0) as adjustment_add, COALESCE(ds.adjustment_sub, 0) as adjustment_sub,
         (
-            SELECT COALESCE(SUM(d2.added + d2.return_in - d2.transfer_out - d2.transfer_to_main - d2.qty_sold), 0)
+            SELECT COALESCE(SUM(d2.added + d2.return_in + COALESCE(d2.adjustment_add,0) - d2.transfer_out - d2.transfer_to_main - d2.qty_sold - COALESCE(d2.adjustment_sub,0)), 0)
             FROM department_stock d2 
             WHERE d2.department_id = ? AND d2.company_id = ? AND d2.client_id = ? AND d2.product_id = p.id AND d2.stock_date < ?
         ) as prior_balance
@@ -102,7 +118,7 @@ unset($row);
 
 // Load all products for "Add Product" dropdown (exclude already-added if they have stock today? No, exclude if they are already in the list)
 $existing_ids = array_map(fn($r) => $r['product_id'], $dept_stock);
-$stmt = $pdo->prepare("SELECT id, name, sku, category, selling_price FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL ORDER BY name");
+$stmt = $pdo->prepare("SELECT id, name, sku, category, selling_price, selling_unit, yield_per_unit, selling_unit_price FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL ORDER BY name");
 $stmt->execute([$company_id, $client_id]);
 $all_products = $stmt->fetchAll();
 $available_products = array_filter($all_products, fn($p) => !in_array($p['id'], $existing_ids));
@@ -118,16 +134,16 @@ $all_departments = $stmt->fetchAll();
 $other_departments = array_values(array_filter($all_departments, fn($d) => $d['id'] != $dept_id));
 $js_departments = json_encode($other_departments, JSON_HEX_TAG | JSON_HEX_APOS);
 
-// For Restaurant departments: load Kitchen products as an additional source
+// For Restaurant departments: load Kitchen products as an additional source (from ALL kitchens)
 $kitchen_products = [];
 if ($is_restaurant) {
-    // Find the Kitchen department
-    $stmt = $pdo->prepare("SELECT id FROM stock_departments WHERE company_id = ? AND client_id = ? AND type = 'kitchen' AND deleted_at IS NULL LIMIT 1");
+    // Find ALL Kitchen departments
+    $stmt = $pdo->prepare("SELECT id FROM stock_departments WHERE company_id = ? AND client_id = ? AND type = 'kitchen' AND deleted_at IS NULL");
     $stmt->execute([$company_id, $client_id]);
-    $kitchen_dept = $stmt->fetch();
-    if ($kitchen_dept) {
-        $kitchen_id = $kitchen_dept['id'];
-        // Get products in the Kitchen's inventory (distinct product_ids)
+    $kitchen_depts = $stmt->fetchAll();
+    $all_kitchen_products = [];
+    foreach ($kitchen_depts as $kd) {
+        $kitchen_id = $kd['id'];
         $stmt = $pdo->prepare("
             SELECT DISTINCT p.id, p.name, p.sku, p.category, p.selling_price 
             FROM products p 
@@ -136,10 +152,12 @@ if ($is_restaurant) {
             ORDER BY p.name
         ");
         $stmt->execute([$kitchen_id, $company_id, $client_id]);
-        $all_kitchen_products = $stmt->fetchAll();
-        // Exclude products already in this department
-        $kitchen_products = array_values(array_filter($all_kitchen_products, fn($p) => !in_array($p['id'], $existing_ids)));
+        foreach ($stmt->fetchAll() as $kp) {
+            $all_kitchen_products[$kp['id']] = $kp; // deduplicate by product ID
+        }
     }
+    // Exclude products already in this department
+    $kitchen_products = array_values(array_filter($all_kitchen_products, fn($p) => !in_array($p['id'], $existing_ids)));
 }
 $js_kitchen_products = json_encode($kitchen_products, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_is_kitchen = $is_kitchen ? 'true' : 'false';
@@ -339,6 +357,27 @@ $js_raw_materials = json_encode($raw_materials ?? [], JSON_HEX_TAG | JSON_HEX_AP
 $js_issue_destinations = json_encode($issue_destinations ?? [], JSON_HEX_TAG | JSON_HEX_APOS);
 $js_reconciliation = json_encode($reconciliation_data ?? [], JSON_HEX_TAG | JSON_HEX_APOS);
 
+// Load Daily Audit sales for linked outlet (reconciliation)
+$outlet_sales = [];
+$outlet_sales_total = 0;
+$outlet_id = intval($dept['outlet_id'] ?? 0);
+if ($outlet_id) {
+    $stmt = $pdo->prepare("SELECT id, transaction_date, shift, 
+        COALESCE(pos_amount,0) as pos_amount, 
+        COALESCE(cash_amount,0) as cash_amount, 
+        COALESCE(transfer_amount,0) as transfer_amount, 
+        COALESCE(declared_total,0) as declared_total,
+        (COALESCE(pos_amount,0) + COALESCE(cash_amount,0) + COALESCE(transfer_amount,0)) as actual_total,
+        notes
+        FROM sales_transactions 
+        WHERE company_id = ? AND client_id = ? AND outlet_id = ? AND transaction_date = ? AND deleted_at IS NULL 
+        ORDER BY shift, id");
+    $stmt->execute([$company_id, $client_id, $outlet_id, $stock_date]);
+    $outlet_sales = $stmt->fetchAll();
+    $outlet_sales_total = array_sum(array_column($outlet_sales, 'actual_total'));
+}
+$js_outlet_sales = json_encode($outlet_sales, JSON_HEX_TAG | JSON_HEX_APOS);
+
 // Load categories for catalog form
 $stmt = $pdo->prepare("SELECT DISTINCT category FROM products WHERE company_id = ? AND client_id = ? AND category IS NOT NULL AND category != '' AND deleted_at IS NULL ORDER BY category");
 $stmt->execute([$company_id, $client_id]);
@@ -371,11 +410,24 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                         <i data-lucide="arrow-left" class="w-5 h-5 text-slate-600"></i>
                     </a>
                     <div>
+                        <?php if ($parent_dept): ?>
+                        <div class="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+                            <a href="department_store.php?dept_id=<?= $parent_dept['id'] ?>" class="hover:text-indigo-500 transition-colors"><?= htmlspecialchars($parent_dept['name']) ?></a>
+                            <i data-lucide="chevron-right" class="w-3 h-3"></i>
+                            <span class="text-slate-600 dark:text-slate-300 font-semibold"><?= htmlspecialchars($dept['name']) ?></span>
+                        </div>
+                        <?php endif; ?>
                         <h2 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($dept['name']); ?></h2>
                         <p class="text-xs text-slate-500">
-                            <?php if ($is_kitchen): ?>
+                            <?php if ($dept_type === 'kitchen'): ?>
                                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[10px] font-bold mr-1">🍳 Shared Kitchen</span>
                                 Receives from Main Store — Supplies finished goods to Restaurant outlets
+                            <?php elseif ($dept_type === 'shisha'): ?>
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-[10px] font-bold mr-1">🌬️ Shisha Lounge</span>
+                                Receives tobacco, charcoal & accessories from Main Store — Tracks ingredient usage via recipes
+                            <?php elseif ($dept_type === 'cocktail'): ?>
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 text-[10px] font-bold mr-1">🍹 Cocktail Bar</span>
+                                Receives spirits, mixers & garnishes from Main Store — Tracks ingredient usage via recipes
                             <?php else: ?>
                                 Department inventory — linked to <span class="font-semibold text-indigo-600"><?php echo htmlspecialchars($dept['outlet_name'] ?? 'N/A'); ?></span>
                                 <?php if ($is_restaurant): ?>
@@ -398,8 +450,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                 </div>
             </div>
 
-            <!-- Stock Count Flashing Banner (inline, under date) -->
-            <div x-show="showCountBanner && stock.filter(r => parseInt(r.qty_sold||0) > 0).length < stock.length"
+            <div x-show="showCountBanner && countedProducts.length < stock.length"
                  x-transition:enter="transition ease-out duration-200"
                  x-transition:enter-start="opacity-0"
                  x-transition:enter-end="opacity-100"
@@ -410,8 +461,8 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                 <div class="inline-flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold shadow-md shadow-red-600/20">
                     <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
                     <span>Stock Count:</span>
-                    <span x-text="stock.filter(r => parseInt(r.qty_sold||0) > 0).length + ' / ' + stock.length"></span>
-                    <span class="bg-white/20 rounded px-1.5 py-0.5 text-[10px]" x-text="stock.length ? Math.round(stock.filter(r => parseInt(r.qty_sold||0) > 0).length / stock.length * 100) + '%' : '0%'"></span>
+                    <span x-text="countedProducts.length + ' / ' + stock.length"></span>
+                    <span class="bg-white/20 rounded px-1.5 py-0.5 text-[10px]" x-text="stock.length ? Math.round(countedProducts.length / stock.length * 100) + '%' : '0%'"></span>
                 </div>
             </div>
 
@@ -464,12 +515,12 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60 relative overflow-hidden">
                     <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Stock Counted</p>
                     <p class="text-xl font-black text-indigo-600">
-                        <span x-text="stock.filter(r => parseInt(r.qty_sold||0) > 0).length"></span>
+                        <span x-text="countedProducts.length"></span>
                         <span class="text-sm font-semibold text-slate-400">/ <span x-text="stock.length"></span></span>
                     </p>
                     <!-- Progress bar -->
                     <div class="mt-2 w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5">
-                        <div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-300" :style="'width:' + (stock.length ? Math.round(stock.filter(r => parseInt(r.qty_sold||0) > 0).length / stock.length * 100) : 0) + '%'"></div>
+                        <div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-300" :style="'width:' + (stock.length ? Math.round(countedProducts.length / stock.length * 100) : 0) + '%'"></div>
                     </div>
                 </div>
             </div>
@@ -482,15 +533,18 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                     </button>
                     <template x-if="isKitchen">
                         <button @click="activeTab = 'catalog'" :class="activeTab === 'catalog' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
-                            🍳 Kitchen Catalog
+                            <?= $recipe_emoji ?> <?= $recipe_label ?> Catalog
                         </button>
                     </template>
-                    <button @click="activeTab = 'count'" :class="activeTab === 'count' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors group">
-                        Stock Count <span class="ml-2 bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs group-hover:bg-slate-200 transaction-colors">Reconciliation</span>
+                    <button @click="activeTab = 'count'" :class="activeTab === 'count' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+                        Stock Count
+                    </button>
+                    <button @click="activeTab = 'recon'" :class="activeTab === 'recon' ? 'border-purple-500 text-purple-600 dark:text-purple-400' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+                        Reconciliation
                     </button>
                     <template x-if="isKitchen">
                         <button @click="activeTab = 'kitchen_recon'" :class="activeTab === 'kitchen_recon' ? 'border-purple-500 text-purple-600 dark:text-purple-400' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
-                            ⚖️ Kitchen Reconciliation
+                            ⚖️ <?= $recipe_label ?> Reconciliation
                         </button>
                     </template>
                 </nav>
@@ -505,7 +559,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                             <i :data-lucide="isKitchen ? 'chef-hat' : 'building-2'" class="w-4 h-4 text-white"></i>
                         </div>
                         <div>
-                            <h3 class="font-bold text-slate-900 dark:text-white text-sm" x-text="isKitchen ? 'Kitchen Inventory' : 'Department Inventory'"></h3>
+                            <h3 class="font-bold text-slate-900 dark:text-white text-sm" x-text="isKitchen ? '<?= $recipe_label ?> Inventory' : 'Department Inventory'"></h3>
                             <p class="text-[10px] text-slate-500" x-text="stock.length + ' products'"></p>
                         </div>
                     </div>
@@ -533,6 +587,8 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                 <th class="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Category</th>
                                 <th class="px-3 py-3 text-right text-[10px] font-bold text-slate-500 uppercase">Opening</th>
                                 <th class="px-3 py-3 text-right text-[10px] font-bold text-blue-500 uppercase">Added</th>
+                                <th class="px-3 py-3 text-right text-[10px] font-bold text-emerald-500 uppercase">Adj(+)</th>
+                                <th class="px-3 py-3 text-right text-[10px] font-bold text-red-500 uppercase">Adj(-)</th>
                                 <th class="px-3 py-3 text-right text-[10px] font-bold text-cyan-500 uppercase" x-show="!isKitchen">Inter-Dep TRF</th>
                                 <th class="px-3 py-3 text-right text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase">Total</th>
                                 <th class="px-3 py-3 text-right text-[10px] font-bold text-rose-500 uppercase" x-show="!isKitchen">Dept TRF Out</th>
@@ -560,11 +616,20 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                             <template x-for="r in group.items" :key="r.product_id">
                                 <tr x-show="isExpanded(group.category)" x-transition class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                                     <td class="px-3 py-3 text-center text-xs text-slate-400 font-mono" x-text="r._sn"></td>
-                                    <td class="px-3 py-3 font-semibold text-sm" x-text="r.product_name"></td>
+                                    <td class="px-3 py-3 font-semibold text-sm">
+                                        <template x-if="r.parent_product_id && parseInt(r.parent_product_id) > 0">
+                                            <span x-html="(() => { const su = (r.selling_unit || '').charAt(0).toUpperCase() + (r.selling_unit || '').slice(1); const idx = r.product_name.lastIndexOf(' ' + su); if (idx > 0) return r.product_name.substring(0, idx) + ' <span class=\'text-red-500 font-bold\'>' + su + '</span>'; return r.product_name; })()"></span>
+                                        </template>
+                                        <template x-if="!r.parent_product_id || parseInt(r.parent_product_id) === 0">
+                                            <span x-text="r.product_name"></span>
+                                        </template>
+                                    </td>
                                     <td class="px-3 py-3 font-mono text-xs text-slate-500" x-text="r.sku || '—'"></td>
                                     <td class="px-3 py-3 text-xs text-slate-500" x-text="r.category || '—'"></td>
                                     <td class="px-3 py-3 text-right font-mono text-sm" x-text="int(r.opening_stock)"></td>
                                     <td class="px-3 py-3 text-right font-mono text-sm text-blue-600" x-text="int(r.added)"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-emerald-600" x-text="int(r.adjustment_add)" :class="int(r.adjustment_add) > 0 ? 'font-bold' : ''"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-red-600" x-text="int(r.adjustment_sub)" :class="int(r.adjustment_sub) > 0 ? 'font-bold' : ''"></td>
                                     <td class="px-3 py-3 text-right font-mono text-sm text-cyan-600" x-show="!isKitchen" x-text="int(r.return_in)"></td>
                                     <td class="px-3 py-3 text-right font-bold text-sm" x-text="getTotal(r)"></td>
                                     <td class="px-3 py-3 text-right font-mono text-sm text-rose-600" x-show="!isKitchen" x-text="int(r.transfer_out)"></td>
@@ -578,6 +643,9 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                         <div class="flex items-center justify-center gap-1">
                                             <button @click.stop="openEdit(r)" class="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Update">
                                                 <i data-lucide="pencil" class="w-3 h-3"></i> Update
+                                            </button>
+                                            <button @click.stop="openAdjustment(r)" class="inline-flex items-center gap-1 px-2 py-1.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Adjust Stock">
+                                                <i data-lucide="plus-minus" class="w-3 h-3"></i>
                                             </button>
                                             <button @click.stop="removeProduct(r)" class="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Remove from Department">
                                                 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
@@ -598,9 +666,49 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
 
                 <!-- Stock Count Table -->
                 <div x-show="activeTab === 'count'" class="overflow-x-auto max-h-[600px] overflow-y-auto" style="display: none;">
-                    <div class="p-4 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-xs border-b border-amber-100 dark:border-amber-800 flex justify-between items-center">
-                        <p><i data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i> Enter <strong>Physical Closing Stock</strong>. The system will automatically calculate <template x-if="!isKitchen"><span><strong>Qty Sold</strong> and <strong>Revenue</strong></span></template><template x-if="isKitchen"><span><strong>Issued Qty</strong></span></template>.</p>
-                        <button @click="notify('Reminder: Save each row after counting', 'info')" class="underline hover:text-amber-900">Need Help?</button>
+                    <div class="p-4 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-xs border-b border-amber-100 dark:border-amber-800">
+                        <div class="flex justify-between items-center">
+                            <p><i data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i> Enter <strong>Physical Closing Stock</strong>. The system will automatically calculate <template x-if="!isKitchen"><span><strong>Qty Sold</strong> and <strong>Revenue</strong></span></template><template x-if="isKitchen"><span><strong>Issued Qty</strong></span></template>.</p>
+                            <button @click="showCountGuide = !showCountGuide" class="underline hover:text-amber-900 whitespace-nowrap ml-4 flex items-center gap-1">
+                                <i data-lucide="help-circle" class="w-3 h-3"></i> <span x-text="showCountGuide ? 'Hide Guide' : 'Stock Count Guide'"></span>
+                            </button>
+                        </div>
+                        <div x-show="showCountGuide" x-transition class="mt-3 bg-white dark:bg-slate-800 rounded-lg p-4 border border-amber-200 dark:border-amber-700 text-[11px] text-slate-700 dark:text-slate-300 space-y-3">
+                            <p class="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5"><i data-lucide="book-open" class="w-4 h-4 text-amber-600"></i> Stock Count Guide</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-100 dark:border-blue-800">
+                                    <p class="font-bold text-blue-700 dark:text-blue-300 mb-1">📋 How It Works</p>
+                                    <ol class="list-decimal list-inside space-y-1 text-blue-800 dark:text-blue-200">
+                                        <li><strong>System Total</strong> = Opening + Added + Returns − Transfers</li>
+                                        <li><strong>Adj</strong> column shows any adjustments applied</li>
+                                        <li>Enter the <strong>Physical Count</strong> from the shelf</li>
+                                        <li>Click <strong>Count</strong> to save (or <strong>Update</strong> to re-save)</li>
+                                        <li><strong>Calc. Sold</strong> = (System + Adj) − Physical Count</li>
+                                    </ol>
+                                </div>
+                                <div class="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-3 border border-emerald-100 dark:border-emerald-800">
+                                    <p class="font-bold text-emerald-700 dark:text-emerald-300 mb-1">📦 Excess Stock Discovered?</p>
+                                    <p class="mb-1">If physical count is <strong>higher</strong> than system total (positive variance), you have two options:</p>
+                                    <ul class="space-y-1">
+                                        <li class="flex items-start gap-1"><span class="text-emerald-600 font-bold">✓</span> <strong>Leave on shelf</strong> — simply enter the real count and save. The system records the surplus.</li>
+                                        <li class="flex items-start gap-1"><span class="text-amber-600 font-bold">±</span> <strong>Adjust & Transfer</strong> — go to the <em>Inventory</em> tab, use the <strong>± Adjust</strong> button to add the excess back, then use <strong>Transfer to Main</strong> to return it to the store.</li>
+                                    </ul>
+                                </div>
+                                <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 border border-red-100 dark:border-red-800">
+                                    <p class="font-bold text-red-700 dark:text-red-300 mb-1">⚠️ Shortage / Missing Stock?</p>
+                                    <p>If physical count is <strong>lower</strong> than expected (negative variance), enter the real count. The difference is recorded as <strong>Qty Sold</strong>. If it's not a sale (e.g. damage, theft), use the <strong>± Adjust</strong> button in the <em>Inventory</em> tab to subtract and log the reason.</p>
+                                </div>
+                                <div class="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-3 border border-violet-100 dark:border-violet-800">
+                                    <p class="font-bold text-violet-700 dark:text-violet-300 mb-1">💡 Tips</p>
+                                    <ul class="space-y-1">
+                                        <li>• Count <strong>before</strong> any new stock is issued for the day</li>
+                                        <li>• Use <strong>Update</strong> to correct a previously saved count</li>
+                                        <li>• Adjustments show in the <strong>Adj</strong> column automatically</li>
+                                        <li>• Revenue is calculated using the product's selling price</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <table class="w-full text-sm">
                         <thead class="bg-slate-50 dark:bg-slate-800/50 sticky top-0">
@@ -608,6 +716,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                 <th class="px-3 py-3 text-center text-[10px] font-bold text-slate-400 w-10">#</th>
                                 <th class="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Product</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-bold text-slate-500 uppercase bg-slate-100/50">System Total</th>
+                                <th class="px-3 py-3 text-center text-[10px] font-bold text-amber-600 uppercase bg-amber-50/50">Adj</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-bold text-emerald-600 uppercase bg-emerald-50/50 w-32">Physical Closing</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-bold text-blue-600 uppercase bg-blue-50/50" x-text="isKitchen ? 'Calc. Issued' : 'Calc. Sold'">Calc. Sold</th>
                                 <th class="px-3 py-3 text-right text-[10px] font-bold text-slate-500 uppercase" x-show="!isKitchen">Price</th>
@@ -618,7 +727,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                         <template x-for="group in groupedStock" :key="group.category + '_count'">
                         <tbody>
                             <tr @click="toggleGroup(group.category)" class="bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-800/50 cursor-pointer hover:from-slate-200 hover:to-slate-100 dark:hover:from-slate-700 dark:hover:to-slate-700/50 transition-all">
-                                <td colspan="8" class="px-4 py-2.5">
+                                <td colspan="9" class="px-4 py-2.5">
                                     <div class="flex items-center gap-2">
                                         <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200" :class="isExpanded(group.category) ? 'rotate-0' : '-rotate-90'"></i>
                                         <span class="w-2 h-2 rounded-full bg-amber-500"></span>
@@ -631,27 +740,56 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                 <tr x-show="isExpanded(group.category)" x-transition class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors" :class="{'bg-green-50/30': r.qty_sold > 0}">
                                     <td class="px-3 py-3 text-center text-xs text-slate-400 font-mono" x-text="r._sn"></td>
                                     <td class="px-3 py-3 font-semibold text-sm">
-                                        <div x-text="r.product_name"></div>
+                                        <div>
+                                            <template x-if="r.parent_product_id && parseInt(r.parent_product_id) > 0">
+                                                <span x-html="(() => { const su = (r.selling_unit || '').charAt(0).toUpperCase() + (r.selling_unit || '').slice(1); const idx = r.product_name.lastIndexOf(' ' + su); if (idx > 0) return r.product_name.substring(0, idx) + ' <span class=\'text-red-500 font-bold\'>' + su + '</span>'; return r.product_name; })()"></span>
+                                            </template>
+                                            <template x-if="!r.parent_product_id || parseInt(r.parent_product_id) === 0">
+                                                <span x-text="r.product_name"></span>
+                                            </template>
+                                        </div>
                                         <div class="text-[10px] text-slate-400" x-text="r.sku || '—'"></div>
                                     </td>
                                     <td class="px-3 py-3 text-center font-mono text-sm font-bold text-slate-600" x-text="getSystemTotal(r)"></td>
+                                    <td class="px-3 py-3 text-center font-mono text-sm font-bold"
+                                        :class="getNetAdjustment(r) < 0 ? 'text-red-600' : (getNetAdjustment(r) > 0 ? 'text-emerald-600' : 'text-slate-400')"
+                                        x-text="getNetAdjustment(r) > 0 ? '+' + getNetAdjustment(r) : getNetAdjustment(r)"></td>
                                     <td class="px-3 py-1 text-center">
                                         <input type="number" 
                                             :value="getPhysicalClosing(r)" 
-                                            @input="setPhysicalClosing(r, $event.target.value)"
-                                            class="w-full text-center font-bold bg-white dark:bg-slate-900 border rounded shadow-sm focus:ring-1 transition-colors"
-                                            :class="parseInt(r.qty_sold||0) > 0 
+                                            @input="setPhysicalClosing(r, $event.target.value); if (countedProducts.includes(r.product_id) && !dirtyProducts.includes(r.product_id)) dirtyProducts.push(r.product_id)"
+                                            class="w-full text-center font-bold bg-white dark:bg-slate-900 border-2 rounded-lg shadow-sm focus:ring-1 transition-colors"
+                                            :class="countedProducts.includes(r.product_id) 
                                                 ? 'text-emerald-600 border-emerald-400 focus:border-emerald-500 focus:ring-emerald-500 bg-emerald-50/50' 
-                                                : 'text-red-600 border-red-300 focus:border-red-500 focus:ring-red-500 bg-red-50/50'"
+                                                : 'text-violet-600 border-violet-300 focus:border-violet-500 focus:ring-violet-500/40'"
                                         >
                                     </td>
                                     <td class="px-3 py-3 text-center font-mono text-sm font-bold text-blue-600" x-text="getCalculatedSold(r)"></td>
                                     <td class="px-3 py-3 text-right font-mono text-xs text-slate-500" x-show="!isKitchen" x-text="'₦'+parseFloat(r.selling_price||0).toLocaleString()"></td>
                                     <td class="px-3 py-3 text-right font-mono text-sm font-bold text-slate-700 dark:text-slate-300" x-show="!isKitchen" x-text="'₦'+getCalculatedRevenue(r).toLocaleString()"></td>
                                     <td class="px-3 py-3 text-center">
-                                        <button @click="saveCount(r)" class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Save Count">
-                                            <i data-lucide="save" class="w-4 h-4"></i>
-                                        </button>
+                                        <!-- Not counted yet: purple Count button -->
+                                        <template x-if="!countedProducts.includes(r.product_id)">
+                                            <button @click="saveCount(r)"
+                                                class="inline-flex items-center gap-1 px-3 py-1.5 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm bg-gradient-to-r from-violet-500 to-purple-600">
+                                                <i data-lucide="check" class="w-3 h-3"></i>
+                                                <span>Count</span>
+                                            </button>
+                                        </template>
+                                        <!-- Counted & not edited: green Done badge -->
+                                        <template x-if="countedProducts.includes(r.product_id) && !dirtyProducts.includes(r.product_id)">
+                                            <span class="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 text-[10px] font-bold rounded-full">
+                                                <i data-lucide="check-circle" class="w-3 h-3"></i> Done
+                                            </span>
+                                        </template>
+                                        <!-- Counted but user edited: green Update button -->
+                                        <template x-if="countedProducts.includes(r.product_id) && dirtyProducts.includes(r.product_id)">
+                                            <button @click="saveCount(r)"
+                                                class="inline-flex items-center gap-1 px-3 py-1.5 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm bg-gradient-to-r from-emerald-500 to-green-600">
+                                                <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                                                <span>Update</span>
+                                            </button>
+                                        </template>
                                     </td>
                                 </tr>
                             </template>
@@ -681,13 +819,186 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                 </div>
             </div>
 
+            <!-- ===== Reconciliation Tab ===== -->
+            <div x-show="activeTab === 'recon'" class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden mt-6" style="display:none;">
+                <!-- Header -->
+                <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-purple-500/10 via-indigo-500/5 to-transparent flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
+                            <i data-lucide="scale" class="w-5 h-5 text-white"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold text-slate-800 dark:text-white">Stock Count Reconciliation</h3>
+                            <p class="text-[11px] text-slate-400">Comparing stock count sales vs Daily Audit system sales — linked to <span class="font-semibold text-indigo-500"><?= htmlspecialchars($dept['outlet_name'] ?? 'N/A') ?></span></p>
+                        </div>
+                    </div>
+                    <div class="px-3 py-1.5 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
+                        <span class="text-[10px] font-bold text-purple-500 uppercase">Date:</span>
+                        <span class="text-sm font-bold text-purple-700" x-text="stockDate"><?= $stock_date ?></span>
+                    </div>
+                </div>
+
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 p-6">
+                    <!-- Stock Count Sales -->
+                    <div class="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800">
+                        <p class="text-[10px] font-bold uppercase text-emerald-500 mb-1">Stock Count Sales</p>
+                        <p class="text-xl font-black text-emerald-700" x-text="'₦'+getStockCountSalesTotal().toLocaleString()"></p>
+                        <p class="text-[10px] text-emerald-500 mt-1" x-text="getStockCountSoldQty() + ' items sold'"></p>
+                    </div>
+                    <!-- System Sales (Daily Audit) -->
+                    <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+                        <p class="text-[10px] font-bold uppercase text-blue-500 mb-1">System Sales (Daily Audit)</p>
+                        <p class="text-xl font-black text-blue-700" x-text="'₦'+getSystemSalesTotal().toLocaleString()"></p>
+                        <p class="text-[10px] text-blue-500 mt-1" x-text="outletSales.length + ' transaction(s)'"></p>
+                    </div>
+                    <!-- Variance -->
+                    <div class="rounded-xl p-4 border" :class="getReconVariance() === 0 ? 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700' : (getReconVariance() > 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800')">
+                        <p class="text-[10px] font-bold uppercase mb-1" :class="getReconVariance() === 0 ? 'text-slate-500' : (getReconVariance() > 0 ? 'text-amber-500' : 'text-red-500')">Variance</p>
+                        <p class="text-xl font-black" :class="getReconVariance() === 0 ? 'text-slate-600' : (getReconVariance() > 0 ? 'text-amber-700' : 'text-red-700')" x-text="(getReconVariance() > 0 ? '+' : '') + '₦'+getReconVariance().toLocaleString()"></p>
+                        <p class="text-[10px] mt-1" :class="getReconVariance() === 0 ? 'text-slate-400' : (getReconVariance() > 0 ? 'text-amber-500' : 'text-red-500')" x-text="getReconVariance() === 0 ? 'Balanced' : (getReconVariance() > 0 ? 'System higher than stock count' : 'Stock count higher than system')"></p>
+                    </div>
+                    <!-- Status -->
+                    <div class="rounded-xl p-4 border" :class="getReconStatus() === 'matched' ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' : (getReconStatus() === 'variance' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700')">
+                        <p class="text-[10px] font-bold uppercase mb-1" :class="getReconStatus() === 'matched' ? 'text-emerald-500' : (getReconStatus() === 'variance' ? 'text-amber-500' : 'text-slate-400')">Status</p>
+                        <div class="flex items-center gap-2">
+                            <template x-if="getReconStatus() === 'matched'">
+                                <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-200 text-emerald-800 text-xs font-bold rounded-full"><i data-lucide="check-circle" class="w-4 h-4"></i> Matched</span>
+                            </template>
+                            <template x-if="getReconStatus() === 'variance'">
+                                <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-200 text-amber-800 text-xs font-bold rounded-full"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Variance</span>
+                            </template>
+                            <template x-if="getReconStatus() === 'incomplete'">
+                                <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-200 text-slate-600 text-xs font-bold rounded-full"><i data-lucide="clock" class="w-4 h-4"></i> Incomplete</span>
+                            </template>
+                            <template x-if="getReconStatus() === 'no_audit'">
+                                <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-600 text-xs font-bold rounded-full"><i data-lucide="x-circle" class="w-4 h-4"></i> No Audit Entry</span>
+                            </template>
+                        </div>
+                        <p class="text-[10px] mt-1.5" :class="getReconStatus() === 'matched' ? 'text-emerald-500' : (getReconStatus() === 'variance' ? 'text-amber-500' : 'text-slate-400')" x-text="countedProducts.length + '/' + stock.length + ' products counted'"></p>
+                    </div>
+                </div>
+
+                <!-- Per-Product Breakdown -->
+                <div class="px-6 pb-2">
+                    <h4 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-2">
+                        <i data-lucide="package" class="w-4 h-4 text-purple-500"></i> Stock Count — Per Product Breakdown
+                    </h4>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="bg-slate-50 dark:bg-slate-800/60">
+                                <th class="px-4 py-3 text-left text-[10px] font-bold uppercase text-slate-400">#</th>
+                                <th class="px-4 py-3 text-left text-[10px] font-bold uppercase text-slate-500">Product</th>
+                                <th class="px-4 py-3 text-center text-[10px] font-bold uppercase text-blue-500">System Total</th>
+                                <th class="px-4 py-3 text-center text-[10px] font-bold uppercase text-amber-500">Adj</th>
+                                <th class="px-4 py-3 text-center text-[10px] font-bold uppercase text-emerald-500">Physical Count</th>
+                                <th class="px-4 py-3 text-center text-[10px] font-bold uppercase text-purple-500">Qty Sold</th>
+                                <th class="px-4 py-3 text-right text-[10px] font-bold uppercase text-slate-500">Unit Price</th>
+                                <th class="px-4 py-3 text-right text-[10px] font-bold uppercase text-emerald-600">Sales Value</th>
+                                <th class="px-4 py-3 text-center text-[10px] font-bold uppercase text-slate-400">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="(r, idx) in stock" :key="r.product_id">
+                                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors border-t border-slate-100 dark:border-slate-800">
+                                    <td class="px-4 py-2.5 text-center text-xs text-slate-400" x-text="idx+1"></td>
+                                    <td class="px-4 py-2.5">
+                                        <p class="font-semibold text-slate-700 dark:text-slate-200" x-text="r.product_name"></p>
+                                    </td>
+                                    <td class="px-4 py-2.5 text-center font-bold text-blue-600" x-text="getSystemTotal(r)"></td>
+                                    <td class="px-4 py-2.5 text-center font-bold" :class="getNetAdjustment(r) > 0 ? 'text-emerald-600' : (getNetAdjustment(r) < 0 ? 'text-red-600' : 'text-slate-400')" x-text="getNetAdjustment(r) !== 0 ? (getNetAdjustment(r) > 0 ? '+'+getNetAdjustment(r) : getNetAdjustment(r)) : '—'"></td>
+                                    <td class="px-4 py-2.5 text-center font-bold" :class="countedProducts.includes(r.product_id) ? 'text-emerald-600' : 'text-slate-400'" x-text="countedProducts.includes(r.product_id) ? getPhysicalClosing(r) : '—'"></td>
+                                    <td class="px-4 py-2.5 text-center font-bold text-purple-600" x-text="countedProducts.includes(r.product_id) ? getCalculatedSold(r) : '—'"></td>
+                                    <td class="px-4 py-2.5 text-right text-xs text-slate-500" x-text="'₦'+parseFloat(r.selling_price||0).toLocaleString()"></td>
+                                    <td class="px-4 py-2.5 text-right font-bold text-emerald-600" x-text="countedProducts.includes(r.product_id) ? '₦'+(getCalculatedSold(r) * parseFloat(r.selling_price||0)).toLocaleString() : '—'"></td>
+                                    <td class="px-4 py-2.5 text-center">
+                                        <template x-if="countedProducts.includes(r.product_id)">
+                                            <span class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded-full"><i data-lucide="check" class="w-2.5 h-2.5"></i> Counted</span>
+                                        </template>
+                                        <template x-if="!countedProducts.includes(r.product_id)">
+                                            <span class="inline-flex items-center gap-0.5 px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-bold rounded-full"><i data-lucide="clock" class="w-2.5 h-2.5"></i> Pending</span>
+                                        </template>
+                                    </td>
+                                </tr>
+                            </template>
+                            <!-- Totals -->
+                            <tr class="bg-slate-50 dark:bg-slate-800/60 font-bold border-t-2 border-slate-200 dark:border-slate-700">
+                                <td colspan="5" class="px-4 py-3 text-right text-xs uppercase text-slate-500">TOTALS</td>
+                                <td class="px-4 py-3 text-center text-purple-600" x-text="getStockCountSoldQty()"></td>
+                                <td class="px-4 py-3"></td>
+                                <td class="px-4 py-3 text-right text-emerald-600" x-text="'₦'+getStockCountSalesTotal().toLocaleString()"></td>
+                                <td class="px-4 py-3 text-center text-xs" x-text="countedProducts.length+'/'+stock.length"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Daily Audit Transactions -->
+                <div class="px-6 pt-6 pb-2 border-t border-slate-200 dark:border-slate-700">
+                    <h4 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-2">
+                        <i data-lucide="file-text" class="w-4 h-4 text-blue-500"></i> Daily Audit — System Sales for <span class="text-indigo-600"><?= htmlspecialchars($dept['outlet_name'] ?? 'N/A') ?></span>
+                    </h4>
+                </div>
+                <div class="overflow-x-auto pb-4">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="bg-blue-50/50 dark:bg-blue-900/10">
+                                <th class="px-4 py-3 text-left text-[10px] font-bold uppercase text-slate-400">#</th>
+                                <th class="px-4 py-3 text-left text-[10px] font-bold uppercase text-slate-500">Shift</th>
+                                <th class="px-4 py-3 text-right text-[10px] font-bold uppercase text-blue-500">POS</th>
+                                <th class="px-4 py-3 text-right text-[10px] font-bold uppercase text-emerald-500">Cash</th>
+                                <th class="px-4 py-3 text-right text-[10px] font-bold uppercase text-purple-500">Transfer</th>
+                                <th class="px-4 py-3 text-right text-[10px] font-bold uppercase text-amber-500">Declared</th>
+                                <th class="px-4 py-3 text-right text-[10px] font-bold uppercase text-slate-700">System Sales</th>
+                                <th class="px-4 py-3 text-left text-[10px] font-bold uppercase text-slate-400">Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="(s, idx) in outletSales" :key="s.id">
+                                <tr class="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors border-t border-slate-100 dark:border-slate-800">
+                                    <td class="px-4 py-2.5 text-center text-xs text-slate-400" x-text="idx+1"></td>
+                                    <td class="px-4 py-2.5">
+                                        <span class="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 text-[10px] font-bold rounded-full" x-text="s.shift.replace('_',' ').replace(/\b\w/g, l => l.toUpperCase())"></span>
+                                    </td>
+                                    <td class="px-4 py-2.5 text-right font-bold text-blue-600" x-text="'₦'+parseFloat(s.pos_amount||0).toLocaleString()"></td>
+                                    <td class="px-4 py-2.5 text-right font-bold text-emerald-600" x-text="'₦'+parseFloat(s.cash_amount||0).toLocaleString()"></td>
+                                    <td class="px-4 py-2.5 text-right font-bold text-purple-600" x-text="'₦'+parseFloat(s.transfer_amount||0).toLocaleString()"></td>
+                                    <td class="px-4 py-2.5 text-right font-bold text-amber-600" x-text="'₦'+parseFloat(s.actual_total||0).toLocaleString()"></td>
+                                    <td class="px-4 py-2.5 text-right font-black text-slate-800 dark:text-white" x-text="'₦'+parseFloat(s.declared_total||0).toLocaleString()"></td>
+                                    <td class="px-4 py-2.5 text-xs text-slate-400 max-w-[150px] truncate" x-text="s.notes || '—'"></td>
+                                </tr>
+                            </template>
+                            <tr x-show="outletSales.length === 0">
+                                <td colspan="8" class="px-4 py-10 text-center text-slate-400">
+                                    <i data-lucide="file-x" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+                                    <p>No Daily Audit sales recorded for <strong><?= htmlspecialchars($dept['outlet_name'] ?? 'this outlet') ?></strong> on this date.</p>
+                                    <p class="text-[10px] mt-1">Go to <strong>Daily Audit</strong> to enter sales for this outlet.</p>
+                                </td>
+                            </tr>
+                            <!-- Totals -->
+                            <tr x-show="outletSales.length > 0" class="bg-blue-50/50 dark:bg-blue-900/10 font-bold border-t-2 border-slate-200 dark:border-slate-700">
+                                <td colspan="2" class="px-4 py-3 text-right text-xs uppercase text-slate-500">TOTALS</td>
+                                <td class="px-4 py-3 text-right text-blue-600" x-text="'₦'+outletSales.reduce((s,r) => s+parseFloat(r.pos_amount||0),0).toLocaleString()"></td>
+                                <td class="px-4 py-3 text-right text-emerald-600" x-text="'₦'+outletSales.reduce((s,r) => s+parseFloat(r.cash_amount||0),0).toLocaleString()"></td>
+                                <td class="px-4 py-3 text-right text-purple-600" x-text="'₦'+outletSales.reduce((s,r) => s+parseFloat(r.transfer_amount||0),0).toLocaleString()"></td>
+                                <td class="px-4 py-3 text-right text-amber-600" x-text="'₦'+outletSales.reduce((s,r) => s+parseFloat(r.actual_total||0),0).toLocaleString()"></td>
+                                <td class="px-4 py-3 text-right text-slate-800 dark:text-white" x-text="'₦'+outletSales.reduce((s,r) => s+parseFloat(r.declared_total||0),0).toLocaleString()"></td>
+                                <td class="px-4 py-3"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- ===== Kitchen Product Catalog with Recipe Builder ===== -->
             <div x-show="isKitchen && activeTab === 'catalog'" class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden" style="display:none;">
                 <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg"><i data-lucide="chef-hat" class="w-4 h-4 text-white"></i></div>
                         <div>
-                            <h3 class="font-bold text-slate-900 dark:text-white text-sm">🍳 Kitchen Product Catalog</h3>
+                            <h3 class="font-bold text-slate-900 dark:text-white text-sm"><?= $recipe_emoji ?> <?= $recipe_label ?> Product Catalog</h3>
                             <p class="text-[10px] text-slate-500">Create finished items from raw materials. Add ingredients to auto-calculate cost per plate.</p>
                         </div>
                     </div>
@@ -867,7 +1178,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                             <i data-lucide="scale" class="w-5 h-5 text-white"></i>
                         </div>
                         <div>
-                            <h3 class="text-base font-bold text-slate-800 dark:text-white">Kitchen Reconciliation</h3>
+                            <h3 class="text-base font-bold text-slate-800 dark:text-white"><?= $recipe_label ?> Reconciliation</h3>
                             <p class="text-[11px] text-slate-400">Daily tracking: Opening → Issued → Sold → Returned → Closing</p>
                         </div>
                     </div>
@@ -1108,10 +1419,27 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                 <input type="number" x-model="addForm.opening_stock" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
                             </div>
                             <div>
-                                <label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Price (₦)</label>
+                                <label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Price (₦) <span class="text-[9px]" x-text="addForm._selling_unit ? '(per ' + addForm._selling_unit + ')' : ''"></span></label>
                                 <input type="number" step="0.01" x-model="addForm.selling_price" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
                                 <p class="text-[10px] text-slate-400 mt-1" x-show="addForm._default_price > 0">Default: ₦<span x-text="parseFloat(addForm._default_price).toLocaleString()"></span> — <span class="text-emerald-600 font-semibold" x-show="parseFloat(addForm.selling_price) != parseFloat(addForm._default_price)">Overridden</span></p>
                             </div>
+                        </div>
+                        <!-- Per-department selling unit override -->
+                        <div x-show="addForm._hasSellingUnit" x-transition class="p-3 rounded-xl bg-violet-50/50 dark:bg-violet-900/10 border border-violet-200/50 dark:border-violet-800/30">
+                            <p class="text-[11px] font-bold text-violet-600 mb-3">🥃 This product is sold in <span x-text="addForm._selling_unit + 's'"></span> (default: <span x-text="addForm._yield_per_unit"></span> per <span x-text="addForm._store_unit"></span>)</p>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Unit for this Dept</label>
+                                    <select x-model="addForm.selling_unit" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
+                                        <option value="shot">Shot</option><option value="glass">Glass</option><option value="tot">Tot</option><option value="portion">Portion</option><option value="cup">Cup</option><option value="slice">Slice</option><option value="piece">Piece</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-semibold mb-1 block text-slate-500">Yield per <span x-text="addForm._store_unit || 'unit'" class="capitalize"></span></label>
+                                    <input type="number" min="1" x-model.number="addForm.yield_per_unit" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
+                                </div>
+                            </div>
+                            <p class="text-[10px] text-violet-500 mt-2">💡 When 1 <span x-text="addForm._store_unit" class="capitalize"></span> is issued, this dept receives <span x-text="addForm.yield_per_unit" class="font-bold"></span> <span x-text="addForm.selling_unit + 's'" class="capitalize"></span></p>
                         </div>
                         <div class="flex gap-3 pt-2">
                             <button type="button" @click="showAddModal = false" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 font-bold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
@@ -1237,6 +1565,86 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                 </div>
             </div>
 
+            <!-- Stock Adjustment Modal -->
+            <div x-show="adjustModal" x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" @click.self="adjustModal = false">
+                <div x-show="adjustModal" x-transition.scale.90 class="w-full max-w-sm glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden">
+                    <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg"><i data-lucide="plus-minus" class="w-4 h-4 text-white"></i></div>
+                            <div>
+                                <h3 class="font-bold text-sm text-slate-900 dark:text-white">Stock Adjustment</h3>
+                                <p class="text-[10px] text-slate-500" x-text="adjustForm.product_name"></p>
+                            </div>
+                        </div>
+                        <button @click="adjustModal = false" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-red-100 transition-colors"><i data-lucide="x" class="w-3.5 h-3.5 text-slate-500"></i></button>
+                    </div>
+                    <form @submit.prevent="submitAdjustment()" class="p-4 space-y-3">
+                        <!-- Direction -->
+                        <div>
+                            <label class="text-[10px] font-bold mb-1.5 block text-slate-500">Direction</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" @click="adjustForm.direction = 'subtract'"
+                                    :class="adjustForm.direction === 'subtract' ? 'ring-2 ring-red-500 border-red-400 bg-red-50 dark:bg-red-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
+                                    class="flex items-center gap-2 px-3 py-2 border rounded-lg text-left transition-all">
+                                    <i data-lucide="minus-circle" class="w-4 h-4 text-red-500"></i>
+                                    <div class="text-xs font-bold text-slate-700 dark:text-slate-200">Subtract</div>
+                                </button>
+                                <button type="button" @click="adjustForm.direction = 'add'"
+                                    :class="adjustForm.direction === 'add' ? 'ring-2 ring-emerald-500 border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
+                                    class="flex items-center gap-2 px-3 py-2 border rounded-lg text-left transition-all">
+                                    <i data-lucide="plus-circle" class="w-4 h-4 text-emerald-500"></i>
+                                    <div class="text-xs font-bold text-slate-700 dark:text-slate-200">Add</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Reason -->
+                        <div>
+                            <label class="text-[10px] font-bold mb-1.5 block text-slate-500">Reason *</label>
+                            <select x-model="adjustForm.reason" required class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all">
+                                <option value="damage">🔴 Damage</option>
+                                <option value="write_off">📝 Write-off</option>
+                                <option value="error_correction">⚠️ Error Correction</option>
+                                <option value="donation">🎁 Donation</option>
+                                <option value="expired">⏰ Expired</option>
+                                <option value="theft">🚨 Theft / Shortage</option>
+                                <option value="other">📋 Other</option>
+                            </select>
+                        </div>
+
+                        <!-- Quantity -->
+                        <div>
+                            <label class="text-[10px] font-bold mb-1.5 block text-slate-500">Quantity *</label>
+                            <input type="number" x-model.number="adjustForm.quantity" min="1" required
+                                class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                                placeholder="Enter quantity">
+                        </div>
+
+                        <!-- Notes -->
+                        <div>
+                            <label class="text-[10px] font-bold mb-1.5 block text-slate-500">Notes <span class="font-normal text-slate-400">(optional)</span></label>
+                            <input type="text" x-model="adjustForm.notes" placeholder="Brief description..."
+                                class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all">
+                        </div>
+
+                        <!-- Preview -->
+                        <div class="rounded-lg p-2.5 text-[11px]"
+                            :class="adjustForm.direction === 'subtract' ? 'bg-red-50 dark:bg-red-900/20 text-red-700' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700'">
+                            <span x-text="adjustForm.direction === 'subtract' ? '⬇️ Will subtract' : '⬆️ Will add'"></span>
+                            <strong x-text="adjustForm.quantity || 0"></strong>
+                            <span>units</span>
+                            <span x-text="adjustForm.direction === 'subtract' ? 'from' : 'to'"></span>
+                            <strong x-text="adjustForm.product_name"></strong>
+                        </div>
+
+                        <div class="flex gap-3 pt-1">
+                            <button type="button" @click="adjustModal = false" class="flex-1 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
+                            <button type="submit" class="flex-1 py-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all text-sm">Apply Adjustment</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
         </main>
     </div>
 </div>
@@ -1258,11 +1666,16 @@ function deptStoreApp() {
         editModal: false,
         stockDate: '<?php echo $stock_date; ?>',
         todayStr: new Date().toISOString().split('T')[0],
-        addForm: { product_id:'', opening_stock: 0, selling_price: 0, _default_price: 0, source: 'main_store' },
+        addForm: { product_id:'', opening_stock: 0, selling_price: 0, _default_price: 0, source: 'main_store', selling_unit:'', yield_per_unit:1, _hasSellingUnit: false, _selling_unit:'', _yield_per_unit:1, _store_unit:'pcs' },
         addMode: 'single',
         addSource: 'main_store',
         addCategoryName: '',
-        editForm: { id:'', product_id:'', product_name:'', opening_stock:0, added:0, return_in:0, transfer_out:0, qty_sold:0, selling_price:0, transfer_destination:'' },
+        editForm: { id:'', product_id:'', product_name:'', opening_stock:0, added:0, return_in:0, transfer_out:0, qty_sold:0, selling_price:0, transfer_destination:'', adjustment_add:0, adjustment_sub:0 },
+        adjustModal: false,
+        adjustForm: { product_id:'', product_name:'', direction:'subtract', reason:'damage', quantity:1, notes:'' },
+        countedProducts: [],
+        dirtyProducts: [],
+        showCountGuide: false,
         kitchenCatalogProducts: <?php echo $js_kitchen_catalog; ?>,
         kitchenCatalogForm: { name:'', sku:'', category:'', unit:'plates', unit_cost:0, selling_price:0, newCategory:'' },
         recipeIngredients: <?php echo $js_recipe_ingredients; ?>,
@@ -1276,6 +1689,7 @@ function deptStoreApp() {
         issueForm: { quantity: 1, destination_dept_id: '' },
         issueDestinations: <?php echo $js_issue_destinations; ?>,
         reconciliation: <?php echo $js_reconciliation; ?>,
+        outletSales: <?php echo $js_outlet_sales; ?>,
         productCategories: <?php echo $js_product_categories; ?>,
 
         get currentSourceProducts() {
@@ -1292,24 +1706,58 @@ function deptStoreApp() {
             this.$nextTick(() => lucide.createIcons());
         },
         isExpanded(cat) { return this.expandedGroups[cat] === true; },
-        getTotal(r) { return this.int(r.opening_stock) + this.int(r.added) + this.int(r.return_in); },
-        getClosing(r) { return this.getTotal(r) - this.int(r.transfer_out) - this.int(r.transfer_to_main) - this.int(r.qty_sold); },
+        getTotal(r) { return this.int(r.opening_stock) + this.int(r.added) + this.int(r.return_in) + this.int(r.adjustment_add); },
+        getClosing(r) { return this.getTotal(r) - this.int(r.transfer_out) - this.int(r.transfer_to_main) - this.int(r.qty_sold) - this.int(r.adjustment_sub); },
         editClosing() {
-            const t = (parseInt(this.editForm.opening_stock)||0)+(parseInt(this.editForm.added)||0)+(parseInt(this.editForm.return_in)||0);
-            return t - (parseInt(this.editForm.transfer_out)||0) - (parseInt(this.editForm.transfer_to_main)||0) - (parseInt(this.editForm.qty_sold)||0);
+            const t = (parseInt(this.editForm.opening_stock)||0)+(parseInt(this.editForm.added)||0)+(parseInt(this.editForm.return_in)||0)+(parseInt(this.editForm.adjustment_add)||0);
+            return t - (parseInt(this.editForm.transfer_out)||0) - (parseInt(this.editForm.transfer_to_main)||0) - (parseInt(this.editForm.qty_sold)||0) - (parseInt(this.editForm.adjustment_sub)||0);
         },
 
         // Stock Count Helpers
-        getSystemTotal(r) { return this.getTotal(r) - this.int(r.transfer_out) - this.int(r.transfer_to_main); },
-        getPhysicalClosing(r) { return this.getClosing(r); },
+        // System Total = raw system figure BEFORE adjustments (Opening + Added + Return In - Transfers)
+        getSystemTotal(r) { return this.int(r.opening_stock) + this.int(r.added) + this.int(r.return_in) - this.int(r.transfer_out) - this.int(r.transfer_to_main); },
+        // Net adjustment: positive = added, negative = subtracted
+        getNetAdjustment(r) { return this.int(r.adjustment_add) - this.int(r.adjustment_sub); },
+        // Adjusted system total (what we compare physical count against)
+        getAdjustedSystemTotal(r) { return this.getSystemTotal(r) + this.getNetAdjustment(r); },
+        getPhysicalClosing(r) { return this.getAdjustedSystemTotal(r) - this.int(r.qty_sold); },
         setPhysicalClosing(r, val) {
             const closing = parseInt(val) || 0;
-            const total = this.getSystemTotal(r);
-            const sold = total - closing;
+            const adjustedTotal = this.getAdjustedSystemTotal(r);
+            const sold = adjustedTotal - closing;
             r.qty_sold = sold; // Update local model
         },
         getCalculatedSold(r) { return this.int(r.qty_sold); },
         getCalculatedRevenue(r) { return this.int(r.qty_sold) * parseFloat(r.selling_price || 0); },
+
+        // Reconciliation helpers
+        getStockCountSalesTotal() {
+            return this.stock.reduce((sum, r) => {
+                if (!this.countedProducts.includes(r.product_id)) return sum;
+                return sum + (this.int(r.qty_sold) * parseFloat(r.selling_price || 0));
+            }, 0);
+        },
+        getStockCountSoldQty() {
+            return this.stock.reduce((sum, r) => {
+                if (!this.countedProducts.includes(r.product_id)) return sum;
+                return sum + this.int(r.qty_sold);
+            }, 0);
+        },
+        getSystemSalesTotal() {
+            return this.outletSales.reduce((sum, s) => sum + parseFloat(s.declared_total || 0), 0);
+        },
+        getDeclaredSalesTotal() {
+            return this.outletSales.reduce((sum, s) => sum + parseFloat(s.actual_total || 0), 0);
+        },
+        getReconVariance() {
+            return this.getSystemSalesTotal() - this.getStockCountSalesTotal();
+        },
+        getReconStatus() {
+            if (this.outletSales.length === 0) return 'no_audit';
+            if (this.countedProducts.length < this.stock.length) return 'incomplete';
+            if (Math.abs(this.getReconVariance()) < 0.01) return 'matched';
+            return 'variance';
+        },
 
         async saveCount(r) {
            const fd = new FormData();
@@ -1329,7 +1777,13 @@ function deptStoreApp() {
            try {
                const res = await (await fetch('../ajax/stock_api.php', { method: 'POST', body: fd })).json();
                if (res.success) {
+                   if (!this.countedProducts.includes(r.product_id)) {
+                       this.countedProducts.push(r.product_id);
+                   }
+                   // Remove from dirty list (it's saved now)
+                   this.dirtyProducts = this.dirtyProducts.filter(pid => pid !== r.product_id);
                    this.notify('Stock count saved', 'success');
+                   this.$nextTick(() => lucide.createIcons());
                } else {
                    this.notify(res.message || 'Error saving count', 'error');
                }
@@ -1394,6 +1848,49 @@ function deptStoreApp() {
             this.editModal = true;
         },
 
+        openAdjustment(r) {
+            this.adjustForm = {
+                product_id: r.product_id,
+                product_name: r.product_name,
+                direction: 'subtract',
+                reason: 'damage',
+                quantity: 1,
+                notes: ''
+            };
+            this.adjustModal = true;
+            this.$nextTick(() => lucide.createIcons());
+        },
+
+        async submitAdjustment() {
+            if (this.adjustForm.quantity <= 0) { alert('Quantity must be greater than 0'); return; }
+            const fd = new FormData();
+            fd.append('action', 'dept_stock_adjustment');
+            fd.append('department_id', <?php echo $dept_id; ?>);
+            fd.append('product_id', this.adjustForm.product_id);
+            fd.append('quantity', this.adjustForm.quantity);
+            fd.append('direction', this.adjustForm.direction);
+            fd.append('reason', this.adjustForm.reason);
+            fd.append('notes', this.adjustForm.notes);
+            fd.append('stock_date', this.stockDate);
+            const res = await fetch('../ajax/stock_api.php', { method: 'POST', body: fd });
+            const r = await res.json();
+            if (r.success) {
+                // Update local stock array immediately
+                const row = this.stock.find(s => s.product_id == this.adjustForm.product_id);
+                if (row) {
+                    if (this.adjustForm.direction === 'add') {
+                        row.adjustment_add = (parseInt(row.adjustment_add) || 0) + this.adjustForm.quantity;
+                    } else {
+                        row.adjustment_sub = (parseInt(row.adjustment_sub) || 0) + this.adjustForm.quantity;
+                    }
+                }
+                this.adjustModal = false;
+                this.$nextTick(() => lucide.createIcons());
+            } else {
+                alert(r.message || 'Adjustment failed');
+            }
+        },
+
         async addProduct() {
             if (!this.addForm.product_id) { alert('Please select a product'); return; }
             const fd = new FormData();
@@ -1404,6 +1901,10 @@ function deptStoreApp() {
             fd.append('selling_price', this.addForm.selling_price);
             fd.append('stock_date', this.stockDate);
             fd.append('source', this.addSource);
+            if (this.addForm._hasSellingUnit && this.addForm.selling_unit) {
+                fd.append('selling_unit', this.addForm.selling_unit);
+                fd.append('yield_per_unit', this.addForm.yield_per_unit);
+            }
             const r = await (await fetch('../ajax/stock_api.php', {method:'POST', body:fd})).json();
             if (r.success) { this.showAddModal = false; location.reload(); } else alert(r.message);
         },
@@ -1411,11 +1912,32 @@ function deptStoreApp() {
         onProductSelect() {
             const prod = this.currentSourceProducts.find(p => p.id == this.addForm.product_id);
             if (prod) {
-                this.addForm.selling_price = parseFloat(prod.selling_price || 0);
-                this.addForm._default_price = parseFloat(prod.selling_price || 0);
+                // If product has a selling_unit (shot product), use selling_unit_price as the selling price
+                if (prod.selling_unit) {
+                    this.addForm.selling_price = parseFloat(prod.selling_unit_price || prod.selling_price || 0);
+                    this.addForm._default_price = parseFloat(prod.selling_unit_price || prod.selling_price || 0);
+                    this.addForm._hasSellingUnit = true;
+                    this.addForm.selling_unit = prod.selling_unit;
+                    this.addForm.yield_per_unit = parseInt(prod.yield_per_unit || 1);
+                    this.addForm._selling_unit = prod.selling_unit;
+                    this.addForm._yield_per_unit = parseInt(prod.yield_per_unit || 1);
+                    this.addForm._store_unit = prod.unit || 'unit';
+                } else {
+                    this.addForm.selling_price = parseFloat(prod.selling_price || 0);
+                    this.addForm._default_price = parseFloat(prod.selling_price || 0);
+                    this.addForm._hasSellingUnit = false;
+                    this.addForm.selling_unit = '';
+                    this.addForm.yield_per_unit = 1;
+                    this.addForm._selling_unit = '';
+                    this.addForm._yield_per_unit = 1;
+                    this.addForm._store_unit = prod.unit || 'unit';
+                }
             } else {
                 this.addForm.selling_price = 0;
                 this.addForm._default_price = 0;
+                this.addForm._hasSellingUnit = false;
+                this.addForm.selling_unit = '';
+                this.addForm.yield_per_unit = 1;
             }
         },
 
@@ -1620,10 +2142,19 @@ function deptStoreApp() {
             this.$watch('recipeModal', () => this.$nextTick(() => lucide.createIcons()));
             this.$watch('activeTab', () => this.$nextTick(() => lucide.createIcons()));
 
+            // Pre-populate countedProducts from existing stock data (items with an id = already in DB)
+            this.stock.forEach(r => {
+                if (r.id && parseInt(r.id) > 0) {
+                    if (!this.countedProducts.includes(r.product_id)) {
+                        this.countedProducts.push(r.product_id);
+                    }
+                }
+            });
+
             // Stock count flashing banner: show 5s, hide 3s, repeat until all counted
             const self = this;
             function flashBanner() {
-                const counted = self.stock.filter(r => parseInt(r.qty_sold||0) > 0).length;
+                const counted = self.countedProducts.length;
                 const total = self.stock.length;
                 if (counted >= total && total > 0) { self.showCountBanner = false; return; }
                 self.showCountBanner = true;

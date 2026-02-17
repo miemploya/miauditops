@@ -183,25 +183,35 @@ try {
             
             log_audit($company_id, $user_id, 'outlet_created', 'setup', $outlet_id, "Outlet '$name' created for client '{$client['name']}'");
             
-            // Auto-create shared Kitchen department for Restaurant outlets
-            $kitchen_created = false;
+            // Auto-create Kitchen departments for Restaurant outlets (user chooses 0-3, capped at 3 total)
+            $kitchens_created = 0;
             if (strtolower($type) === 'restaurant') {
-                // Check if a Kitchen already exists for this client
-                $chk = $pdo->prepare("SELECT id FROM stock_departments WHERE client_id = ? AND company_id = ? AND type = 'kitchen' AND deleted_at IS NULL");
-                $chk->execute([$client_id, $company_id]);
-                if (!$chk->fetch()) {
-                    // Create the shared Kitchen
-                    $stmt = $pdo->prepare("INSERT INTO stock_departments (company_id, client_id, name, type, outlet_id, description, created_by) VALUES (?,?,?,?,NULL,?,?)");
-                    $stmt->execute([$company_id, $client_id, 'Kitchen', 'kitchen', 'Shared kitchen for all restaurant outlets — receives from Main Store, supplies finished goods to restaurants', $user_id]);
+                $kitchen_count = max(0, min(3, intval($_POST['kitchen_count'] ?? 1)));
+                
+                // Check how many kitchens already exist for this client — cap total at 3
+                $stmt = $pdo->prepare("SELECT COUNT(*) FROM stock_departments WHERE company_id = ? AND client_id = ? AND type = 'kitchen' AND deleted_at IS NULL");
+                $stmt->execute([$company_id, $client_id]);
+                $existing_kitchens = (int)$stmt->fetchColumn();
+                $allowed = max(0, 3 - $existing_kitchens);
+                $kitchen_count = min($kitchen_count, $allowed);
+                
+                // Number new kitchens starting after the highest existing number
+                $start_num = $existing_kitchens + 1;
+                for ($i = 0; $i < $kitchen_count; $i++) {
+                    $num = $start_num + $i;
+                    $kitchen_name = "Kitchen $num Dept";
+                    $kitchen_desc = "Kitchen for restaurant outlet '$name' — receives from Main Store, supplies finished goods to restaurants";
+                    $stmt = $pdo->prepare("INSERT INTO stock_departments (company_id, client_id, name, type, outlet_id, description, created_by) VALUES (?,?,?,?,?,?,?)");
+                    $stmt->execute([$company_id, $client_id, $kitchen_name, 'kitchen', $outlet_id, $kitchen_desc, $user_id]);
                     $kitchen_id = $pdo->lastInsertId();
-                    $kitchen_created = true;
-                    log_audit($company_id, $user_id, 'kitchen_auto_created', 'stock', $kitchen_id, "Kitchen auto-created for restaurant outlet '$name'");
+                    $kitchens_created++;
+                    log_audit($company_id, $user_id, 'kitchen_auto_created', 'stock', $kitchen_id, "Kitchen '$kitchen_name' auto-created for restaurant outlet '$name'");
                 }
             }
             
             $msg = "Outlet '$name' created";
-            if ($kitchen_created) $msg .= ". A shared Kitchen has been auto-created under Central Inventory.";
-            echo json_encode(['success' => true, 'id' => $outlet_id, 'kitchen_created' => $kitchen_created, 'message' => $msg]);
+            if ($kitchens_created > 0) $msg .= ". $kitchens_created kitchen(s) auto-created under Stock Audit.";
+            echo json_encode(['success' => true, 'id' => $outlet_id, 'kitchens_created' => $kitchens_created, 'message' => $msg]);
             break;
 
         case 'update_outlet':
