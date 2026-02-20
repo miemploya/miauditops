@@ -4,6 +4,7 @@
  * Client & Outlet Management Dashboard
  */
 require_once '../includes/functions.php';
+require_once '../config/sector_config.php';
 require_login();
 require_permission('company_setup');
 
@@ -17,6 +18,11 @@ $active_client_id = get_active_client();
 // Fetch outlets for active client (if any)
 $active_outlets = $active_client_id ? get_client_outlets($active_client_id) : [];
 $active_client = $active_client_id ? get_client($active_client_id, $company_id) : null;
+
+// Determine active client's sector
+$active_sector_key = strtolower($active_client['industry'] ?? 'other');
+$active_sector = get_sector_config($active_sector_key);
+$js_sectors = json_encode($SECTORS);
 
 // Stats
 $total_clients = count($clients);
@@ -141,20 +147,14 @@ foreach ($clients as $c) {
                                 <input type="text" x-model="clientForm.phone" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent" placeholder="+234 xxx xxx xxxx">
                             </div>
                             <div>
-                                <label class="text-xs font-bold uppercase text-slate-500 mb-1 block">Industry</label>
-                                <select x-model="clientForm.industry" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500">
-                                    <option value="">Select...</option>
-                                    <option value="Hospitality">Hospitality</option>
-                                    <option value="Restaurant">Restaurant</option>
-                                    <option value="Retail">Retail</option>
-                                    <option value="Manufacturing">Manufacturing</option>
-                                    <option value="Healthcare">Healthcare</option>
-                                    <option value="Education">Education</option>
-                                    <option value="Real Estate">Real Estate</option>
-                                    <option value="Entertainment">Entertainment</option>
-                                    <option value="Petroleum">Petroleum</option>
-                                    <option value="Other">Other</option>
+                                <label class="text-xs font-bold uppercase text-slate-500 mb-1 block">Industry / Sector *</label>
+                                <select x-model="clientForm.industry" required class="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500">
+                                    <option value="">Select Sector...</option>
+                                    <?php foreach ($SECTORS as $skey => $scfg): ?>
+                                    <option value="<?php echo $skey; ?>"><?php echo htmlspecialchars($scfg['label']); ?></option>
+                                    <?php endforeach; ?>
                                 </select>
+                                <p x-show="clientForm.industry" x-text="sectors[clientForm.industry]?.description || ''" class="text-[9px] text-slate-400 mt-1"></p>
                             </div>
                             <div>
                                 <label class="text-xs font-bold uppercase text-slate-500 mb-1 block">Address</label>
@@ -296,21 +296,13 @@ foreach ($clients as $c) {
                             <div>
                                 <label class="text-xs font-bold uppercase text-slate-500 mb-1 block">Outlet Type *</label>
                                 <select x-model="outletForm.type" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-emerald-500">
-                                    <option value="reception">Reception</option>
-                                    <option value="bar">Bar</option>
-                                    <option value="restaurant">Restaurant</option>
-                                    <option value="front_desk">Front Desk</option>
-                                    <option value="kitchen">Kitchen</option>
-                                    <option value="room_kitchen">Room Kitchen</option>
-                                    <option value="store">Store</option>
-                                    <option value="lounge">Lounge</option>
-                                    <option value="pool">Pool</option>
-                                    <option value="spa">Spa</option>
-                                    <option value="gym">Gym</option>
+                                    <template x-for="(label, key) in (sectors[activeSector]?.outlet_types || {})" :key="key">
+                                        <option :value="key" x-text="label"></option>
+                                    </template>
                                     <option value="other">Other (Custom)</option>
                                 </select>
-                                <!-- Kitchen Count Selector (shown only for Restaurant) -->
-                                <div x-show="outletForm.type === 'restaurant'" x-transition class="mt-2">
+                                <!-- Kitchen Count Selector (shown only when sector has_kitchen AND type is restaurant) -->
+                                <div x-show="sectors[activeSector]?.has_kitchen && outletForm.type === 'restaurant'" x-transition class="mt-2">
                                     <label class="text-[10px] font-bold uppercase text-amber-600 mb-1 block">🍳 Number of Kitchens</label>
                                     <select x-model="outletForm.kitchen_count" class="w-full px-3 py-2.5 rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500">
                                         <option value="0">0 — No Kitchen</option>
@@ -321,8 +313,12 @@ foreach ($clients as $c) {
                                     <p class="text-[9px] text-amber-500 mt-1">Kitchen departments will be auto-created for this restaurant</p>
                                 </div>
                                 <div x-show="outletForm.type === 'other'" x-transition class="mt-2">
-                                    <input type="text" x-model="outletForm.custom_type" class="w-full px-3 py-2.5 rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent" placeholder="Enter your custom type, e.g. Arcade, Poolside Bar">
+                                    <input type="text" x-model="outletForm.custom_type" class="w-full px-3 py-2.5 rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent" placeholder="Enter your custom type">
                                 </div>
+                                <!-- Sector Hint -->
+                                <p class="text-[9px] text-slate-400 mt-1">
+                                    <span class="font-bold" x-text="sectors[activeSector]?.label || 'General'"></span> sector outlet types
+                                </p>
                             </div>
                             <div>
                                 <label class="text-xs font-bold uppercase text-slate-500 mb-1 block">Short Code</label>
@@ -348,19 +344,58 @@ foreach ($clients as $c) {
                             <i data-lucide="store" class="w-8 h-8 text-emerald-400"></i>
                         </div>
                         <p class="text-sm font-bold text-slate-500">No outlets configured</p>
-                        <p class="text-xs text-slate-400">Add sales outlets like Reception, Bar, Front Desk, Kitchen, etc.</p>
+                        <p class="text-xs text-slate-400">Add outlets for your <strong><?php echo htmlspecialchars($active_sector['label']); ?></strong> client</p>
                     </div>
                     <?php else: ?>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <?php 
                         $outlet_colors = [
+                            // Hospitality
                             'reception' => ['from-blue-500 to-indigo-600', 'blue'],
                             'bar' => ['from-purple-500 to-violet-600', 'purple'],
                             'restaurant' => ['from-amber-500 to-orange-600', 'amber'],
                             'front_desk' => ['from-cyan-500 to-blue-600', 'cyan'],
                             'kitchen' => ['from-rose-500 to-red-600', 'rose'],
                             'room_kitchen' => ['from-red-500 to-rose-600', 'red'],
+                            'cafe' => ['from-amber-400 to-yellow-600', 'amber'],
+                            'hotel' => ['from-indigo-500 to-blue-600', 'indigo'],
+                            'banquet' => ['from-fuchsia-500 to-pink-600', 'fuchsia'],
+                            // Petroleum / Gas
+                            'filling_station' => ['from-orange-500 to-amber-600', 'orange'],
+                            'depot' => ['from-amber-600 to-orange-700', 'amber'],
+                            'lpg_plant' => ['from-red-500 to-orange-600', 'red'],
+                            'mini_mart' => ['from-emerald-500 to-teal-600', 'emerald'],
+                            'lube_bay' => ['from-slate-500 to-zinc-600', 'slate'],
+                            // Retail
                             'store' => ['from-emerald-500 to-green-600', 'emerald'],
+                            'warehouse' => ['from-slate-500 to-zinc-600', 'slate'],
+                            'kiosk' => ['from-lime-500 to-green-600', 'lime'],
+                            'ecommerce' => ['from-violet-500 to-purple-600', 'violet'],
+                            'showroom' => ['from-sky-500 to-blue-600', 'sky'],
+                            // Healthcare
+                            'clinic' => ['from-emerald-500 to-green-600', 'emerald'],
+                            'pharmacy' => ['from-teal-500 to-cyan-600', 'teal'],
+                            'lab' => ['from-blue-500 to-indigo-600', 'blue'],
+                            'ward' => ['from-rose-500 to-pink-600', 'rose'],
+                            'dental' => ['from-sky-500 to-cyan-600', 'sky'],
+                            // Construction
+                            'site' => ['from-amber-500 to-yellow-600', 'amber'],
+                            'yard' => ['from-stone-500 to-zinc-600', 'stone'],
+                            // Education
+                            'campus' => ['from-violet-500 to-purple-600', 'violet'],
+                            'admin' => ['from-indigo-500 to-blue-600', 'indigo'],
+                            'hostel' => ['from-amber-500 to-orange-600', 'amber'],
+                            'library' => ['from-emerald-500 to-teal-600', 'emerald'],
+                            // Logistics
+                            'fleet' => ['from-blue-500 to-cyan-600', 'blue'],
+                            'loading' => ['from-orange-500 to-amber-600', 'orange'],
+                            // Manufacturing
+                            'factory' => ['from-indigo-500 to-slate-600', 'indigo'],
+                            'assembly' => ['from-zinc-500 to-slate-600', 'zinc'],
+                            'qc_lab' => ['from-teal-500 to-emerald-600', 'teal'],
+                            // General
+                            'branch' => ['from-indigo-500 to-blue-600', 'indigo'],
+                            'office' => ['from-slate-500 to-zinc-600', 'slate'],
                             'lounge' => ['from-fuchsia-500 to-pink-600', 'fuchsia'],
                             'pool' => ['from-sky-500 to-blue-600', 'sky'],
                             'spa' => ['from-pink-500 to-rose-600', 'pink'],
@@ -368,8 +403,30 @@ foreach ($clients as $c) {
                             'other' => ['from-slate-500 to-slate-600', 'slate'],
                         ];
                         $outlet_icons = [
+                            // Hospitality
                             'reception' => 'bell', 'bar' => 'wine', 'restaurant' => 'utensils',
-                            'front_desk' => 'monitor', 'kitchen' => 'chef-hat', 'room_kitchen' => 'chef-hat', 'store' => 'shopping-bag',
+                            'front_desk' => 'monitor', 'kitchen' => 'chef-hat', 'room_kitchen' => 'chef-hat',
+                            'cafe' => 'coffee', 'hotel' => 'bed-double', 'banquet' => 'party-popper',
+                            // Petroleum / Gas
+                            'filling_station' => 'fuel', 'depot' => 'warehouse', 'lpg_plant' => 'flame',
+                            'mini_mart' => 'shopping-bag', 'lube_bay' => 'wrench',
+                            // Retail
+                            'store' => 'shopping-bag', 'warehouse' => 'warehouse', 'kiosk' => 'store',
+                            'ecommerce' => 'globe', 'showroom' => 'presentation',
+                            // Healthcare
+                            'clinic' => 'heart-pulse', 'pharmacy' => 'pill', 'lab' => 'flask-conical',
+                            'ward' => 'bed', 'dental' => 'smile',
+                            // Construction
+                            'site' => 'hard-hat', 'yard' => 'truck',
+                            // Education
+                            'campus' => 'graduation-cap', 'admin' => 'building-2', 'hostel' => 'home',
+                            'library' => 'book-open',
+                            // Logistics
+                            'fleet' => 'truck', 'loading' => 'container',
+                            // Manufacturing
+                            'factory' => 'factory', 'assembly' => 'cog', 'qc_lab' => 'microscope',
+                            // General
+                            'branch' => 'building-2', 'office' => 'briefcase',
                             'lounge' => 'sofa', 'pool' => 'waves', 'spa' => 'sparkles',
                             'gym' => 'dumbbell', 'other' => 'box'
                         ];
@@ -495,8 +552,13 @@ foreach ($clients as $c) {
                     <input type="text" id="edit_client_phone" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                 </div>
                 <div>
-                    <label class="text-xs font-bold uppercase text-slate-500 mb-1 block">Industry</label>
-                    <input type="text" id="edit_client_industry" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                    <label class="text-xs font-bold uppercase text-slate-500 mb-1 block">Industry / Sector</label>
+                    <select id="edit_client_industry" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500">
+                        <option value="">Select Sector...</option>
+                        <?php foreach ($SECTORS as $skey => $scfg): ?>
+                        <option value="<?php echo $skey; ?>"><?php echo htmlspecialchars($scfg['label']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="sm:col-span-2">
                     <label class="text-xs font-bold uppercase text-slate-500 mb-1 block">Address</label>
@@ -516,8 +578,10 @@ function companySetup() {
     return {
         activeTab: (window.location.hash === '#outlets') ? 'outlets' : 'clients',
         saving: false,
+        sectors: <?php echo $js_sectors; ?>,
+        activeSector: '<?php echo addslashes($active_sector_key); ?>',
         clientForm: { name: '', contact_person: '', email: '', phone: '', address: '', industry: '' },
-        outletForm: { name: '', type: 'reception', code: '', description: '', custom_type: '', kitchen_count: '1' },
+        outletForm: { name: '', type: Object.keys(<?php echo json_encode($active_sector['outlet_types']); ?>)[0] || 'other', code: '', description: '', custom_type: '', kitchen_count: '1' },
 
         switchTab(tab) {
             this.activeTab = tab;
@@ -558,8 +622,9 @@ function companySetup() {
             fd.append('name', this.outletForm.name);
             fd.append('type', finalType);
             fd.append('code', this.outletForm.code);
-            // Send kitchen_count for restaurant outlets
-            if (finalType === 'restaurant') {
+            // Send kitchen_count for restaurant outlets (only when sector supports kitchens)
+            const sectorCfg = this.sectors[this.activeSector];
+            if (sectorCfg?.has_kitchen && finalType === 'restaurant') {
                 fd.append('kitchen_count', this.outletForm.kitchen_count);
             }
             fd.append('description', this.outletForm.description);

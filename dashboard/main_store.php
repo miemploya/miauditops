@@ -6,6 +6,7 @@
  */
 require_once '../includes/functions.php';
 require_login();
+require_subscription('main_store');
 require_permission('main_store');
 require_active_client();
 $company_id = $_SESSION['company_id'];

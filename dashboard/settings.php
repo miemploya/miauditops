@@ -5,6 +5,7 @@
  */
 require_once '../includes/functions.php';
 require_login();
+require_subscription('settings');
 require_permission('settings');
 $company_id = $_SESSION['company_id'];
 $user_id    = $_SESSION['user_id'];

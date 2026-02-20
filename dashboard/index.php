@@ -13,6 +13,47 @@ $client_id    = get_active_client();
 $client_name  = $_SESSION['active_client_name'] ?? 'Client';
 $page_title   = 'Dashboard';
 
+// ========== SUBSCRIPTION DATA ==========
+require_once '../config/subscription_plans.php';
+$plan_key = 'starter';
+$plan_cfg = get_plan_config('starter');
+$sub_status = 'active';
+$sub_expires = null;
+$current_users = $current_clients = $current_outlets = $current_products = 0;
+$max_users = $max_clients = $max_outlets = $max_products = 0;
+try {
+    $sub = get_company_subscription($company_id);
+    $plan_key = $sub['plan_name'] ?? 'starter';
+    $plan_cfg = get_plan_config($plan_key);
+    $sub_status = $sub['status'] ?? 'active';
+    $sub_expires = $sub['expires_at'] ?? null;
+
+    // Current usage counts
+    $user_count_stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE company_id = ? AND deleted_at IS NULL");
+    $user_count_stmt->execute([$company_id]);
+    $current_users = (int)$user_count_stmt->fetchColumn();
+
+    $client_count_stmt = $pdo->prepare("SELECT COUNT(*) FROM clients WHERE company_id = ? AND deleted_at IS NULL");
+    $client_count_stmt->execute([$company_id]);
+    $current_clients = (int)$client_count_stmt->fetchColumn();
+
+    $outlet_count_stmt = $pdo->prepare("SELECT COUNT(*) FROM client_outlets WHERE company_id = ? AND deleted_at IS NULL");
+    $outlet_count_stmt->execute([$company_id]);
+    $current_outlets = (int)$outlet_count_stmt->fetchColumn();
+
+    $product_count_stmt = $pdo->prepare("SELECT COUNT(*) FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL");
+    $product_count_stmt->execute([$company_id, $client_id]);
+    $current_products = (int)$product_count_stmt->fetchColumn();
+
+    // Limit values
+    $max_users    = (int)($sub['max_users'] ?? $plan_cfg['max_users']);
+    $max_clients  = (int)($sub['max_clients'] ?? $plan_cfg['max_clients']);
+    $max_outlets  = (int)($sub['max_outlets'] ?? $plan_cfg['max_outlets']);
+    $max_products = (int)($sub['max_products'] ?? $plan_cfg['max_products']);
+} catch (Exception $e) {
+    // fail silently — defaults already set above
+}
+
 // ========== FETCH DASHBOARD METRICS ==========
 
 // Today's Revenue
@@ -132,6 +173,133 @@ for ($i = 6; $i >= 0; $i--) {
             <div class="mb-8">
                 <h2 class="text-2xl font-black text-slate-900 dark:text-white">Good <?php echo date('H') < 12 ? 'Morning' : (date('H') < 17 ? 'Afternoon' : 'Evening'); ?>, <?php echo htmlspecialchars($_SESSION['user_name']); ?> 👋</h2>
                 <p class="text-slate-500 dark:text-slate-400 mt-1">Here's your operations overview for <span class="font-semibold text-slate-700 dark:text-slate-300"><?php echo date('l, F j, Y'); ?></span></p>
+            </div>
+
+            <!-- Subscription Plan Widget -->
+            <?php
+            // Use inline styles to avoid Tailwind CDN missing dynamic class names
+            $plan_styles = [
+                'starter'      => ['header_bg' => 'linear-gradient(to right, #475569, #1e293b)', 'bar_bg' => '#64748b', 'icon_color' => '#94a3b8', 'glow' => '0 20px 40px rgba(100,116,139,0.15)'],
+                'professional' => ['header_bg' => 'linear-gradient(to right, #7c3aed, #3730a3)', 'bar_bg' => '#8b5cf6', 'icon_color' => '#a78bfa', 'glow' => '0 20px 40px rgba(139,92,246,0.20)'],
+                'enterprise'   => ['header_bg' => 'linear-gradient(to right, #f59e0b, #c2410c)', 'bar_bg' => '#f59e0b', 'icon_color' => '#fbbf24', 'glow' => '0 20px 40px rgba(245,158,11,0.20)'],
+            ];
+            $pc = $plan_styles[$plan_key] ?? $plan_styles['starter'];
+            $plan_icons = ['starter' => 'rocket', 'professional' => 'zap', 'enterprise' => 'crown'];
+            $plan_icon = $plan_icons[$plan_key] ?? 'rocket';
+            $days_left = $sub_expires ? max(0, (int)((strtotime($sub_expires) - time()) / 86400)) : null;
+            $is_unlimited = ($plan_key === 'enterprise');
+            ?>
+            <div class="mb-6 rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10"
+                 style="box-shadow: <?php echo $pc['glow']; ?>;">
+                <!-- Gradient Header -->
+                <div class="p-5 relative overflow-hidden"
+                     style="background: <?php echo $pc['header_bg']; ?>;">
+                    <div class="absolute -top-10 -right-10 w-40 h-40 rounded-full" style="background:rgba(255,255,255,0.05);filter:blur(32px);"></div>
+                    <div class="absolute bottom-0 left-0 w-32 h-32 rounded-full" style="background:rgba(255,255,255,0.05);filter:blur(40px);"></div>
+                    <div class="relative flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg"
+                                 style="background:rgba(255,255,255,0.2);backdrop-filter:blur(8px);">
+                                <i data-lucide="<?php echo $plan_icon; ?>" class="w-6 h-6" style="color:#fff;"></i>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-lg font-black text-white tracking-tight"><?php echo ucfirst($plan_key); ?> Plan</h3>
+                                    <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider"
+                                          style="<?php echo $sub_status === 'active'
+                                              ? 'background:rgba(52,211,153,0.25);color:#a7f3d0;'
+                                              : ($sub_status === 'trial'
+                                                  ? 'background:rgba(251,191,36,0.25);color:#fde68a;'
+                                                  : 'background:rgba(248,113,113,0.25);color:#fca5a5;'); ?>">
+                                        <?php echo ucfirst($sub_status); ?>
+                                    </span>
+                                </div>
+                                <p class="text-xs mt-0.5" style="color:rgba(255,255,255,0.65);">
+                                    <?php if ($days_left !== null && $sub_status !== 'expired'): ?>
+                                        <?php echo $days_left; ?> days remaining &middot; Expires <?php echo date('M j, Y', strtotime($sub_expires)); ?>
+                                    <?php elseif ($sub_status === 'expired'): ?>
+                                        Subscription expired
+                                    <?php elseif ($plan_key === 'starter'): ?>
+                                        Free forever &middot; No expiry
+                                    <?php else: ?>
+                                        Active subscription
+                                    <?php endif; ?>
+                                </p>
+                            </div>
+                        </div>
+                        <?php if ($plan_key !== 'enterprise'): ?>
+                        <a href="#" class="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-white text-xs font-bold rounded-xl transition-all shadow-lg"
+                           style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.15);"
+                           onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Upgrade Plan
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Usage Stats -->
+                <div class="bg-white dark:bg-slate-900 p-5">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <?php
+                        $ui_colors = [
+                            'users'    => ['bar' => '#3b82f6', 'icon' => '#3b82f6'],
+                            'clients'  => ['bar' => '#6366f1', 'icon' => '#6366f1'],
+                            'outlets'  => ['bar' => '#10b981', 'icon' => '#10b981'],
+                            'products' => ['bar' => '#f59e0b', 'icon' => '#f59e0b'],
+                        ];
+                        $ui_icons = ['users' => 'users', 'clients' => 'building', 'outlets' => 'map-pin', 'products' => 'package'];
+                        $usage_items = [
+                            ['label' => 'Users',    'current' => $current_users,    'max' => $max_users,    'key' => 'users'],
+                            ['label' => 'Clients',  'current' => $current_clients,  'max' => $max_clients,  'key' => 'clients'],
+                            ['label' => 'Outlets',  'current' => $current_outlets,  'max' => $max_outlets,  'key' => 'outlets'],
+                            ['label' => 'Products', 'current' => $current_products, 'max' => $max_products, 'key' => 'products'],
+                        ];
+                        foreach ($usage_items as $ui):
+                            $uc   = $ui_colors[$ui['key']];
+                            $ico  = $ui_icons[$ui['key']];
+                            $unlimited = $is_unlimited || $ui['max'] <= 0;
+                            $pct  = $unlimited ? 100 : min(100, round(($ui['current'] / max(1, $ui['max'])) * 100));
+                            $near_limit = !$unlimited && $pct >= 80;
+                            $bar_color  = $near_limit ? '#ef4444' : $uc['bar'];
+                        ?>
+
+                        <div>
+                            <div class="flex items-center justify-between mb-1.5">
+                                <div class="flex items-center gap-1.5">
+                                    <i data-lucide="<?php echo $ico; ?>" class="w-3.5 h-3.5" style="color:<?php echo $uc['icon']; ?>;"></i>
+                                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400"><?php echo $ui['label']; ?></span>
+                                </div>
+                                <span class="text-xs font-bold" style="color:<?php echo $near_limit ? '#ef4444' : 'inherit'; ?>;">
+                                    <?php echo $ui['current']; ?> / <?php echo $unlimited ? '&infin;' : $ui['max']; ?>
+                                </span>
+                            </div>
+                            <div class="w-full rounded-full h-1.5 overflow-hidden" style="background:#e2e8f0;">
+                                <div class="h-full rounded-full transition-all duration-500"
+                                     style="width:<?php echo $unlimited ? '100' : $pct; ?>%;background:<?php echo $bar_color; ?>;opacity:<?php echo $unlimited ? '0.35' : '1'; ?>;"></div>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <?php if ($plan_key !== 'enterprise'): ?>
+                    <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <div class="flex items-center gap-4 text-[11px] text-slate-400">
+                            <span class="flex items-center gap-1">
+                                <i data-lucide="database" class="w-3 h-3"></i>
+                                Data Retention: <strong class="text-slate-600 dark:text-slate-300"><?php echo $plan_cfg['data_retention_days'] > 0 ? $plan_cfg['data_retention_days'] . ' days' : 'Unlimited'; ?></strong>
+                            </span>
+                            <span class="flex items-center gap-1">
+                                <i data-lucide="file-down" class="w-3 h-3"></i>
+                                PDF Export: <strong style="color:<?php echo $plan_cfg['pdf_export'] ? '#10b981' : '#94a3b8'; ?>;"><?php echo $plan_cfg['pdf_export'] ? 'Enabled' : 'Locked'; ?></strong>
+                            </span>
+                        </div>
+                        <a href="#" class="sm:hidden inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-[10px] font-bold rounded-lg transition-all shadow-md"
+                           style="background:linear-gradient(to right,#8b5cf6,#4f46e5);">
+                            <i data-lucide="sparkles" class="w-3 h-3"></i> Upgrade
+                        </a>
+                    </div>
+                    <?php endif; ?>
+                </div>
             </div>
 
             <!-- KPI Strip — Top 4 -->

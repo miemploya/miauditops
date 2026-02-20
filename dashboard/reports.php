@@ -5,6 +5,7 @@
  */
 require_once '../includes/functions.php';
 require_login();
+require_subscription('reports');
 require_permission('reports');
 require_active_client();
 $company_id   = $_SESSION['company_id'];
@@ -897,6 +898,15 @@ $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
             'bar' => ['border' => 'border-indigo-200', 'header_bg' => 'bg-indigo-50', 'text' => 'text-indigo-700', 'dot' => 'bg-indigo-500'],
             'kitchen' => ['border' => 'border-amber-200', 'header_bg' => 'bg-amber-50', 'text' => 'text-amber-700', 'dot' => 'bg-amber-500'],
             'restaurant' => ['border' => 'border-rose-200', 'header_bg' => 'bg-rose-50', 'text' => 'text-rose-700', 'dot' => 'bg-rose-500'],
+            'filling_station' => ['border' => 'border-orange-200', 'header_bg' => 'bg-orange-50', 'text' => 'text-orange-700', 'dot' => 'bg-orange-500'],
+            'depot' => ['border' => 'border-amber-200', 'header_bg' => 'bg-amber-50', 'text' => 'text-amber-700', 'dot' => 'bg-amber-500'],
+            'store' => ['border' => 'border-emerald-200', 'header_bg' => 'bg-emerald-50', 'text' => 'text-emerald-700', 'dot' => 'bg-emerald-500'],
+            'clinic' => ['border' => 'border-teal-200', 'header_bg' => 'bg-teal-50', 'text' => 'text-teal-700', 'dot' => 'bg-teal-500'],
+            'pharmacy' => ['border' => 'border-cyan-200', 'header_bg' => 'bg-cyan-50', 'text' => 'text-cyan-700', 'dot' => 'bg-cyan-500'],
+            'factory' => ['border' => 'border-slate-200', 'header_bg' => 'bg-slate-50', 'text' => 'text-slate-700', 'dot' => 'bg-slate-500'],
+            'campus' => ['border' => 'border-violet-200', 'header_bg' => 'bg-violet-50', 'text' => 'text-violet-700', 'dot' => 'bg-violet-500'],
+            'warehouse' => ['border' => 'border-zinc-200', 'header_bg' => 'bg-zinc-50', 'text' => 'text-zinc-700', 'dot' => 'bg-zinc-500'],
+            'fleet' => ['border' => 'border-blue-200', 'header_bg' => 'bg-blue-50', 'text' => 'text-blue-700', 'dot' => 'bg-blue-500'],
         ];
         $dc = $dept_colors[$rs['dept_type']] ?? ['border' => 'border-purple-200', 'header_bg' => 'bg-purple-50', 'text' => 'text-purple-700', 'dot' => 'bg-purple-500'];
     ?>
@@ -1067,6 +1077,15 @@ $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
                             'main' => ['bg' => 'bg-teal-50', 'border' => 'border-teal-200', 'text' => 'text-teal-700', 'dot' => 'bg-teal-500'],
                             'kitchen' => ['bg' => 'bg-amber-50', 'border' => 'border-amber-200', 'text' => 'text-amber-700', 'dot' => 'bg-amber-500'],
                             'restaurant' => ['bg' => 'bg-rose-50', 'border' => 'border-rose-200', 'text' => 'text-rose-700', 'dot' => 'bg-rose-500'],
+                            'filling_station' => ['bg' => 'bg-orange-50', 'border' => 'border-orange-200', 'text' => 'text-orange-700', 'dot' => 'bg-orange-500'],
+                            'depot' => ['bg' => 'bg-amber-50', 'border' => 'border-amber-200', 'text' => 'text-amber-700', 'dot' => 'bg-amber-500'],
+                            'store' => ['bg' => 'bg-emerald-50', 'border' => 'border-emerald-200', 'text' => 'text-emerald-700', 'dot' => 'bg-emerald-500'],
+                            'clinic' => ['bg' => 'bg-teal-50', 'border' => 'border-teal-200', 'text' => 'text-teal-700', 'dot' => 'bg-teal-500'],
+                            'pharmacy' => ['bg' => 'bg-cyan-50', 'border' => 'border-cyan-200', 'text' => 'text-cyan-700', 'dot' => 'bg-cyan-500'],
+                            'factory' => ['bg' => 'bg-slate-50', 'border' => 'border-slate-200', 'text' => 'text-slate-700', 'dot' => 'bg-slate-500'],
+                            'campus' => ['bg' => 'bg-violet-50', 'border' => 'border-violet-200', 'text' => 'text-violet-700', 'dot' => 'bg-violet-500'],
+                            'warehouse' => ['bg' => 'bg-zinc-50', 'border' => 'border-zinc-200', 'text' => 'text-zinc-700', 'dot' => 'bg-zinc-500'],
+                            'fleet' => ['bg' => 'bg-blue-50', 'border' => 'border-blue-200', 'text' => 'text-blue-700', 'dot' => 'bg-blue-500'],
                             'department' => ['bg' => 'bg-indigo-50', 'border' => 'border-indigo-200', 'text' => 'text-indigo-700', 'dot' => 'bg-indigo-500'],
                         ];
                         $tc = $type_colors[$vd['dept_type']] ?? $type_colors['department'];

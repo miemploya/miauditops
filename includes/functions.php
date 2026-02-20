@@ -4,6 +4,7 @@
  */
 
 require_once dirname(__DIR__) . '/config/db.php';
+require_once dirname(__DIR__) . '/config/subscription_plans.php';
 
 // Start session if not already started
 if (session_status() === PHP_SESSION_NONE) {
@@ -537,6 +538,255 @@ function set_user_clients($user_id, $client_ids, $assigned_by) {
     foreach ($client_ids as $cid) {
         $stmt->execute([$user_id, $cid, $assigned_by]);
     }
+}
+
+// =====================================================
+// SUBSCRIPTION ENFORCEMENT
+// =====================================================
+
+/**
+ * Get the active subscription for a company.
+ * Returns the subscription row merged with plan config defaults.
+ * Cached per-request in a static variable.
+ */
+function get_company_subscription($company_id = null) {
+    static $cache = [];
+    $company_id = $company_id ?? ($_SESSION['company_id'] ?? 0);
+    if (isset($cache[$company_id])) return $cache[$company_id];
+
+    global $pdo;
+    $stmt = $pdo->prepare(
+        "SELECT * FROM company_subscriptions WHERE company_id = ? ORDER BY id DESC LIMIT 1"
+    );
+    $stmt->execute([$company_id]);
+    $sub = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$sub) {
+        // No subscription row — treat as starter
+        $sub = [
+            'plan_name' => 'starter',
+            'status'    => 'active',
+            'max_users' => 2,
+            'max_outlets' => 2,
+            'max_products' => 20,
+            'max_departments' => 1,
+            'max_clients' => 1,
+            'data_retention_days' => 90,
+            'billing_cycle' => 'monthly',
+            'pdf_export' => 0,
+            'viewer_role' => 0,
+            'station_audit' => 0,
+        ];
+    }
+
+    // Merge plan config for convenience
+    $sub['plan'] = get_plan_config($sub['plan_name']);
+    $cache[$company_id] = $sub;
+    return $sub;
+}
+
+/**
+ * Get the current company's plan key.
+ */
+function get_current_plan() {
+    $sub = get_company_subscription();
+    return $sub['plan_name'] ?? 'starter';
+}
+
+/**
+ * Check if the current subscription includes a module.
+ */
+function subscription_has_module($module) {
+    $plan = get_current_plan();
+    return plan_includes_module($plan, $module);
+}
+
+/**
+ * Require subscription access to a module.
+ * Shows a branded "Upgrade Required" page if the module is not in the plan.
+ * Call this AFTER require_login() and BEFORE require_permission().
+ */
+function require_subscription($module) {
+    // Super-admin / platform owner bypass
+    if (get_user_role() === 'super_admin') return;
+
+    $sub = get_company_subscription();
+    $plan = $sub['plan'] ?? get_plan_config('starter');
+
+    // Check subscription status
+    if (in_array($sub['status'] ?? '', ['expired', 'suspended'])) {
+        show_subscription_expired_page($plan);
+        exit;
+    }
+
+    // Check module access
+    if (!in_array($module, $plan['modules'])) {
+        show_upgrade_required_page($module, $plan);
+        exit;
+    }
+}
+
+/**
+ * Check if a tab within a module is allowed by the current plan.
+ * Returns true if allowed, false if locked.
+ */
+function subscription_allows_tab($module, $tab) {
+    if (get_user_role() === 'super_admin') return true;
+    $plan_key = get_current_plan();
+    return plan_allows_tab($plan_key, $module, $tab);
+}
+
+/**
+ * Check if a feature flag is enabled on the current plan.
+ * @param string $flag  e.g. 'pdf_export', 'viewer_role', 'station_audit'
+ */
+function subscription_has_feature($flag) {
+    if (get_user_role() === 'super_admin') return true;
+    $sub = get_company_subscription();
+    return !empty($sub[$flag]) || !empty($sub['plan'][$flag]);
+}
+
+/**
+ * Get the data retention cutoff date for the current plan.
+ * Returns null if unlimited.
+ */
+function get_subscription_retention_cutoff() {
+    $sub = get_company_subscription();
+    $days = (int)($sub['data_retention_days'] ?? 90);
+    if ($days <= 0) return null;
+    return date('Y-m-d', strtotime("-{$days} days"));
+}
+
+// ── Limit-check helpers ──
+
+/**
+ * Check a resource count against the subscription limit.
+ * Returns ['allowed' => bool, 'current' => int, 'max' => int]
+ * Max of 0 means unlimited.
+ */
+function check_subscription_limit($limit_key, $current_count) {
+    $sub = get_company_subscription();
+    $max = (int)($sub[$limit_key] ?? 0);
+    if ($max <= 0) return ['allowed' => true, 'current' => $current_count, 'max' => 0];
+    return [
+        'allowed' => $current_count < $max,
+        'current' => $current_count,
+        'max'     => $max,
+    ];
+}
+
+function check_user_limit($company_id = null) {
+    global $pdo;
+    $company_id = $company_id ?? $_SESSION['company_id'];
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE company_id = ? AND deleted_at IS NULL AND is_active = 1");
+    $stmt->execute([$company_id]);
+    return check_subscription_limit('max_users', (int)$stmt->fetchColumn());
+}
+
+function check_client_limit($company_id = null) {
+    global $pdo;
+    $company_id = $company_id ?? $_SESSION['company_id'];
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM clients WHERE company_id = ? AND deleted_at IS NULL");
+    $stmt->execute([$company_id]);
+    return check_subscription_limit('max_clients', (int)$stmt->fetchColumn());
+}
+
+function check_outlet_limit($company_id = null) {
+    global $pdo;
+    $company_id = $company_id ?? $_SESSION['company_id'];
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM client_outlets WHERE company_id = ? AND deleted_at IS NULL");
+    $stmt->execute([$company_id]);
+    return check_subscription_limit('max_outlets', (int)$stmt->fetchColumn());
+}
+
+function check_product_limit($company_id = null, $client_id = null) {
+    global $pdo;
+    $company_id = $company_id ?? $_SESSION['company_id'];
+    $client_id = $client_id ?? get_active_client();
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL");
+    $stmt->execute([$company_id, $client_id]);
+    return check_subscription_limit('max_products', (int)$stmt->fetchColumn());
+}
+
+function check_department_limit($company_id = null, $client_id = null) {
+    global $pdo;
+    $company_id = $company_id ?? $_SESSION['company_id'];
+    $client_id = $client_id ?? get_active_client();
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM departments WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL");
+    $stmt->execute([$company_id, $client_id]);
+    return check_subscription_limit('max_departments', (int)$stmt->fetchColumn());
+}
+
+// ── Upgrade / Expired pages ──
+
+function show_upgrade_required_page($module, $plan) {
+    $all_plans = get_all_plans();
+    $module_label = get_all_permissions()[$module]['label'] ?? ucfirst($module);
+    $current_label = $plan['label'] ?? 'Starter';
+
+    http_response_code(403);
+    echo '<!DOCTYPE html><html><head><title>Upgrade Required — MIAUDITOPS</title>';
+    echo '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">';
+    echo '<script src="https://cdn.tailwindcss.com"></script>';
+    echo '<script src="https://unpkg.com/lucide@latest"></script>';
+    echo '</head><body class="font-[Inter] bg-slate-950 text-white min-h-screen flex items-center justify-center p-6">';
+    echo '<div class="max-w-lg text-center">';
+
+    // Icon
+    echo '<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-violet-500/30 to-amber-500/30 flex items-center justify-center">';
+    echo '<i data-lucide="lock" class="w-10 h-10 text-amber-400"></i></div>';
+
+    // Message
+    echo '<h1 class="text-3xl font-black mb-2">Upgrade Required</h1>';
+    echo '<p class="text-slate-400 mb-1">The <span class="text-white font-semibold">' . htmlspecialchars($module_label) . '</span> module is not included in your current plan.</p>';
+    echo '<p class="text-slate-500 text-sm mb-8">You are on the <span class="font-bold text-violet-400">' . htmlspecialchars($current_label) . '</span> plan.</p>';
+
+    // Plan comparison mini-cards
+    echo '<div class="grid grid-cols-3 gap-3 mb-8">';
+    foreach ($all_plans as $key => $p) {
+        $active = ($key === ($plan['label'] ? strtolower($plan['label']) : 'starter'));
+        $border = $active ? 'border-violet-500 bg-violet-500/10' : 'border-slate-700 bg-slate-900/50 hover:border-slate-600';
+        $has_module = in_array($module, $p['modules']);
+        echo '<div class="p-4 rounded-xl border ' . $border . ' text-center transition-all">';
+        echo '<div class="text-xs uppercase tracking-wider text-slate-500 mb-1">' . $p['label'] . '</div>';
+        if ($active) echo '<div class="text-[10px] text-violet-400 mb-1">Current</div>';
+        echo '<div class="text-lg">' . ($has_module ? '✅' : '🔒') . '</div>';
+        echo '</div>';
+    }
+    echo '</div>';
+
+    // Buttons
+    echo '<div class="flex gap-3 justify-center">';
+    echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">← Dashboard</a>';
+    echo '<a href="settings.php" class="px-6 py-3 bg-gradient-to-r from-violet-600 to-amber-500 hover:from-violet-500 hover:to-amber-400 text-white font-bold rounded-xl transition-all">Upgrade Plan</a>';
+    echo '</div>';
+
+    echo '</div>';
+    echo '<script>lucide.createIcons();</script>';
+    echo '</body></html>';
+    exit;
+}
+
+function show_subscription_expired_page($plan) {
+    http_response_code(403);
+    echo '<!DOCTYPE html><html><head><title>Subscription Expired — MIAUDITOPS</title>';
+    echo '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">';
+    echo '<script src="https://cdn.tailwindcss.com"></script>';
+    echo '<script src="https://unpkg.com/lucide@latest"></script>';
+    echo '</head><body class="font-[Inter] bg-slate-950 text-white min-h-screen flex items-center justify-center p-6">';
+    echo '<div class="max-w-md text-center">';
+    echo '<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-red-500/20 flex items-center justify-center">';
+    echo '<i data-lucide="alert-triangle" class="w-10 h-10 text-red-400"></i></div>';
+    echo '<h1 class="text-3xl font-black mb-2">Subscription Expired</h1>';
+    echo '<p class="text-slate-400 mb-8">Your subscription has expired or been suspended. Please contact support or renew your plan to continue using MIAUDITOPS.</p>';
+    echo '<div class="flex gap-3 justify-center">';
+    echo '<a href="../auth/logout.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">Sign Out</a>';
+    echo '<a href="settings.php" class="px-6 py-3 bg-gradient-to-r from-red-600 to-amber-500 text-white font-bold rounded-xl transition-all">Renew Plan</a>';
+    echo '</div>';
+    echo '</div>';
+    echo '<script>lucide.createIcons();</script>';
+    echo '</body></html>';
+    exit;
 }
 
 ?>

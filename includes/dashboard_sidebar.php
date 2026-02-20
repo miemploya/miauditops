@@ -3,6 +3,7 @@
  * MIAUDITOPS — Dashboard Sidebar
  * Centralized vertical navigation with module groups
  */
+require_once __DIR__ . '/../config/sector_config.php';
 $current_page = basename($_SERVER['PHP_SELF']);
 $company = $company ?? get_company($_SESSION['company_id']);
 $company_initial = strtoupper(substr($company['name'] ?? 'M', 0, 1));
@@ -14,11 +15,21 @@ $active_client_code = $_SESSION['active_client_code'] ?? null;
 // Fetch clients for selector — filtered by assignment for non-admins
 $sidebar_clients = get_clients_for_user($_SESSION['company_id']);
 
+// Detect active client's sector for conditional menu items
+$_sidebar_client_sector = 'other';
+if ($active_client_id) {
+    $_sidebar_stmt = $pdo->prepare("SELECT industry FROM clients WHERE id = ? AND company_id = ?");
+    $_sidebar_stmt->execute([$active_client_id, $_SESSION['company_id']]);
+    $_sidebar_client_sector = strtolower($_sidebar_stmt->fetchColumn() ?: 'other');
+}
+$_is_petroleum = ($_sidebar_client_sector === 'petroleum');
+
 // Map page hrefs to permission keys for sidebar filtering
 $page_permission_map = [
     'index.php'            => 'dashboard',
     'company_setup.php'    => 'company_setup',
     'audit.php'            => 'audit',
+    'station_audit.php'    => 'audit',
     'stock.php'            => 'stock',
     'main_store.php'       => 'main_store',
     'department_store.php' => 'department_store',
@@ -26,7 +37,29 @@ $page_permission_map = [
     'requisitions.php'     => 'requisitions',
     'reports.php'          => 'reports',
     'settings.php'         => 'settings',
+    'trash.php'            => 'settings',
 ];
+
+// Map page hrefs to subscription module keys (may differ from permission keys)
+$page_subscription_map = [
+    'index.php'            => 'dashboard',
+    'company_setup.php'    => 'company_setup',
+    'audit.php'            => 'audit',
+    'station_audit.php'    => 'station_audit',
+    'stock.php'            => 'stock',
+    'main_store.php'       => 'main_store',
+    'department_store.php' => 'department_store',
+    'finance.php'          => 'finance',
+    'requisitions.php'     => 'requisitions',
+    'reports.php'          => 'reports',
+    'settings.php'         => 'settings',
+    'trash.php'            => 'trash',
+];
+try {
+    $_current_plan_key = get_current_plan();
+} catch (Exception $e) {
+    $_current_plan_key = 'starter';
+}
 
 // Navigation definition with role-based visibility
 $nav_sections = [
@@ -64,9 +97,19 @@ $nav_sections = [
         'items' => [
             ['label' => 'Reports', 'icon' => 'bar-chart-3', 'href' => 'reports.php', 'gradient' => 'from-cyan-500 to-blue-600', 'roles' => 'all'],
             ['label' => 'Settings', 'icon' => 'settings', 'href' => 'settings.php', 'gradient' => 'from-slate-500 to-slate-600', 'roles' => 'all'],
+            ['label' => 'Trash', 'icon' => 'trash-2', 'href' => 'trash.php', 'gradient' => 'from-red-500 to-rose-600', 'roles' => 'all'],
         ]
     ],
 ];
+
+// Add Station Audit below Intelligence for petroleum clients
+if ($_is_petroleum) {
+    $nav_sections['Station'] = [
+        'items' => [
+            ['label' => 'Station Audit', 'icon' => 'fuel', 'href' => 'station_audit.php', 'gradient' => 'from-orange-500 to-amber-600', 'roles' => 'all', 'badge' => 'NEW'],
+        ]
+    ];
+}
 ?>
 
 <!-- Mobile Overlay -->
@@ -123,7 +166,22 @@ $nav_sections = [
                 // Viewers cannot see Settings
                 if ($item['href'] === 'settings.php' && is_viewer()) continue;
                 $is_active = ($current_page === $item['href']);
+
+                // Subscription gating: check if module is in current plan
+                $sub_key = $page_subscription_map[$item['href']] ?? null;
+                $is_locked = $sub_key && !plan_includes_module($_current_plan_key, $sub_key);
                 ?>
+                <?php if ($is_locked): ?>
+                <a href="<?php echo $item['href']; ?>" 
+                   class="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 text-slate-400 dark:text-slate-600 opacity-60 hover:opacity-80 border-l-2 border-transparent cursor-pointer"
+                   title="Upgrade to access <?php echo $item['label']; ?>">
+                    <span class="w-8 h-8 rounded-lg bg-slate-300 dark:bg-slate-700 flex items-center justify-center shadow-sm">
+                        <i data-lucide="lock" class="w-4 h-4 text-slate-400 dark:text-slate-500"></i>
+                    </span>
+                    <span class="font-semibold"><?php echo $item['label']; ?></span>
+                    <span class="ml-auto px-1.5 py-0.5 rounded-md text-[8px] font-black tracking-wider bg-gradient-to-r from-violet-500 to-amber-500 text-white">PRO</span>
+                </a>
+                <?php else: ?>
                 <a href="<?php echo $item['href']; ?>" 
                    class="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 hover:translate-x-0.5
                    <?php echo $is_active 
@@ -133,7 +191,11 @@ $nav_sections = [
                         <i data-lucide="<?php echo $item['icon']; ?>" class="w-4 h-4 text-white"></i>
                     </span>
                     <span class="font-semibold"><?php echo $item['label']; ?></span>
+                    <?php if (!empty($item['badge'])): ?>
+                    <span class="ml-auto px-1.5 py-0.5 rounded-md text-[9px] font-black tracking-wider bg-red-500 text-white shadow-lg shadow-red-500/40 animate-pulse"><?php echo $item['badge']; ?></span>
+                    <?php endif; ?>
                 </a>
+                <?php endif; ?>
             <?php endforeach; ?>
             
         <?php endforeach; ?>

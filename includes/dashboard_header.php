@@ -40,6 +40,11 @@ $role_label = $role_labels[$current_user['role']] ?? 'User';
 
         <!-- Right: Controls -->
         <div class="flex items-center gap-2">
+            <!-- View Pricing -->
+            <a href="/pricing.php" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-800 hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-all">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> View Pricing
+            </a>
+
             <!-- Search -->
             <button class="p-2.5 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all hidden sm:flex">
                 <i data-lucide="search" class="w-5 h-5"></i>

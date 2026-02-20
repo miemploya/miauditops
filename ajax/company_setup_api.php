@@ -4,6 +4,7 @@
  * Handles client & outlet CRUD + active client switching
  */
 require_once '../includes/functions.php';
+require_once '../config/sector_config.php';
 require_login();
 
 $company_id = $_SESSION['company_id'] ?? 0;
@@ -183,9 +184,12 @@ try {
             
             log_audit($company_id, $user_id, 'outlet_created', 'setup', $outlet_id, "Outlet '$name' created for client '{$client['name']}'");
             
-            // Auto-create Kitchen departments for Restaurant outlets (user chooses 0-3, capped at 3 total)
+            // Auto-create Kitchen departments for Restaurant outlets if sector supports kitchens
             $kitchens_created = 0;
-            if (strtolower($type) === 'restaurant') {
+            // Look up the client's sector
+            $client_industry = strtolower($client['industry'] ?? 'other');
+            $client_sector = get_sector_config($client_industry);
+            if ($client_sector['has_kitchen'] && strtolower($type) === 'restaurant') {
                 $kitchen_count = max(0, min(3, intval($_POST['kitchen_count'] ?? 1)));
                 
                 // Check how many kitchens already exist for this client — cap total at 3

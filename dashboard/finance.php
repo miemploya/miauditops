@@ -5,6 +5,7 @@
  */
 require_once '../includes/functions.php';
 require_login();
+require_subscription('finance');
 require_permission('finance');
 require_active_client();
 $company_id = $_SESSION['company_id'];
@@ -405,7 +406,49 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>tailwind.config={darkMode:'class',theme:{extend:{fontFamily:{sans:['Inter','sans-serif']}}}}</script>
-    <style>[x-cloak]{display:none!important}.glass-card{background:linear-gradient(135deg,rgba(255,255,255,0.95) 0%,rgba(249,250,251,0.9) 100%);backdrop-filter:blur(20px)}.dark .glass-card{background:linear-gradient(135deg,rgba(15,23,42,0.95) 0%,rgba(30,41,59,0.9) 100%)}</style>
+    <style>[x-cloak]{display:none!important}.glass-card{background:linear-gradient(135deg,rgba(255,255,255,0.95) 0%,rgba(249,250,251,0.9) 100%);backdrop-filter:blur(20px)}.dark .glass-card{background:linear-gradient(135deg,rgba(15,23,42,0.95) 0%,rgba(30,41,59,0.9) 100%)}
+    /* A4 page ratio for dashboard preview */
+    .a4-page { aspect-ratio: 210/297; max-height: none; overflow: hidden; }
+    @media (min-width: 768px) { .a4-page { box-shadow: 0 4px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04); } }
+    @media print {
+        html, body, .flex.h-screen, main,
+        div[x-data="financeApp()"],
+        .flex-1 { height: auto !important; overflow: visible !important; position: static !important; display: block !important; }
+        nav, aside, header,
+        [x-data="sidebarComponent"],
+        #collapsed-toolbar, #mobile-menu-btn,
+        .dashboard-header, .dashboard-sidebar, .main-nav,
+        #viewer-banner { display: none !important; }
+        div[x-show="currentTab === 'revenue'"],
+        div[x-show="currentTab === 'expenses'"],
+        div[x-show="currentTab === 'cost_centers'"],
+        div[x-show="currentTab === 'valuation'"] { display: none !important; }
+        #pnl-printable { display: block !important; width: 100% !important; }
+        #pnl-printable * { visibility: visible !important; }
+        .grid.grid-cols-2.sm\:grid-cols-5,
+        .mb-6.flex.flex-wrap.gap-1\.5 { display: none !important; }
+        .print-hidden, .max-w-4xl.print-hidden { display: none !important; }
+        #pnl-printable #pnl-period-selector,
+        #pnl-period-selector,
+        #pnl-period-selector * { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; border: none !important; }
+        .print-show { display: block !important; max-height: none !important; overflow: visible !important; }
+        .print-only { display: block !important; visibility: visible !important; }
+        .print-card { box-shadow: none !important; border-radius: 0 !important; border: 1px solid #e2e8f0 !important; page-break-inside: avoid; }
+        .print-page-break { page-break-before: always; }
+        .pnl-section { page-break-before: always; page-break-inside: avoid; }
+        .pnl-section:first-child { page-break-before: auto; }
+        .cover-page { page-break-after: always; min-height: 100vh; display: flex !important; align-items: center !important; justify-content: center !important; visibility: visible !important; }
+        .cover-page * { visibility: visible !important; }
+        .a4-page { aspect-ratio: auto !important; overflow: visible !important; max-height: none !important; }
+        @page { margin: 15mm 12mm; size: A4; }
+        table { font-size: 11px !important; }
+        main { margin: 0 !important; padding: 0 !important; }
+        .dark\:bg-slate-900, .dark\:bg-slate-800, .dark\:bg-slate-950 { background: white !important; }
+        .dark\:text-white, .dark\:text-slate-300 { color: #1e293b !important; }
+        .dark\:border-slate-700, .dark\:border-slate-800 { border-color: #e2e8f0 !important; }
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+    </style>
 </head>
 <body class="font-sans bg-slate-100 dark:bg-slate-950 h-full" x-data="financeApp()" x-cloak>
 <div class="flex h-screen w-full">
@@ -447,7 +490,7 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
             </div>
 
             <!-- ========== TAB: Revenue ========== -->
-            <div x-show="currentTab === 'revenue'" x-transition>
+            <div x-show="currentTab === 'revenue'" x-cloak x-transition>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <!-- Revenue Chart -->
                     <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden p-6">
@@ -483,7 +526,7 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
             </div>
 
             <!-- ========== TAB: Expenses ========== -->
-            <div x-show="currentTab === 'expenses'" x-transition>
+            <div x-show="currentTab === 'expenses'" x-cloak x-transition>
                 <!-- Record Expense Form — Full Width Top -->
                 <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden mb-6">
                     <div class="px-6 py-3 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 to-transparent flex items-center justify-between">
@@ -685,7 +728,7 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
             </div>
 
             <!-- ========== TAB: Cost Centers ========== -->
-            <div x-show="currentTab === 'cost_centers'" x-transition>
+            <div x-show="currentTab === 'cost_centers'" x-cloak x-transition>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <!-- By Payment Method -->
                     <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden p-6">
@@ -728,39 +771,10 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
             </div>
 
             <!-- ========== TAB: P&L Statement ========== -->
-            <div x-show="currentTab === 'pnl'" x-transition id="pnl-printable">
-
-                <!-- Print CSS for PDF Export -->
-                <style>
-                    @media print {
-                        body * { visibility: hidden !important; }
-                        #pnl-printable, #pnl-printable * { visibility: visible !important; }
-                        #pnl-printable { position: absolute; left: 0; top: 0; width: 100%; }
-                        .print-hidden { display: none !important; }
-                        .print-show { display: block !important; max-height: none !important; overflow: visible !important; }
-                        .print-only { display: block !important; visibility: visible !important; }
-                        .print-card { box-shadow: none !important; border-radius: 0 !important; border: 1px solid #e2e8f0 !important; }
-                        .print-page-break { page-break-before: always; }
-                        @page { margin: 15mm 12mm; size: A4; }
-                        table { font-size: 11px !important; }
-                        .dark\:bg-slate-900 { background: white !important; }
-                        .dark\:text-white, .dark\:text-slate-300 { color: #1e293b !important; }
-                        /* Cover page print styles */
-                        .cover-page {
-                            page-break-after: always;
-                            min-height: 100vh;
-                            display: flex !important;
-                            align-items: center !important;
-                            justify-content: center !important;
-                            visibility: visible !important;
-                        }
-                        .cover-page * { visibility: visible !important; }
-                        #viewer-banner { display: none !important; }
-                    }
-                </style>
+            <div x-show="currentTab === 'pnl'" x-cloak x-transition id="pnl-printable">
 
                 <!-- ════════ PERIOD SELECTOR ════════ -->
-                <div class="max-w-4xl mx-auto mb-6 print-hidden" x-data="{ mode: '<?php echo $is_custom_range ? 'custom' : 'month'; ?>' }">
+                <div id="pnl-period-selector" class="max-w-4xl mx-auto mb-6 print-hidden" x-data="{ mode: '<?php echo $is_custom_range ? 'custom' : 'month'; ?>' }">
                     <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 px-6 py-4">
                         <div class="flex flex-wrap items-center gap-3 mb-3">
                             <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Report Period:</span>
@@ -795,9 +809,19 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <i data-lucide="refresh-cw" class="w-3 h-3"></i> View Report
                             </button>
                         </div>
-                        <!-- Download PDF Button -->
+                        <!-- PDF Options -->
                         <div class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                            <span class="text-[10px] text-slate-400">Current: <strong class="text-slate-600 dark:text-slate-300"><?php echo $month_label; ?></strong></span>
+                            <div class="flex items-center gap-4">
+                                <span class="text-[10px] text-slate-400">Current: <strong class="text-slate-600 dark:text-slate-300"><?php echo $month_label; ?></strong></span>
+                                <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                                    <input type="checkbox" x-model="showAppendix" class="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500">
+                                    <span class="text-[10px] font-semibold text-slate-500">Include Appendix</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                                    <input type="checkbox" x-model="showRecommendation" class="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500">
+                                    <span class="text-[10px] font-semibold text-slate-500">Include Recommendation</span>
+                                </label>
+                            </div>
                             <button onclick="window.print()" class="px-5 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold rounded-lg hover:opacity-80 transition-all flex items-center gap-2 shadow-lg">
                                 <i data-lucide="download" class="w-3.5 h-3.5"></i> Download PDF
                             </button>
@@ -808,9 +832,9 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                 <div class="max-w-4xl mx-auto space-y-6">
 
                     <!-- ════════════════════════════════════════════════════════ -->
-                    <!--  COVER PAGE (Print Only)                                -->
+                    <!--  COVER PAGE (Visible Preview + Print First Page)        -->
                     <!-- ════════════════════════════════════════════════════════ -->
-                    <div class="cover-page hidden print-only" style="display:none; align-items:center; justify-content:center;">
+                    <div class="cover-page a4-page bg-white rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden flex items-center justify-center">
                         <div style="border: 4px double #1e293b; padding: 60px 50px; width: 100%; max-width: 600px; margin: auto; text-align: center;">
                             <div style="border: 1px solid #94a3b8; padding: 50px 40px;">
                                 <p style="font-size: 22px; font-weight: 800; letter-spacing: 0.1em; color: #0f172a; text-transform: uppercase; margin-bottom: 30px;"><?php echo htmlspecialchars($client_name); ?></p>
@@ -820,7 +844,11 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <p style="font-size: 16px; font-weight: 600; color: #334155; margin-bottom: 8px;">Statement of Profit or Loss</p>
                                 <p style="font-size: 14px; color: #64748b; margin-bottom: 40px;">For the period ended <?php echo date('F j, Y', mktime(0,0,0,$month+1,0,$year)); ?></p>
                                 <div style="width: 80px; height: 2px; background: #1e293b; margin: 0 auto 20px;"></div>
-                                <p style="font-size: 10px; color: #94a3b8; letter-spacing: 0.15em; text-transform: uppercase;">Prepared: <?php echo date('d F Y'); ?></p>
+                                <p style="font-size: 10px; color: #94a3b8; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 6px;">Prepared: <?php echo date('d F Y'); ?></p>
+                                <div style="margin-top: 12px;">
+                                    <label style="font-size: 9px; color: #94a3b8; letter-spacing: 0.15em; text-transform: uppercase;">Prepared By:</label>
+                                    <input type="text" x-model="preparedBy" placeholder="Enter name(s)..." class="print-show" style="display: block; width: 100%; max-width: 320px; margin: 6px auto 0; text-align: center; font-size: 12px; font-weight: 600; color: #334155; border: none; border-bottom: 1px solid #cbd5e1; background: transparent; padding: 4px 8px; outline: none;" />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -828,7 +856,7 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                     <!-- ════════════════════════════════════════════════════════ -->
                     <!--  SECTION 1: STATEMENT OF PROFIT OR LOSS                -->
                     <!-- ════════════════════════════════════════════════════════ -->
-                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card">
+                    <div class="a4-page bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card pnl-section">
 
                         <!-- Statement Header -->
                         <div class="px-8 py-6 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border-b border-slate-200 dark:border-slate-700 text-center">
@@ -960,12 +988,12 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
 
                                     <!-- ═══ NET PROFIT / (LOSS) ═══ -->
                                     <tr><td colspan="3" class="pt-4"></td></tr>
-                                    <tr class="<?php echo $pnl_net_profit >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/10' : 'bg-red-50 dark:bg-red-900/10'; ?>">
-                                        <td class="py-4 pl-2 font-black text-base uppercase tracking-wider <?php echo $pnl_net_profit >= 0 ? 'text-emerald-800 dark:text-emerald-300' : 'text-red-800 dark:text-red-300'; ?>">
+                                    <tr class="bg-slate-50 dark:bg-slate-800/50">
+                                        <td class="py-3 pl-2 font-black text-slate-900 dark:text-white uppercase text-xs tracking-wider">
                                             Net <?php echo $pnl_net_profit >= 0 ? 'Profit' : 'Loss'; ?> for the Period
                                         </td>
-                                        <td class="text-right pr-4 text-xs font-bold <?php echo $pnl_net_profit >= 0 ? 'text-emerald-600' : 'text-red-600'; ?>"><?php echo number_format(abs($pnl_net_margin), 1); ?>%</td>
-                                        <td class="text-right text-xl font-black tabular-nums border-t-2 border-b-[3px] double border-slate-800 dark:border-slate-300 <?php echo $pnl_net_profit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600'; ?>">
+                                        <td class="text-right pr-4 text-xs text-slate-400"><?php echo number_format(abs($pnl_net_margin), 1); ?>%</td>
+                                        <td class="text-right font-black text-base tabular-nums border-t-2 border-b-2 border-slate-800 dark:border-slate-300 <?php echo $pnl_net_profit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600'; ?>">
                                             <?php echo $pnl_net_profit < 0 ? '(' . number_format(abs($pnl_net_profit), 2) . ')' : number_format($pnl_net_profit, 2); ?>
                                         </td>
                                     </tr>
@@ -973,22 +1001,16 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                             </table>
                         </div>
 
-                        <!-- Signatory Footer -->
-                        <div class="px-8 py-5 border-t border-slate-200 dark:border-slate-700">
-                            <div class="flex justify-between items-end">
-                                <p class="text-[10px] text-slate-400">Figures in brackets ( ) denote expense / deduction items.</p>
-                                <div class="text-right">
-                                    <p class="text-[10px] text-slate-400">_______________________________</p>
-                                    <p class="text-[10px] font-bold text-slate-500 mt-1">Authorized Signatory</p>
-                                </div>
-                            </div>
+                        <!-- Statement Footer -->
+                        <div class="px-8 py-4 border-t border-slate-200 dark:border-slate-700">
+                            <p class="text-[10px] text-slate-400">Figures in brackets ( ) denote expense / deduction items.</p>
                         </div>
                     </div>
 
                     <!-- ════════════════════════════════════════════════════════ -->
                     <!--  SECTION 2: NOTES TO THE ACCOUNTS                       -->
                     <!-- ════════════════════════════════════════════════════════ -->
-                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card">
+                    <div class="a4-page bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card pnl-section">
                         <!-- Notes Header -->
                         <div class="px-8 py-5 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border-b border-slate-200 dark:border-slate-700 text-center">
                             <p class="text-[18px] font-bold text-violet-700 uppercase tracking-wider mb-2"><?php echo htmlspecialchars($client_name); ?></p>
@@ -1156,7 +1178,7 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                     <!-- ════════════════════════════════════════════════════════ -->
                     <!--  SECTION 3: KEY PERFORMANCE METRICS                     -->
                     <!-- ════════════════════════════════════════════════════════ -->
-                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card print-page-break">
+                    <div class="a4-page bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card pnl-section">
 
                         <!-- Metrics Header -->
                         <div class="px-8 py-5 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border-b border-slate-200 dark:border-slate-700 text-center">
@@ -1319,7 +1341,8 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                     <!-- ════════════════════════════════════════════════════════ -->
                     <!--  SECTION 4: APPENDIX — SUPPORTING SCHEDULES             -->
                     <!-- ════════════════════════════════════════════════════════ -->
-                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card print-page-break" x-data="{ showSales: false, showPurchases: false, showClosing: false }">
+                    <template x-if="showAppendix">
+                    <div class="a4-page bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card pnl-section" x-data="{ showSales: false, showPurchases: false, showClosing: false }">
 
                         <!-- Appendix Header -->
                         <div class="px-8 py-5 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border-b border-slate-200 dark:border-slate-700 text-center">
@@ -1504,13 +1527,219 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                             <p class="text-[10px] text-slate-400">End of supporting schedules. These schedules should be read in conjunction with the Statement of Profit or Loss above.</p>
                         </div>
                     </div>
+                    </template>
+
+                    <!-- ════════════════════════════════════════════════════════ -->
+                    <!--  SECTION 5: FINANCIAL INFOGRAPHIC                      -->
+                    <!-- ════════════════════════════════════════════════════════ -->
+                    <div class="a4-page bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card pnl-section">
+
+                        <!-- Infographic Header -->
+                        <div class="px-8 py-5 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border-b border-slate-200 dark:border-slate-700 text-center">
+                            <p class="text-[18px] font-bold text-violet-700 uppercase tracking-wider mb-2"><?php echo htmlspecialchars($client_name); ?></p>
+                            <h2 class="text-lg font-black text-slate-900 dark:text-white tracking-tight">FINANCIAL OVERVIEW — INFOGRAPHIC</h2>
+                            <p class="text-xs text-slate-500 mt-1">For the period ended <?php echo date('F j, Y', mktime(0,0,0,$month+1,0,$year)); ?></p>
+                        </div>
+
+                        <div class="px-8 py-6 space-y-6">
+
+                            <!-- Row 1: Revenue Waterfall + Profit/Loss Gauge -->
+                            <div class="grid grid-cols-2 gap-6">
+
+                                <!-- P&L Waterfall -->
+                                <div class="border border-slate-200 dark:border-slate-700 rounded-xl p-5">
+                                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Profit & Loss Waterfall</h3>
+                                    <?php
+                                    $waterfall_items = [
+                                        ['label' => 'Revenue',        'value' => $monthly_revenue,  'color' => 'bg-emerald-500', 'text' => 'text-emerald-700'],
+                                        ['label' => 'Cost of Sales',  'value' => -$pnl_cos,         'color' => 'bg-red-400',     'text' => 'text-red-600'],
+                                        ['label' => 'Gross Profit',   'value' => $pnl_gross_profit, 'color' => 'bg-blue-500',    'text' => 'text-blue-700'],
+                                        ['label' => 'OpEx',           'value' => -$opex,            'color' => 'bg-orange-400',  'text' => 'text-orange-600'],
+                                        ['label' => 'Admin',          'value' => -$admin,           'color' => 'bg-violet-400',  'text' => 'text-violet-600'],
+                                        ['label' => 'Net ' . ($pnl_net_profit >= 0 ? 'Profit' : 'Loss'), 'value' => $pnl_net_profit, 'color' => $pnl_net_profit >= 0 ? 'bg-emerald-600' : 'bg-red-600', 'text' => $pnl_net_profit >= 0 ? 'text-emerald-700' : 'text-red-700'],
+                                    ];
+                                    $max_waterfall = max(array_map(function($i){ return abs($i['value']); }, $waterfall_items)) ?: 1;
+                                    foreach ($waterfall_items as $wi):
+                                        $pct = min(100, (abs($wi['value']) / $max_waterfall) * 100);
+                                    ?>
+                                    <div class="flex items-center gap-2 mb-2.5">
+                                        <span class="w-20 text-[9px] font-bold text-slate-500 text-right truncate"><?php echo $wi['label']; ?></span>
+                                        <div class="flex-1 h-5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative">
+                                            <div class="h-full <?php echo $wi['color']; ?> rounded-full transition-all" style="width: <?php echo $pct; ?>%"></div>
+                                        </div>
+                                        <span class="w-24 text-[10px] font-black <?php echo $wi['text']; ?> text-right tabular-nums">
+                                            <?php echo $wi['value'] < 0 ? '(' . number_format(abs($wi['value']), 0) . ')' : number_format($wi['value'], 0); ?>
+                                        </span>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+
+                                <!-- Profit Gauge -->
+                                <div class="border border-slate-200 dark:border-slate-700 rounded-xl p-5 flex flex-col items-center justify-center">
+                                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Financial Health Score</h3>
+                                    <?php
+                                    // Score: combine gross margin + net margin (capped at 100)
+                                    $health_score = min(100, max(0, ($pnl_gross_margin * 0.5) + ($pnl_net_margin > 0 ? $pnl_net_margin * 0.5 : 0)));
+                                    $health_color = $health_score >= 60 ? 'text-emerald-600' : ($health_score >= 30 ? 'text-amber-600' : 'text-red-600');
+                                    $health_bg = $health_score >= 60 ? 'bg-emerald-500' : ($health_score >= 30 ? 'bg-amber-500' : 'bg-red-500');
+                                    $health_label = $health_score >= 60 ? 'Healthy' : ($health_score >= 30 ? 'Fair' : 'Needs Attention');
+                                    ?>
+                                    <div class="relative w-32 h-32 mb-3">
+                                        <svg class="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
+                                            <circle cx="60" cy="60" r="50" fill="none" stroke-width="12" class="stroke-slate-200 dark:stroke-slate-700"/>
+                                            <circle cx="60" cy="60" r="50" fill="none" stroke-width="12" stroke-linecap="round" class="<?php echo str_replace('bg-', 'stroke-', $health_bg); ?>" stroke-dasharray="<?php echo $health_score * 3.14; ?> 314" style="transition: stroke-dasharray 1s;"/>
+                                        </svg>
+                                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                            <span class="text-2xl font-black <?php echo $health_color; ?>"><?php echo number_format($health_score, 0); ?></span>
+                                            <span class="text-[8px] font-bold text-slate-400 uppercase">/100</span>
+                                        </div>
+                                    </div>
+                                    <span class="text-xs font-black <?php echo $health_color; ?> uppercase tracking-wider"><?php echo $health_label; ?></span>
+                                    <p class="text-[8px] text-slate-400 mt-1 text-center">Based on gross & net margins</p>
+                                </div>
+
+                            </div>
+
+                            <!-- Row 2: Revenue Channels + Expense Breakdown -->
+                            <div class="grid grid-cols-2 gap-6">
+
+                                <!-- Revenue Channels -->
+                                <div class="border border-slate-200 dark:border-slate-700 rounded-xl p-5">
+                                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Revenue by Channel</h3>
+                                    <?php
+                                    $channels = [
+                                        ['label' => 'POS',      'value' => $monthly_pos,      'color' => 'bg-blue-500',   'text' => 'text-blue-600'],
+                                        ['label' => 'Cash',     'value' => $monthly_cash,     'color' => 'bg-emerald-500','text' => 'text-emerald-600'],
+                                        ['label' => 'Transfer', 'value' => $monthly_transfer, 'color' => 'bg-violet-500', 'text' => 'text-violet-600'],
+                                    ];
+                                    ?>
+                                    <div class="space-y-3">
+                                        <?php foreach ($channels as $ch):
+                                            $ch_pct = $monthly_revenue > 0 ? ($ch['value'] / $monthly_revenue) * 100 : 0;
+                                        ?>
+                                        <div>
+                                            <div class="flex justify-between items-center mb-1">
+                                                <span class="text-[10px] font-bold text-slate-600 dark:text-slate-400"><?php echo $ch['label']; ?></span>
+                                                <span class="text-[10px] font-black <?php echo $ch['text']; ?> tabular-nums"><?php echo format_currency($ch['value']); ?> <span class="text-slate-400 font-semibold">(<?php echo number_format($ch_pct, 1); ?>%)</span></span>
+                                            </div>
+                                            <div class="h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                                <div class="h-full <?php echo $ch['color']; ?> rounded-full" style="width: <?php echo $ch_pct; ?>%"></div>
+                                            </div>
+                                        </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between">
+                                        <span class="text-[9px] font-bold text-slate-400 uppercase">Total Revenue</span>
+                                        <span class="text-xs font-black text-slate-800 dark:text-white tabular-nums"><?php echo format_currency($monthly_revenue); ?></span>
+                                    </div>
+                                </div>
+
+                                <!-- Expense Breakdown Donut -->
+                                <div class="border border-slate-200 dark:border-slate-700 rounded-xl p-5">
+                                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Expense Distribution</h3>
+                                    <?php
+                                    $exp_items = [
+                                        ['label' => 'Cost of Sales',  'value' => $pnl_cos, 'color' => 'bg-orange-500', 'dot' => 'bg-orange-500'],
+                                        ['label' => 'Operating',      'value' => $opex,    'color' => 'bg-blue-500',   'dot' => 'bg-blue-500'],
+                                        ['label' => 'Administrative', 'value' => $admin,   'color' => 'bg-violet-500', 'dot' => 'bg-violet-500'],
+                                        ['label' => 'Other',          'value' => $other_exp,'color' => 'bg-slate-400',  'dot' => 'bg-slate-400'],
+                                    ];
+                                    $total_exp = $pnl_cos + $opex + $admin + $other_exp;
+                                    ?>
+                                    <div class="space-y-2.5">
+                                        <?php foreach ($exp_items as $ei):
+                                            $ei_pct = $total_exp > 0 ? ($ei['value'] / $total_exp) * 100 : 0;
+                                            if ($ei['value'] <= 0) continue;
+                                        ?>
+                                        <div class="flex items-center gap-2">
+                                            <span class="w-2.5 h-2.5 rounded-full <?php echo $ei['dot']; ?> flex-shrink-0"></span>
+                                            <span class="flex-1 text-[10px] font-semibold text-slate-600 dark:text-slate-400"><?php echo $ei['label']; ?></span>
+                                            <span class="text-[10px] font-bold text-slate-500 tabular-nums"><?php echo number_format($ei_pct, 1); ?>%</span>
+                                            <span class="text-[10px] font-black text-slate-700 dark:text-slate-300 tabular-nums w-20 text-right"><?php echo format_currency($ei['value']); ?></span>
+                                        </div>
+                                        <div class="ml-5 h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                            <div class="h-full <?php echo $ei['color']; ?> rounded-full" style="width: <?php echo $ei_pct; ?>%"></div>
+                                        </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between">
+                                        <span class="text-[9px] font-bold text-slate-400 uppercase">Total Expenses</span>
+                                        <span class="text-xs font-black text-red-600 tabular-nums"><?php echo format_currency($total_exp); ?></span>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <!-- Row 3: Key Ratios Summary -->
+                            <div class="grid grid-cols-4 gap-3">
+                                <div class="text-center p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-900/20 dark:to-emerald-800/10 border border-emerald-200 dark:border-emerald-800">
+                                    <p class="text-2xl font-black text-emerald-700 dark:text-emerald-400"><?php echo number_format($pnl_gross_margin, 1); ?>%</p>
+                                    <p class="text-[8px] font-bold text-emerald-500 uppercase mt-1">Gross Margin</p>
+                                </div>
+                                <div class="text-center p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-800/10 border border-blue-200 dark:border-blue-800">
+                                    <p class="text-2xl font-black <?php echo $pnl_net_margin >= 0 ? 'text-blue-700 dark:text-blue-400' : 'text-red-600'; ?>"><?php echo number_format($pnl_net_margin, 1); ?>%</p>
+                                    <p class="text-[8px] font-bold text-blue-500 uppercase mt-1">Net Margin</p>
+                                </div>
+                                <div class="text-center p-4 rounded-xl bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-900/20 dark:to-amber-800/10 border border-amber-200 dark:border-amber-800">
+                                    <p class="text-2xl font-black text-amber-700 dark:text-amber-400"><?php echo $monthly_revenue > 0 ? number_format(($total_exp / $monthly_revenue) * 100, 1) : '0.0'; ?>%</p>
+                                    <p class="text-[8px] font-bold text-amber-500 uppercase mt-1">Expense Ratio</p>
+                                </div>
+                                <div class="text-center p-4 rounded-xl bg-gradient-to-br from-violet-50 to-violet-100/50 dark:from-violet-900/20 dark:to-violet-800/10 border border-violet-200 dark:border-violet-800">
+                                    <p class="text-2xl font-black text-violet-700 dark:text-violet-400"><?php echo format_currency($monthly_revenue - $total_exp); ?></p>
+                                    <p class="text-[8px] font-bold text-violet-500 uppercase mt-1">Operating Cash</p>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Infographic Footer -->
+                        <div class="px-8 py-4 border-t border-slate-200 dark:border-slate-700">
+                            <p class="text-[10px] text-slate-400">This infographic is auto-generated from the financial data and should be read in conjunction with the full Statement of Profit or Loss.</p>
+                        </div>
+                    </div>
+
+                    <!-- ════════════════════════════════════════════════════════ -->
+                    <!--  SECTION 6: RECOMMENDATION                             -->
+                    <!-- ════════════════════════════════════════════════════════ -->
+                    <template x-if="showRecommendation">
+                    <div class="a4-page bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden print-card pnl-section">
+
+                        <!-- Recommendation Header -->
+                        <div class="px-8 py-5 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border-b border-slate-200 dark:border-slate-700 text-center">
+                            <p class="text-[18px] font-bold text-violet-700 uppercase tracking-wider mb-2"><?php echo htmlspecialchars($client_name); ?></p>
+                            <h2 class="text-lg font-black text-slate-900 dark:text-white tracking-tight">RECOMMENDATION</h2>
+                            <p class="text-xs text-slate-500 mt-1">For the period ended <?php echo date('F j, Y', mktime(0,0,0,$month+1,0,$year)); ?></p>
+                        </div>
+
+                        <!-- Recommendation Body -->
+                        <div class="px-8 py-6">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Auditor’s Observations & Recommendations</p>
+                            <textarea x-model="recommendationText" 
+                                placeholder="Enter your recommendations, observations, and action items here...
+
+Example:
+1. Revenue Performance — Revenue grew by X% compared to the prior period. Recommend maintaining current sales strategies.
+2. Cost Control — Cost of sales represents X% of revenue. Recommend reviewing supplier contracts for better pricing.
+3. Operating Expenses — Administrative expenses should be reviewed for optimization opportunities.
+4. Cash Management — Consider implementing stricter cash handling procedures across all outlets.
+5. Overall Assessment — The business is operating within acceptable parameters. Continue monitoring key ratios monthly."
+                                class="w-full min-h-[380px] p-5 text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl resize-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none leading-relaxed"
+                                style="font-family: 'Inter', sans-serif;"></textarea>
+                        </div>
+
+                        <!-- Recommendation Footer -->
+                        <div class="px-8 py-4 border-t border-slate-200 dark:border-slate-700">
+                            <p class="text-[10px] text-slate-400">This recommendation section is prepared by the auditor and forms part of the routine audit report.</p>
+                        </div>
+                    </div>
+                    </template>
 
                 </div>
             </div>
 
 
             <!-- ========== TAB: Stock Valuation ========== -->
-            <div x-show="currentTab === 'valuation'" x-transition>
+            <div x-show="currentTab === 'valuation'" x-cloak x-transition>
                 <!-- Date Picker -->
                 <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center gap-3">
@@ -1742,6 +1971,10 @@ function financeApp() {
         valuationDate: '<?php echo $valuation_date; ?>',
         expenseForm: { category_id:'', amount:0, description:'', entry_date: new Date().toISOString().split('T')[0], payment_method:'cash', vendor:'', receipt_number:'' },
         showCatForm: false,
+        showAppendix: true,
+        showRecommendation: false,
+        preparedBy: '',
+        recommendationText: '',
         catForm: { name: '', type: 'operating' },
         cosDetail: <?php echo $js_cos_detail; ?>,
         dailySales: <?php echo $js_daily_sales; ?>,

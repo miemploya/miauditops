@@ -5,7 +5,9 @@
  * Product, SKU, Category, Opening, Added, Return In, Total, Transfer, Qty Sold, Closing, Selling Price, Amount, Actions
  */
 require_once '../includes/functions.php';
+require_once '../config/sector_config.php';
 require_login();
+require_subscription('department_store');
 require_permission('department_store');
 require_active_client();
 $company_id = $_SESSION['company_id'];
@@ -63,6 +65,13 @@ if (!$dept) { header('Location: stock.php'); exit; }
 $dept_type = $dept['type'] ?? 'standard';
 $is_kitchen = in_array($dept_type, ['kitchen', 'shisha', 'cocktail']);
 $is_restaurant = strtolower($dept['outlet_type'] ?? '') === 'restaurant';
+
+// Determine client sector for dynamic labels
+$client_stmt = $pdo->prepare("SELECT industry FROM clients WHERE id = ? AND company_id = ?");
+$client_stmt->execute([$client_id, $company_id]);
+$client_industry = strtolower($client_stmt->fetchColumn() ?: 'other');
+$client_sector = get_sector_config($client_industry);
+$dept_outlet_label = ucfirst(str_replace('_', ' ', $dept['outlet_type'] ?? 'Department'));
 
 // Type-aware labels for UI
 $recipe_labels = ['kitchen' => 'Kitchen', 'shisha' => 'Shisha', 'cocktail' => 'Cocktail'];
@@ -421,7 +430,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                         <p class="text-xs text-slate-500">
                             <?php if ($dept_type === 'kitchen'): ?>
                                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[10px] font-bold mr-1">🍳 Shared Kitchen</span>
-                                Receives from Main Store — Supplies finished goods to Restaurant outlets
+                                Receives from Main Store — Supplies finished goods to <?php echo htmlspecialchars($dept_outlet_label); ?> outlets
                             <?php elseif ($dept_type === 'shisha'): ?>
                                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-[10px] font-bold mr-1">🌬️ Shisha Lounge</span>
                                 Receives tobacco, charcoal & accessories from Main Store — Tracks ingredient usage via recipes
@@ -431,7 +440,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                             <?php else: ?>
                                 Department inventory — linked to <span class="font-semibold text-indigo-600"><?php echo htmlspecialchars($dept['outlet_name'] ?? 'N/A'); ?></span>
                                 <?php if ($is_restaurant): ?>
-                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 text-[10px] font-bold ml-1">🍽️ Restaurant</span>
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 text-[10px] font-bold ml-1"><?php echo htmlspecialchars($dept_outlet_label); ?></span>
                                 <?php endif; ?>
                             <?php endif; ?>
                         </p>
@@ -501,7 +510,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                     <p class="text-xl font-black text-emerald-600" x-text="stock.reduce((s,r)=>s+parseInt(r.qty_sold||0),0)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60" x-show="isKitchen">
-                    <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Issued to Restaurants</p>
+                    <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Issued to Depts</p>
                     <p class="text-xl font-black text-amber-600" x-text="stock.reduce((s,r)=>s+parseInt(r.transfer_out||0),0)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60" x-show="!isKitchen">
@@ -1095,7 +1104,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                             <button @click="openRecipeModal(p)" class="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-amber-500 to-orange-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all" title="Manage Recipe">
                                                 <i data-lucide="book-open" class="w-3 h-3"></i> Recipe
                                             </button>
-                                            <button @click="openIssueModal(p)" class="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all" title="Issue to Restaurant">
+                                            <button @click="openIssueModal(p)" class="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all" title="Issue to Department">
                                                 <i data-lucide="send" class="w-3 h-3"></i> Issue
                                             </button>
                                             <button @click="deleteKitchenProduct(p.id, p.name)" class="p-1 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 rounded-lg transition-all" title="Delete">
@@ -1113,12 +1122,12 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                 </div>
             </div>
 
-            <!-- ===== Issue to Restaurant Modal ===== -->
+            <!-- ===== Issue to Department Modal ===== -->
             <div x-show="issueModal" x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" @click.self="issueModal = false">
                 <div x-show="issueModal" x-transition.scale.90 class="w-full max-w-md glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden">
                     <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-emerald-500 to-teal-600">
                         <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                            <i data-lucide="send" class="w-5 h-5"></i> Issue to Restaurant
+                            <i data-lucide="send" class="w-5 h-5"></i> Issue to Department
                         </h3>
                         <p class="text-emerald-100 text-xs mt-0.5" x-text="issueProduct ? issueProduct.name : ''"></p>
                     </div>
@@ -1141,11 +1150,11 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
 
                         <!-- Destination -->
                         <div>
-                            <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Destination Restaurant / Department *</label>
+                            <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Destination Department *</label>
                             <select x-model="issueForm.destination_dept_id" required class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
                                 <option value="">— Select Destination —</option>
                                 <template x-for="d in issueDestinations" :key="d.id">
-                                    <option :value="d.id" x-text="'🍽️ ' + d.name"></option>
+                                    <option :value="d.id" x-text="d.name"></option>
                                 </template>
                             </select>
                         </div>
@@ -1229,7 +1238,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                             <tr x-show="reconciliation.length === 0">
                                 <td colspan="10" class="px-4 py-10 text-center text-slate-400">
                                     <i data-lucide="package-open" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-                                    <p>No kitchen products issued for this date. Use the <strong>Issue</strong> button above to send items to restaurants.</p>
+                                    <p>No kitchen products issued for this date. Use the <strong>Issue</strong> button above to send items to departments.</p>
                                 </td>
                             </tr>
                             <!-- Totals row -->
@@ -1386,7 +1395,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                         <button @click="addMode = 'category'" :class="addMode === 'category' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'" class="pb-3 border-b-2 text-xs font-bold transition-colors">By Category</button>
                     </div>
 
-                    <!-- Source Tabs for Restaurant departments -->
+                    <!-- Source Tabs for departments that receive from kitchen -->
                     <template x-if="isRestaurant && addMode === 'single'">
                         <div class="px-6 pt-2">
                             <div class="flex rounded-lg bg-slate-100 dark:bg-slate-800 p-1 gap-1">
