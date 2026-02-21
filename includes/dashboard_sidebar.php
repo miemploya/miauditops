@@ -38,6 +38,7 @@ $page_permission_map = [
     'reports.php'          => 'reports',
     'settings.php'         => 'settings',
     'trash.php'            => 'settings',
+    'support.php'          => 'settings',
 ];
 
 // Map page hrefs to subscription module keys (may differ from permission keys)
@@ -54,6 +55,8 @@ $page_subscription_map = [
     'reports.php'          => 'reports',
     'settings.php'         => 'settings',
     'trash.php'            => 'trash',
+    'support.php'          => 'support',
+    'billing.php'          => 'billing',
 ];
 try {
     $_current_plan_key = get_current_plan();
@@ -96,20 +99,46 @@ $nav_sections = [
     'Intelligence' => [
         'items' => [
             ['label' => 'Reports', 'icon' => 'bar-chart-3', 'href' => 'reports.php', 'gradient' => 'from-cyan-500 to-blue-600', 'roles' => 'all'],
-            ['label' => 'Settings', 'icon' => 'settings', 'href' => 'settings.php', 'gradient' => 'from-slate-500 to-slate-600', 'roles' => 'all'],
-            ['label' => 'Trash', 'icon' => 'trash-2', 'href' => 'trash.php', 'gradient' => 'from-red-500 to-rose-600', 'roles' => 'all'],
         ]
     ],
 ];
 
-// Add Station Audit below Intelligence for petroleum clients
-if ($_is_petroleum) {
+// Add Station Audit: show if plan includes station_audit module OR client is petroleum
+if ($_is_petroleum || plan_includes_module($_current_plan_key, 'station_audit')) {
     $nav_sections['Station'] = [
         'items' => [
             ['label' => 'Station Audit', 'icon' => 'fuel', 'href' => 'station_audit.php', 'gradient' => 'from-orange-500 to-amber-600', 'roles' => 'all', 'badge' => 'NEW'],
         ]
     ];
 }
+
+// Billing — always visible, placed after Station Audit
+$nav_sections['Billing'] = [
+    'items' => [
+        ['label' => 'Billing', 'icon' => 'credit-card', 'href' => 'billing.php', 'gradient' => 'from-emerald-500 to-teal-600', 'roles' => 'all'],
+    ]
+];
+
+// Support Services
+$nav_sections['Support'] = [
+    'items' => [
+        ['label' => 'Support Services', 'icon' => 'headphones', 'href' => 'support.php', 'gradient' => 'from-amber-500 to-orange-600', 'roles' => 'all'],
+    ]
+];
+
+// Trash — after Support Services
+$nav_sections['Cleanup'] = [
+    'items' => [
+        ['label' => 'Trash', 'icon' => 'trash-2', 'href' => 'trash.php', 'gradient' => 'from-red-500 to-rose-600', 'roles' => 'all'],
+    ]
+];
+
+// Settings — always last on the sidebar
+$nav_sections['Admin'] = [
+    'items' => [
+        ['label' => 'Settings', 'icon' => 'settings', 'href' => 'settings.php', 'gradient' => 'from-slate-500 to-slate-600', 'roles' => 'all'],
+    ]
+];
 ?>
 
 <!-- Mobile Overlay -->

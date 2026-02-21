@@ -156,8 +156,12 @@ try {
         UNIQUE KEY uk_cat_name (company_id, client_id, name)
     ) ENGINE=InnoDB");
 } catch (Exception $ignore) {}
-$stmt = $pdo->prepare("SELECT * FROM product_categories WHERE company_id = ? AND client_id = ? ORDER BY sort_order, name");
-$stmt->execute([$company_id, $client_id]);
+$stmt = $pdo->prepare("SELECT pc.*, COALESCE(cnt.total, 0) as product_count
+    FROM product_categories pc
+    LEFT JOIN (SELECT category, COUNT(*) as total FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL GROUP BY category) cnt ON cnt.category = pc.name
+    WHERE pc.company_id = ? AND pc.client_id = ?
+    ORDER BY pc.sort_order, pc.name");
+$stmt->execute([$company_id, $client_id, $company_id, $client_id]);
 $categories = $stmt->fetchAll();
 
 $js_products = json_encode($products, JSON_HEX_TAG | JSON_HEX_APOS);
@@ -405,35 +409,109 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                     </div>
                 </div>
 
-                <!-- Category Management Modal -->
+                <!-- Category Management Modal (Redesigned) -->
                 <div x-show="showCategoryModal" x-transition.opacity class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" @click.self="showCategoryModal = false">
-                    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" @click.stop>
-                        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                            <div class="flex items-center gap-3">
-                                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/30"><i data-lucide="tag" class="w-4 h-4 text-white"></i></div>
-                                <div><h3 class="font-bold text-slate-900 dark:text-white text-sm">Manage Categories</h3><p class="text-xs text-slate-500" x-text="categories.length + ' categories'"></p></div>
-                            </div>
-                            <button @click="showCategoryModal = false" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 flex items-center justify-center transition-all"><i data-lucide="x" class="w-4 h-4 text-slate-500"></i></button>
-                        </div>
-                        <div class="p-5">
-                            <div class="space-y-1.5 mb-4 max-h-64 overflow-y-auto">
-                                <template x-for="cat in categories" :key="cat.id">
-                                    <div class="flex items-center justify-between px-3 py-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                                        <span class="text-sm font-semibold text-slate-700 dark:text-slate-300" x-text="cat.name"></span>
-                                        <button @click="deleteCatalogCategory(cat.id, cat.name)" class="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/20 flex items-center justify-center transition-all">
-                                            <i data-lucide="trash-2" class="w-3.5 h-3.5 text-red-500"></i>
-                                        </button>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" x-transition.scale.95 @click.stop>
+                        <!-- Header -->
+                        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
+                                        <i data-lucide="layout-grid" class="w-5 h-5 text-white"></i>
                                     </div>
-                                </template>
-                                <div x-show="categories.length === 0" class="text-center py-8 text-sm text-slate-400">
-                                    <i data-lucide="tag" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
-                                    <p>No categories yet</p>
+                                    <div>
+                                        <h3 class="font-black text-slate-900 dark:text-white text-base">Product Categories</h3>
+                                        <p class="text-[11px] text-slate-500 mt-0.5">Organize your inventory into groups</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-[11px] font-black" x-text="categories.length + ' total'"></span>
+                                    <button @click="showCategoryModal = false" class="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 transition-all">
+                                        <i data-lucide="x" class="w-4 h-4 text-slate-400"></i>
+                                    </button>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Add New Category (top) -->
+                        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
                             <form @submit.prevent="addCatalogCategory()" class="flex gap-2">
-                                <input type="text" x-model="catForm.name" required placeholder="e.g. Beverages, Food, Cleaning..." class="flex-1 px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all">
-                                <button type="submit" class="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold rounded-xl shadow-lg shadow-amber-500/30 hover:scale-[1.02] transition-all text-sm"><i data-lucide="plus" class="w-4 h-4 inline"></i> Add</button>
+                                <div class="flex-1 relative">
+                                    <i data-lucide="plus-circle" class="w-4 h-4 text-amber-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                                    <input type="text" x-model="catForm.name" required placeholder="Type a new category name..." class="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-all">
+                                </div>
+                                <button type="submit" class="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold rounded-xl shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 hover:scale-[1.03] active:scale-95 transition-all text-sm whitespace-nowrap">
+                                    <i data-lucide="plus" class="w-4 h-4 inline -mt-0.5"></i> Add
+                                </button>
                             </form>
+                        </div>
+
+                        <!-- Success Message -->
+                        <div x-show="catMsg" x-transition class="px-6">
+                            <p class="px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 text-sm font-semibold rounded-lg border border-emerald-200 dark:border-emerald-800" x-text="catMsg"></p>
+                        </div>
+
+                        <!-- Category List -->
+                        <div class="px-6 py-4 max-h-[400px] overflow-y-auto">
+                            <div class="space-y-2" x-show="categories.length > 0">
+                                <template x-for="cat in categories" :key="cat.id">
+                                    <div class="group flex items-center gap-3 px-3 py-2.5 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all">
+                                        <!-- Color Avatar -->
+                                        <div class="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black text-white shrink-0"
+                                            :style="'background:hsl(' + (cat.name.charCodeAt(0) * 37 % 360) + ',65%,55%)'">
+                                            <span x-text="cat.name.charAt(0).toUpperCase()"></span>
+                                        </div>
+
+                                        <!-- Name (view mode) -->
+                                        <template x-if="renamingCatId !== cat.id">
+                                            <div class="flex-1 min-w-0 flex items-center gap-2">
+                                                <span class="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate" x-text="cat.name"></span>
+                                                <span class="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-500 shrink-0" x-text="(cat.product_count || 0) + ' items'"></span>
+                                            </div>
+                                        </template>
+
+                                        <!-- Name (edit mode) -->
+                                        <template x-if="renamingCatId === cat.id">
+                                            <div class="flex-1 flex items-center gap-1.5">
+                                                <input type="text" x-model="renameCatValue" @keydown.enter="saveRenameCat(cat)" @keydown.escape="renamingCatId = null"
+                                                    class="flex-1 px-2 py-1 bg-white dark:bg-slate-900 border border-amber-400 rounded-lg text-sm focus:ring-2 focus:ring-amber-500/30 transition-all"
+                                                    x-ref="renameInput" autofocus>
+                                                <button @click="saveRenameCat(cat)" class="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center hover:bg-emerald-100 transition-all">
+                                                    <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                                </button>
+                                                <button @click="renamingCatId = null" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-200 transition-all">
+                                                    <i data-lucide="x" class="w-3.5 h-3.5 text-slate-400"></i>
+                                                </button>
+                                            </div>
+                                        </template>
+
+                                        <!-- Action Buttons (visible on hover) -->
+                                        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" x-show="renamingCatId !== cat.id">
+                                            <button @click="startRenameCat(cat)" class="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all" title="Rename">
+                                                <i data-lucide="pencil" class="w-3 h-3 text-blue-600"></i>
+                                            </button>
+                                            <button @click="deleteCatalogCategory(cat.id, cat.name)" class="w-7 h-7 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/40 transition-all" title="Delete">
+                                                <i data-lucide="trash-2" class="w-3 h-3 text-red-500"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- Empty State -->
+                            <div x-show="categories.length === 0" class="text-center py-10">
+                                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/20 dark:to-orange-900/20 flex items-center justify-center mx-auto mb-4">
+                                    <i data-lucide="tags" class="w-7 h-7 text-amber-400"></i>
+                                </div>
+                                <h4 class="font-bold text-slate-700 dark:text-slate-300 text-sm mb-1">No categories yet</h4>
+                                <p class="text-xs text-slate-400 max-w-xs mx-auto">Create categories like <strong>Beverages</strong>, <strong>Food</strong>, or <strong>Supplies</strong> to organize your inventory.</p>
+                            </div>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="px-6 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+                            <p class="text-[10px] text-slate-400"><i data-lucide="info" class="w-3 h-3 inline -mt-0.5"></i> Categories help group products in your store and reports</p>
+                            <button @click="location.reload()" class="px-4 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-lg text-xs hover:bg-slate-300 transition-all">Done</button>
                         </div>
                     </div>
                 </div>
@@ -1667,6 +1745,9 @@ function mainStoreApp() {
         productForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, opening_stock:0, reorder_level:10 },
         catalogForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false },
         catForm: { name:'' },
+        catMsg: '',
+        renamingCatId: null,
+        renameCatValue: '',
         productSearch: '',
         showCategoryModal: false,
         supplierForm: { name:'', contact_person:'', phone:'', email:'', address:'', category:[], notes:'' },
@@ -2156,7 +2237,7 @@ function mainStoreApp() {
             }
             const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
             if (r.success) {
-                this.products.push({ id: r.id, name: this.catalogForm.name, sku: this.catalogForm.sku, category: this.catalogForm.category, unit: this.catalogForm.unit, unit_cost: this.catalogForm.unit_cost, selling_price: this.catalogForm.selling_price, current_stock: 0, reorder_level: this.catalogForm.reorder_level, selling_unit: this.catalogForm._hasSellingUnit ? this.catalogForm.selling_unit : null, yield_per_unit: this.catalogForm._hasSellingUnit ? this.catalogForm.yield_per_unit : 1, selling_unit_price: this.catalogForm._hasSellingUnit ? this.catalogForm.selling_unit_price : 0 });
+                this.products.push({ id: r.id, name: this.catalogForm.name, sku: r.sku || this.catalogForm.sku, category: this.catalogForm.category, unit: this.catalogForm.unit, unit_cost: this.catalogForm.unit_cost, selling_price: this.catalogForm.selling_price, current_stock: 0, reorder_level: this.catalogForm.reorder_level, selling_unit: this.catalogForm._hasSellingUnit ? this.catalogForm.selling_unit : null, yield_per_unit: this.catalogForm._hasSellingUnit ? this.catalogForm.yield_per_unit : 1, selling_unit_price: this.catalogForm._hasSellingUnit ? this.catalogForm.selling_unit_price : 0 });
                 this.catalogForm = { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false };
                 this.$nextTick(() => lucide.createIcons());
             } else alert(r.message);
@@ -2168,21 +2249,39 @@ function mainStoreApp() {
             const fd = new FormData(); fd.append('action','add_category'); fd.append('name', catName);
             const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
             if (r.success) {
-                // Add category to local list so it appears immediately
-                this.categories.push({ id: r.id, name: catName });
+                this.categories.push({ id: r.id, name: catName, product_count: 0 });
                 this.catForm.name = '';
+                this.catMsg = '✅ Category "' + catName + '" added successfully!';
+                setTimeout(() => this.catMsg = '', 3000);
                 this.$nextTick(() => lucide.createIcons());
-                // Brief green flash on the input to confirm success
-                const inp = this.$el.querySelector('[x-model="catForm.name"]');
-                if (inp) { inp.style.borderColor = '#10b981'; inp.placeholder = '✓ "' + catName + '" added!'; setTimeout(() => { inp.style.borderColor = ''; inp.placeholder = 'e.g. Beverages, Food, Cleaning...'; }, 2000); }
             } else alert(r.message);
         },
         async deleteCatalogCategory(id, name) {
-            if (!confirm('Delete category "' + name + '"?')) return;
+            if (!confirm('Delete category "' + name + '"? Products with this category will become uncategorized.')) return;
             const fd = new FormData(); fd.append('action','delete_category'); fd.append('id', id);
             const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
             if (r.success) {
                 this.categories = this.categories.filter(c => c.id !== id);
+            } else alert(r.message);
+        },
+        startRenameCat(cat) {
+            this.renamingCatId = cat.id;
+            this.renameCatValue = cat.name;
+            this.$nextTick(() => {
+                const el = this.$refs.renameInput;
+                if (el) { el.focus(); el.select(); }
+                lucide.createIcons();
+            });
+        },
+        async saveRenameCat(cat) {
+            const newName = this.renameCatValue.trim();
+            if (!newName || newName === cat.name) { this.renamingCatId = null; return; }
+            const fd = new FormData(); fd.append('action','rename_category'); fd.append('id', cat.id); fd.append('name', newName);
+            const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
+            if (r.success) {
+                cat.name = newName;
+                this.renamingCatId = null;
+                this.$nextTick(() => lucide.createIcons());
             } else alert(r.message);
         },
         async receiveDelivery() {

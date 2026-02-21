@@ -13,6 +13,7 @@ if (empty($_SESSION['is_platform_owner'])) {
 }
 
 require_once '../config/db.php';
+require_once '../includes/trash_helper.php';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
@@ -171,6 +172,142 @@ switch ($action) {
     case 'delete_company':
         $id = (int)($_POST['id'] ?? 0);
         $pdo->prepare("UPDATE companies SET deleted_at = NOW() WHERE id = ?")->execute([$id]);
+        echo json_encode(['success' => true]);
+        break;
+
+
+    // ── Get Pricing ──
+    case 'get_pricing':
+        $rows = $pdo->query("SELECT setting_key, setting_value FROM platform_settings WHERE setting_key LIKE 'price_%'")->fetchAll(PDO::FETCH_KEY_PAIR);
+        $data = [];
+        foreach ($rows as $key => $value) {
+            // Convert 'price_professional_monthly' → 'professional_monthly'
+            $short = str_replace('price_', '', $key);
+            $data[$short] = (int)$value;
+        }
+        echo json_encode(['success' => true, 'data' => $data]);
+        break;
+
+    // ── Update Pricing ──
+    case 'update_pricing':
+        $fields = [
+            'professional_monthly', 'professional_quarterly', 'professional_annual',
+            'enterprise_monthly', 'enterprise_quarterly', 'enterprise_annual',
+        ];
+        $stmt = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
+        foreach ($fields as $field) {
+            $value = (int)($_POST[$field] ?? 0);
+            $stmt->execute(['price_' . $field, $value]);
+        }
+        echo json_encode(['success' => true]);
+        break;
+
+
+    // ── List Broadcasts ──
+    case 'list_broadcasts':
+        $rows = $pdo->query("SELECT * FROM platform_notifications ORDER BY created_at DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'data' => $rows]);
+        break;
+
+    // ── Send Broadcast ──
+    case 'send_broadcast':
+        $title   = trim($_POST['title'] ?? '');
+        $message = trim($_POST['message'] ?? '');
+        $type    = in_array($_POST['type'] ?? '', ['info','warning','success','alert']) ? $_POST['type'] : 'info';
+        $target_input = trim($_POST['target'] ?? 'all');
+        $expires_days = (int)($_POST['expires_days'] ?? 30);
+
+        if (empty($title) || empty($message)) {
+            echo json_encode(['success' => false, 'message' => 'Title and message are required.']);
+            break;
+        }
+
+        $target = 'all';
+        $target_plan = null;
+        if ($target_input !== 'all') {
+            $target = 'plan';
+            $target_plan = $target_input;
+        }
+
+        $expires_at = null;
+        if ($expires_days > 0) {
+            $expires_at = date('Y-m-d H:i:s', strtotime("+{$expires_days} days"));
+        }
+
+        $stmt = $pdo->prepare("INSERT INTO platform_notifications (title, message, type, target, target_plan, expires_at, created_by) VALUES (?, ?, ?, ?, ?, ?, 'platform_owner')");
+        $stmt->execute([$title, $message, $type, $target, $target_plan, $expires_at]);
+        echo json_encode(['success' => true]);
+        break;
+
+    // ── Toggle Broadcast Active/Inactive ──
+    case 'toggle_broadcast':
+        $id = (int)($_POST['id'] ?? 0);
+        $is_active = (int)($_POST['is_active'] ?? 0);
+        $pdo->prepare("UPDATE platform_notifications SET is_active = ? WHERE id = ?")->execute([$is_active, $id]);
+        echo json_encode(['success' => true]);
+        break;
+
+    // ── Delete Broadcast ──
+    case 'delete_broadcast':
+        $id = (int)($_POST['id'] ?? 0);
+        // Snapshot broadcast + reads before delete
+        $stmt = $pdo->prepare("SELECT * FROM platform_notifications WHERE id = ?");
+        $stmt->execute([$id]);
+        $notif = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($notif) {
+            $reads = $pdo->prepare("SELECT * FROM notification_reads WHERE notification_id = ?");
+            $reads->execute([$id]);
+            $snapshot = ['notification' => $notif, 'reads' => $reads->fetchAll(PDO::FETCH_ASSOC)];
+            move_to_trash($pdo, 0, 'broadcast', $id, $notif['title'] ?? 'Broadcast #'.$id, $snapshot, $_SESSION['user_id'] ?? 0);
+        }
+        $pdo->prepare("DELETE FROM notification_reads WHERE notification_id = ?")->execute([$id]);
+        $pdo->prepare("DELETE FROM platform_notifications WHERE id = ?")->execute([$id]);
+        echo json_encode(['success' => true]);
+        break;
+
+    // ── List Support Tickets (Owner) ──
+    case 'list_support_tickets':
+        $rows = $pdo->query("
+            SELECT t.*, 
+                   u.first_name, u.last_name,
+                   c.name as company_name
+            FROM support_tickets t
+            JOIN users u ON u.id = t.user_id
+            JOIN companies c ON c.id = t.company_id
+            ORDER BY t.created_at DESC
+            LIMIT 100
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'data' => $rows]);
+        break;
+
+    // ── Reply to Support Ticket ──
+    case 'reply_ticket':
+        $ticket_id = (int)($_POST['ticket_id'] ?? 0);
+        $reply     = trim($_POST['reply'] ?? '');
+        $status    = in_array($_POST['status'] ?? '', ['open','in_progress','resolved','closed']) ? $_POST['status'] : 'resolved';
+
+        if (!$ticket_id || empty($reply)) {
+            echo json_encode(['success' => false, 'message' => 'Ticket ID and reply are required.']);
+            break;
+        }
+
+        $stmt = $pdo->prepare("UPDATE support_tickets SET admin_reply = ?, replied_at = NOW(), status = ? WHERE id = ?");
+        $stmt->execute([$reply, $status, $ticket_id]);
+        echo json_encode(['success' => true]);
+        break;
+
+    // ── Update Ticket Status ──
+    case 'update_ticket_status':
+        $ticket_id = (int)($_POST['ticket_id'] ?? 0);
+        $status    = in_array($_POST['status'] ?? '', ['open','in_progress','resolved','closed']) ? $_POST['status'] : 'open';
+
+        if (!$ticket_id) {
+            echo json_encode(['success' => false, 'message' => 'Ticket ID is required.']);
+            break;
+        }
+
+        $stmt = $pdo->prepare("UPDATE support_tickets SET status = ? WHERE id = ?");
+        $stmt->execute([$status, $ticket_id]);
         echo json_encode(['success' => true]);
         break;
 

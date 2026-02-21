@@ -610,8 +610,22 @@ function require_subscription($module) {
     // Super-admin / platform owner bypass
     if (get_user_role() === 'super_admin') return;
 
+    // Pages ALWAYS accessible (even when expired)
+    $always_allowed = ['dashboard', 'billing', 'support', 'company_setup'];
+    if (in_array($module, $always_allowed)) return;
+
     $sub = get_company_subscription();
     $plan = $sub['plan'] ?? get_plan_config('starter');
+
+    // Auto-expire if past expiry date
+    if (($sub['status'] ?? '') === 'active' && !empty($sub['expires_at'])) {
+        if (strtotime($sub['expires_at']) < time()) {
+            global $pdo;
+            $pdo->prepare("UPDATE company_subscriptions SET status = 'expired' WHERE company_id = ?")
+                ->execute([$_SESSION['company_id'] ?? 0]);
+            $sub['status'] = 'expired';
+        }
+    }
 
     // Check subscription status
     if (in_array($sub['status'] ?? '', ['expired', 'suspended'])) {
@@ -712,7 +726,7 @@ function check_department_limit($company_id = null, $client_id = null) {
     global $pdo;
     $company_id = $company_id ?? $_SESSION['company_id'];
     $client_id = $client_id ?? get_active_client();
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM departments WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL");
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM stock_departments WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL");
     $stmt->execute([$company_id, $client_id]);
     return check_subscription_limit('max_departments', (int)$stmt->fetchColumn());
 }
@@ -778,10 +792,11 @@ function show_subscription_expired_page($plan) {
     echo '<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-red-500/20 flex items-center justify-center">';
     echo '<i data-lucide="alert-triangle" class="w-10 h-10 text-red-400"></i></div>';
     echo '<h1 class="text-3xl font-black mb-2">Subscription Expired</h1>';
-    echo '<p class="text-slate-400 mb-8">Your subscription has expired or been suspended. Please contact support or renew your plan to continue using MIAUDITOPS.</p>';
+    echo '<p class="text-slate-400 mb-4">Your subscription has expired or been suspended. Please settle your outstanding invoice to continue using MIAUDITOPS.</p>';
+    echo '<p class="text-sm text-slate-500 mb-8">You can still access the <strong class="text-white">Dashboard</strong>, <strong class="text-white">Billing</strong>, <strong class="text-white">Support</strong>, and <strong class="text-white">Company Setup</strong>.</p>';
     echo '<div class="flex gap-3 justify-center">';
-    echo '<a href="../auth/logout.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">Sign Out</a>';
-    echo '<a href="settings.php" class="px-6 py-3 bg-gradient-to-r from-red-600 to-amber-500 text-white font-bold rounded-xl transition-all">Renew Plan</a>';
+    echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">← Dashboard</a>';
+    echo '<a href="billing.php" class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold rounded-xl transition-all">Go to Billing</a>';
     echo '</div>';
     echo '</div>';
     echo '<script>lucide.createIcons();</script>';

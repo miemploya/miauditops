@@ -34,7 +34,9 @@ function stationAudit() {
             { id: 'lubricants', label: 'Lubricants', icon: 'droplets', activeClass: 'bg-lime-100 text-lime-700 border-lime-300 dark:bg-lime-900/30 dark:text-lime-300' },
             { id: 'expenses', label: 'Expenses', icon: 'receipt', activeClass: 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-900/30 dark:text-rose-300' },
             { id: 'debtors', label: 'Debtors', icon: 'users', activeClass: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300' },
-            { id: 'report', label: 'Report', icon: 'bar-chart-3', activeClass: 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300' },
+            { id: 'documents', label: 'Documents', icon: 'folder-open', activeClass: 'bg-cyan-100 text-cyan-700 border-cyan-300 dark:bg-cyan-900/30 dark:text-cyan-300' },
+            { id: 'report', label: 'Report', icon: 'file-bar-chart', activeClass: 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300' },
+            { id: 'final_report', label: 'Final Report', icon: 'file-text', activeClass: 'bg-slate-100 text-slate-800 border-slate-400 dark:bg-slate-800/50 dark:text-slate-200' },
         ],
 
         // State
@@ -72,12 +74,37 @@ function stationAudit() {
         newDebtorName: '',
         newLedgerEntry: { entry_date: new Date().toISOString().slice(0, 10), description: '', debit: 0, credit: 0 },
         lubeSections: [],
+
+        // Report cover page (editable)
+        reportCover: {
+            title: 'Station Audit Close-Out Report',
+            preparedBy: '',
+            reviewedBy: '',
+            reportingPeriod: '',
+            notes: ''
+        },
+        finalReportCover: {
+            title: 'RECONCILIATION REPORT',
+            subtitle: 'Audit Close-Out',
+            preparedFor: 'Operations Department',
+            preparedBy: '',
+            notes: ''
+        },
+        finalReportIncludePhotos: true,
         lubeStoreItems: [],
         lubeIssues: [],       // [{store_item_id, section_id, quantity}]
         lubeIssueLog: [],     // [{product_name, counter_name, quantity, created_at}]
         lubeSubTab: localStorage.getItem('sa_lubeSubTab') || 'products',  // 'products' | 'grn' | 'suppliers' | 'store' | 'counters'
         lubeIssueModal: false,
         lubeIssueForm: { store_item_id: null, store_item_name: '', section_id: '', quantity: 0 },
+
+        // Document Storage
+        documents: [],
+        docStorage: { used: 0, limit: 1073741824, count: 0, percent: 0 },
+        docUploading: false,
+        docFilter: 'current', // 'current' | 'all'
+        docEditingId: null,
+        docEditLabel: '',
 
         // Product catalog
         lubeProducts: [],
@@ -154,17 +181,25 @@ function stationAudit() {
                 const firstPt = sorted[0];
                 const lastPt = sorted[sorted.length - 1];
 
-                // Opening = sum of tank openings from FIRST rate period only
-                const opening = (firstPt.tanks || []).reduce((s, t) => s + parseFloat(t.opening || 0), 0);
+                const isLpg = this.isLPG(prod);
 
-                // Added = accumulated across ALL rate periods
-                const added = sorted.reduce((s, pt) => (pt.tanks || []).reduce((s2, t) => s2 + parseFloat(t.added || 0), s), 0);
+                let opening, added, closing;
 
-                // Closing = sum of tank closings from LAST rate period only
-                const closing = (lastPt.tanks || []).reduce((s, t) => s + parseFloat(t.closing || 0), 0);
+                if (isLpg) {
+                    // For LPG: convert % readings to kg using capacity_kg per tank
+                    opening = (firstPt.tanks || []).reduce((s, t) => s + this.lpgKgOpen(t), 0);
+                    added = sorted.reduce((s, pt) => (pt.tanks || []).reduce((s2, t) => s2 + this.lpgKgAdded(t), s), 0);
+                    closing = (lastPt.tanks || []).reduce((s, t) => s + this.lpgKgClose(t), 0);
+                } else {
+                    // For PMS/AGO/DPK etc: raw litre values
+                    opening = (firstPt.tanks || []).reduce((s, t) => s + parseFloat(t.opening || 0), 0);
+                    added = sorted.reduce((s, pt) => (pt.tanks || []).reduce((s2, t) => s2 + parseFloat(t.added || 0), s), 0);
+                    closing = (lastPt.tanks || []).reduce((s, t) => s + parseFloat(t.closing || 0), 0);
+                }
 
                 results[prod] = {
                     product: prod,
+                    isLpg: isLpg,
                     opening: opening,
                     added: added,
                     closing: closing,
@@ -216,6 +251,18 @@ function stationAudit() {
             });
             return [...names].sort();
         },
+
+        // Find the pump table period that covers the given delivery date for a product.
+        // Returns the matching pump table object, or null if none found.
+        pumpTableForDelivery(product, date) {
+            if (!product || !date) return null;
+            const d = date.slice(0, 10);
+            return this.pumpTables.find(pt =>
+                pt.product === product &&
+                (pt.date_from || '') <= d &&
+                (pt.date_to || '') >= d
+            ) || null;
+        },
         get totalHaulageQty() {
             return this.haulage.reduce((sum, h) => sum + (parseFloat(h.quantity) || 0), 0);
         },
@@ -262,10 +309,67 @@ function stationAudit() {
         get lubeStoreTotalValue() {
             return this.lubeStoreItems.reduce((sum, si) => sum + (this.storeItemClosing(si) * (parseFloat(si.selling_price) || 0)), 0);
         },
+        get monthCloseout() {
+            const systemSales = this.totalPumpSales;
+            const bankDeposit = parseFloat(this.systemSales.teller_amount) || 0;
+            const totalBalance = systemSales - bankDeposit;
+
+            // Expenses by category
+            const expenseLines = this.expenseCategories.map(cat => ({
+                name: cat.category_name || cat.name || 'Uncategorised',
+                amount: this.expenseCatBalance(cat)
+            })).filter(e => e.amount !== 0);
+            const totalExpenses = expenseLines.reduce((s, e) => s + e.amount, 0);
+
+            const posTransferSales = (parseFloat(this.systemSales.pos_amount) || 0) + (parseFloat(this.systemSales.transfer_amount) || 0);
+            const cashAtHand = parseFloat(this.systemSales.cash_amount) || 0;
+            const lubeUnsold = this.lubeStoreTotalValue;
+            const receivables = this.totalDebtors;
+
+            const expectedTotal = totalExpenses + posTransferSales + cashAtHand + lubeUnsold + receivables;
+            const surplus = expectedTotal - totalBalance;
+
+            return {
+                systemSales, bankDeposit, totalBalance,
+                expenseLines, totalExpenses,
+                posTransferSales, cashAtHand, lubeUnsold, receivables,
+                expectedTotal, surplus
+            };
+        },
 
         // Helpers
-        fmt(n) { return '₦' + (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 }); },
+        fmt(n) { return (window.__NAIRA || '\u20A6') + (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 }); },
         toTitleCase(str) { return str.replace(/\b\w/g, c => c.toUpperCase()); },
+
+        // ── LPG helpers ────────────────────────────────────────────────────
+        // Detect LPG product by name (case-insensitive)
+        isLPG(product) { return /lpg|gas/i.test(product || ''); },
+
+        // Convert stored % gauge reading → kg using configuredPercentage pattern
+        // Formula: (gaugeReading% / maxFillPercent%) × capacity_kg
+        lpgKgOpen(tank) {
+            const mf = parseFloat(tank.max_fill_percent || 100);
+            return (parseFloat(tank.opening || 0) / mf) * parseFloat(tank.capacity_kg || 0);
+        },
+        lpgKgClose(tank) {
+            const mf = parseFloat(tank.max_fill_percent || 100);
+            return (parseFloat(tank.closing || 0) / mf) * parseFloat(tank.capacity_kg || 0);
+        },
+        // Convert stored tons → kg  (delivery is entered in MT)
+        lpgKgAdded(tank) { return parseFloat(tank.added || 0) * 1000; },
+        // Full diff in kg for one LPG tank
+        lpgKgDiff(tank) { return this.lpgKgOpen(tank) + this.lpgKgAdded(tank) - this.lpgKgClose(tank); },
+
+        // ── LPG Discharge (truck gauge reading → kg delivered) ────────────
+        // truck: { open_pct, close_pct, capacity_kg, max_fill_percent }
+        lpgDischargeKg(truck) {
+            const mf = parseFloat(truck.max_fill_percent || 100);
+            const cap = parseFloat(truck.capacity_kg || 0);
+            const openKg = (parseFloat(truck.open_pct || 0) / mf) * cap;
+            const closeKg = (parseFloat(truck.close_pct || 0) / mf) * cap;
+            return closeKg - openKg;   // discharge INCREASES the tank, so after > before
+        },
+        // ──────────────────────────────────────────────────────────────────
         pumpTableLitres(pt) {
             return (pt.readings || []).reduce((sum, r) => sum + ((r.closing || 0) - (r.opening || 0) - (r.rtt || 0)), 0);
         },
@@ -470,6 +574,7 @@ function stationAudit() {
                 await this.loadLubeData();
                 this.syncStoreFromProducts();
                 this.syncCountersFromStore();
+                this.loadDocuments();
                 // Recompute received from authoritative lubeIssues data
                 this.lubeSections.forEach(ls => {
                     (ls.items || []).forEach(it => {
@@ -485,6 +590,138 @@ function stationAudit() {
                 });
                 this.$nextTick(() => lucide.createIcons());
             } else { this.toast(r.message, false); }
+        },
+
+        // ═══════════════════════════════════════
+        // DOCUMENT STORAGE
+        // ═══════════════════════════════════════
+        async loadDocuments() {
+            const sid = this.docFilter === 'current' ? this.activeSession : '';
+            const fd = new FormData();
+            fd.append('action', 'list_documents');
+            if (sid) fd.append('session_id', sid);
+            const res = await fetch('../ajax/station_audit_api.php', { method: 'POST', body: fd });
+            const r = await res.json();
+            if (r.success) {
+                let docs = r.documents || [];
+
+                // Inject system sales proof images as virtual documents
+                const ss = this.systemSales || {};
+                const session = this.sessionData?.session || {};
+                const sessionRef = session.id ? ('Session #' + session.id) : '';
+                const sessionDate = session.date_from || '';
+                const outletName = session.outlet_name || '';
+
+                if (ss.teller_proof_url) {
+                    docs.push({
+                        id: 'sys_teller_proof',
+                        doc_label: 'Bank Deposit / Teller Slip',
+                        original_name: 'teller_proof',
+                        file_path: ss.teller_proof_url,
+                        file_size: 0,
+                        created_at: sessionDate,
+                        outlet_name: outletName,
+                        _reference: sessionRef,
+                        _system: true
+                    });
+                }
+                if (ss.pos_proof_url) {
+                    docs.push({
+                        id: 'sys_pos_proof',
+                        doc_label: 'POS Transaction Slip',
+                        original_name: 'pos_proof',
+                        file_path: ss.pos_proof_url,
+                        file_size: 0,
+                        created_at: sessionDate,
+                        outlet_name: outletName,
+                        _reference: sessionRef,
+                        _system: true
+                    });
+                }
+
+                this.documents = docs;
+                this.docStorage = r.storage || this.docStorage;
+                // Update count to include system docs
+                this.docStorage.count = docs.length;
+            }
+        },
+
+        async uploadDocument(e) {
+            const files = e.target.files || e.dataTransfer?.files;
+            if (!files || files.length === 0) return;
+
+            for (const file of files) {
+                if (file.size > 2 * 1024 * 1024) {
+                    this.toast(`${file.name} exceeds 2MB limit`, false);
+                    continue;
+                }
+                this.docUploading = true;
+                const fd = new FormData();
+                fd.append('action', 'upload_document');
+                fd.append('session_id', this.activeSession || 0);
+                fd.append('file', file);
+                try {
+                    const res = await fetch('../ajax/station_audit_api.php', { method: 'POST', body: fd });
+                    const r = await res.json();
+                    if (r.success) {
+                        this.toast(`${file.name} uploaded`);
+                    } else {
+                        this.toast(r.message || 'Upload failed', false);
+                    }
+                } catch (err) {
+                    this.toast('Upload error', false);
+                }
+            }
+            this.docUploading = false;
+            e.target.value = '';
+            await this.loadDocuments();
+        },
+
+        async renameDocument(doc) {
+            const newLabel = (this.docEditLabel || '').trim();
+            if (!newLabel) return;
+            const fd = new FormData();
+            fd.append('action', 'rename_document');
+            fd.append('doc_id', doc.id);
+            fd.append('doc_label', newLabel);
+            const res = await fetch('../ajax/station_audit_api.php', { method: 'POST', body: fd });
+            const r = await res.json();
+            if (r.success) {
+                doc.doc_label = newLabel;
+                this.docEditingId = null;
+                this.docEditLabel = '';
+                this.toast('Document renamed');
+            } else {
+                this.toast(r.message || 'Rename failed', false);
+            }
+        },
+
+        async deleteDocument(doc) {
+            if (!confirm(`Delete "${doc.doc_label || doc.original_name}"? This cannot be undone.`)) return;
+            const fd = new FormData();
+            fd.append('action', 'delete_document');
+            fd.append('doc_id', doc.id);
+            const res = await fetch('../ajax/station_audit_api.php', { method: 'POST', body: fd });
+            const r = await res.json();
+            if (r.success) {
+                this.toast('Document deleted');
+                await this.loadDocuments();
+            } else {
+                this.toast(r.message || 'Delete failed', false);
+            }
+        },
+
+        formatFileSize(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            let size = parseFloat(bytes);
+            while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+            return size.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+        },
+
+        isImageFile(doc) {
+            return /\.(jpg|jpeg|png|gif|webp)$/i.test(doc.original_name || '');
         },
         async saveSystemSales() {
             // Build denomination JSON map
@@ -521,13 +758,16 @@ function stationAudit() {
                     await this.api('save_pump_readings', { pump_table_id: prevTable.id, readings: prevTable.readings });
                 }
 
+                // New period starts from the closing date of the previous period
+                const newDateFrom = prevTable.date_to || dateFrom;
+
                 // Use new_rate_period API: closes previous + copies pumps with closing→opening
                 const r = await this.api('new_rate_period', {
                     prev_table_id: prevTable.id,
                     session_id: this.activeSession,
                     product: this.selectedProduct,
                     rate: rate,
-                    date_from: dateFrom,
+                    date_from: newDateFrom,
                     date_to: dateTo,
                     station_location: station
                 });
@@ -548,7 +788,7 @@ function stationAudit() {
 
                     this.pumpTables.push({
                         id: r.id, product: this.selectedProduct, rate: rate,
-                        date_from: dateFrom, date_to: dateTo, station_location: station,
+                        date_from: newDateFrom, date_to: dateTo, station_location: station,
                         is_closed: 0, _tankOpen: false, readings: copiedReadings, tanks: copiedTanks
                     });
                     const parts = [];
@@ -648,7 +888,7 @@ function stationAudit() {
             const r = await this.api('add_tank', { pump_table_id: pt.id, tank_name: name });
             if (r.success) {
                 if (!pt.tanks) pt.tanks = [];
-                pt.tanks.push({ id: r.id, tank_name: name, product: pt.product, opening: 0, added: 0, closing: 0 });
+                pt.tanks.push({ id: r.id, tank_name: name, product: pt.product, opening: 0, added: 0, closing: 0, capacity_kg: 0, max_fill_percent: 100 });
                 this.toast('Tank added');
             } else { this.toast(r.message || 'Failed to add tank', false); }
         },
@@ -673,10 +913,31 @@ function stationAudit() {
             } else { this.toast(r.message, false); }
         },
         addHaulage() {
-            this.haulage.push({ delivery_date: new Date().toISOString().slice(0, 10), tank_name: '', product: 'PMS', quantity: 0, waybill_qty: 0 });
+            this.haulage.push({
+                delivery_date: new Date().toISOString().slice(0, 10),
+                tank_name: '', product: 'PMS',
+                quantity: 0, waybill_qty: 0,
+                // LPG discharge fields (ignored for non-LPG products)
+                _lpg_mode: 'direct',      // 'direct' | 'discharge'
+                _truck_cap_kg: 0,         // truck tank capacity in kg
+                _truck_max_fill: 100,     // truck configured max fill %
+                _truck_open_pct: 0,       // gauge % before discharge
+                _truck_close_pct: 0,      // gauge % after discharge
+            });
             this.$nextTick(() => lucide.createIcons());
         },
         async saveHaulage() {
+            // Validate: every row must match an existing pump table period
+            const unmatched = this.haulage.filter(h => !this.pumpTableForDelivery(h.product, h.delivery_date));
+            if (unmatched.length > 0) {
+                const products = [...new Set(unmatched.map(h => h.product))].join(', ');
+                this.toast(
+                    `${unmatched.length} delivery(ies) for [${products}] have no matching rate period. ` +
+                    `Go to Pump Sales → create or adjust a period that covers the delivery date(s) first.`,
+                    false
+                );
+                return;
+            }
             this.saving = true;
             const r = await this.api('save_haulage', { session_id: this.activeSession, entries: this.haulage });
             this.saving = false;
@@ -698,6 +959,7 @@ function stationAudit() {
         // ── Expense Categories & Ledger ──
         async createExpenseCategory() {
             if (!this.newExpenseCatName.trim()) return this.toast('Enter a category name', false);
+            if (this.newExpenseCatName.includes('&')) return this.toast("Name cannot contain '&'. Use 'and' instead.", false);
             this.saving = true;
             const r = await this.api('create_expense_category', { session_id: this.activeSession, category_name: this.newExpenseCatName.trim() });
             this.saving = false;
@@ -730,6 +992,42 @@ function stationAudit() {
                 this.toast('Expense entry posted');
             } else { this.toast(r.message, false); }
         },
+        toggleEditExpenseEntry(entry) {
+            if (entry._editing) {
+                entry._editing = false;
+            } else {
+                entry._editing = true;
+                entry._edit = {
+                    entry_date: entry.entry_date,
+                    description: entry.description || '',
+                    debit: parseFloat(entry.debit) || 0,
+                    credit: parseFloat(entry.credit) || 0,
+                    payment_method: entry.payment_method || 'cash'
+                };
+            }
+        },
+        async saveExpenseEntry(entry) {
+            const e = entry._edit;
+            this.saving = true;
+            const r = await this.api('update_expense_entry', {
+                entry_id: entry.id,
+                entry_date: e.entry_date,
+                description: e.description,
+                debit: e.debit,
+                credit: e.credit,
+                payment_method: e.payment_method
+            });
+            this.saving = false;
+            if (r.success) {
+                entry.entry_date = e.entry_date;
+                entry.description = e.description;
+                entry.debit = e.debit;
+                entry.credit = e.credit;
+                entry.payment_method = e.payment_method;
+                entry._editing = false;
+                this.toast('Entry updated');
+            } else { this.toast(r.message, false); }
+        },
         async deleteExpenseEntry(entryId) {
             if (!confirm('Delete this expense entry?')) return;
             const r = await this.api('delete_expense_entry', { entry_id: entryId });
@@ -738,6 +1036,20 @@ function stationAudit() {
                 if (cat) cat.ledger = cat.ledger.filter(e => e.id != entryId);
                 this.toast('Entry deleted');
             } else { this.toast(r.message, false); }
+        },
+        // Aggregate expense entries by description across ALL categories
+        get expenseDescriptionSummary() {
+            const map = {};
+            this.expenseCategories.forEach(cat => {
+                (cat.ledger || []).forEach(e => {
+                    const desc = (e.description || '(No description)').trim();
+                    if (!map[desc]) map[desc] = { description: desc, totalDebit: 0, totalCredit: 0, count: 0 };
+                    map[desc].totalDebit += parseFloat(e.debit) || 0;
+                    map[desc].totalCredit += parseFloat(e.credit) || 0;
+                    map[desc].count++;
+                });
+            });
+            return Object.values(map).sort((a, b) => (b.totalDebit - b.totalCredit) - (a.totalDebit - a.totalCredit));
         },
         async deleteExpenseCategory(catId) {
             if (!confirm('Delete this expense category and all entries?')) return;
@@ -748,10 +1060,24 @@ function stationAudit() {
                 this.toast('Category deleted');
             } else { this.toast(r.message, false); }
         },
+        async renameExpenseCategory(catId) {
+            const cat = this.expenseCategories.find(c => c.id == catId);
+            if (!cat) return;
+            const newName = prompt('Rename expense category:', cat.category_name);
+            if (!newName || !newName.trim() || newName.trim() === cat.category_name) return;
+            if (newName.includes('&')) return this.toast("Name cannot contain '&'. Use 'and' instead.", false);
+            const r = await this.api('rename_expense_category', { category_id: catId, new_name: newName.trim() });
+            if (r.success) {
+                cat.category_name = r.new_name;
+                this.toast('Category renamed');
+                this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+            } else { this.toast(r.message, false); }
+        },
 
         // ── Debtor Accounts & Ledger ──
         async createDebtorAccount() {
             if (!this.newDebtorName.trim()) return this.toast('Enter a customer name', false);
+            if (this.newDebtorName.includes('&')) return this.toast("Name cannot contain '&'. Use 'and' instead.", false);
             this.saving = true;
             const r = await this.api('create_debtor_account', { session_id: this.activeSession, customer_name: this.newDebtorName.trim() });
             this.saving = false;
@@ -783,6 +1109,39 @@ function stationAudit() {
                 this.toast('Ledger entry added');
             } else { this.toast(r.message, false); }
         },
+        toggleEditDebtorEntry(entry) {
+            if (entry._editing) {
+                entry._editing = false;
+            } else {
+                entry._editing = true;
+                entry._edit = {
+                    entry_date: entry.entry_date,
+                    description: entry.description || '',
+                    debit: parseFloat(entry.debit) || 0,
+                    credit: parseFloat(entry.credit) || 0
+                };
+            }
+        },
+        async saveDebtorEntry(entry) {
+            const e = entry._edit;
+            this.saving = true;
+            const r = await this.api('update_debtor_entry', {
+                entry_id: entry.id,
+                entry_date: e.entry_date,
+                description: e.description,
+                debit: e.debit,
+                credit: e.credit
+            });
+            this.saving = false;
+            if (r.success) {
+                entry.entry_date = e.entry_date;
+                entry.description = e.description;
+                entry.debit = e.debit;
+                entry.credit = e.credit;
+                entry._editing = false;
+                this.toast('Entry updated');
+            } else { this.toast(r.message, false); }
+        },
         async deleteDebtorEntry(entryId) {
             if (!confirm('Delete this ledger entry?')) return;
             const r = await this.api('delete_debtor_entry', { entry_id: entryId });
@@ -792,6 +1151,20 @@ function stationAudit() {
                 this.toast('Entry deleted');
             } else { this.toast(r.message, false); }
         },
+        // Aggregate debtor entries by description across ALL accounts
+        get debtorDescriptionSummary() {
+            const map = {};
+            this.debtorAccounts.forEach(acct => {
+                (acct.ledger || []).forEach(e => {
+                    const desc = (e.description || '(No description)').trim();
+                    if (!map[desc]) map[desc] = { description: desc, totalDebit: 0, totalCredit: 0, count: 0 };
+                    map[desc].totalDebit += parseFloat(e.debit) || 0;
+                    map[desc].totalCredit += parseFloat(e.credit) || 0;
+                    map[desc].count++;
+                });
+            });
+            return Object.values(map).sort((a, b) => (b.totalDebit - b.totalCredit) - (a.totalDebit - a.totalCredit));
+        },
         async deleteDebtorAccount(accountId) {
             if (!confirm('Delete this debtor account and all ledger entries?')) return;
             const r = await this.api('delete_debtor_account', { account_id: accountId });
@@ -799,6 +1172,19 @@ function stationAudit() {
                 this.debtorAccounts = this.debtorAccounts.filter(a => a.id != accountId);
                 if (this.activeDebtorId == accountId) this.activeDebtorId = this.debtorAccounts.length ? this.debtorAccounts[0].id : null;
                 this.toast('Debtor account deleted');
+            } else { this.toast(r.message, false); }
+        },
+        async renameDebtorAccount(accountId) {
+            const acct = this.debtorAccounts.find(a => a.id == accountId);
+            if (!acct) return;
+            const newName = prompt('Rename debtor/receivable:', acct.customer_name);
+            if (!newName || !newName.trim() || newName.trim() === acct.customer_name) return;
+            if (newName.includes('&')) return this.toast("Name cannot contain '&'. Use 'and' instead.", false);
+            const r = await this.api('rename_debtor_account', { account_id: accountId, new_name: newName.trim() });
+            if (r.success) {
+                acct.customer_name = r.new_name;
+                this.toast('Account renamed');
+                this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
             } else { this.toast(r.message, false); }
         },
 
@@ -1132,7 +1518,7 @@ function stationAudit() {
                 // Reload session to pick up updated received quantities in store
                 if (this.activeSession) await this.loadSession(this.activeSession);
                 this.lubeGrnModal = false;
-                this.toast('GRN saved (₦' + parseFloat(r.total_cost).toLocaleString('en', { minimumFractionDigits: 2 }) + ')');
+                this.toast('GRN saved (' + (window.__NAIRA || '\u20A6') + parseFloat(r.total_cost).toLocaleString('en', { minimumFractionDigits: 2 }) + ')');
             } else { this.toast(r.message, false); }
         },
         async deleteLubeGrn(g) {
@@ -1319,7 +1705,7 @@ function stationAudit() {
             const [rp, rs, rg, rsc] = await Promise.all([
                 this.api('get_lube_products', {}, 'POST'),
                 this.api('get_lube_suppliers', {}, 'POST'),
-                this.api('get_lube_grns', {}, 'POST'),
+                this.api('get_lube_grns', { session_id: this.activeSession }, 'POST'),
                 this.api('get_lube_stock_counts', { session_id: this.activeSession }, 'POST'),
             ]);
             if (rp.success) this.lubeProducts = rp.products || [];
@@ -1330,402 +1716,1203 @@ function stationAudit() {
             this.syncStoreFromProducts();
         },
 
-        // ── PDF Download (Redesigned – matches report page layout & colors) ──
-        async downloadReportPDF() {
+        // ── Report PDF Builder ──
+        _buildReportHTML() {
+            const N = window.__NAIRA || '\u20A6';
             const s = this.sessionData?.session || {};
             const station = s.outlet_name || 'Station';
-            const dateFrom = s.date_from || '';
-            const dateTo = s.date_to || '';
+            const dateFrom = s.date_from || '--';
+            const dateTo = s.date_to || '--';
             const company = window.__SA_COMPANY || 'MIAUDITOPS';
-            const preparer = window.__SA_USER?.name || 'Auditor';
-            const preparerRole = window.__SA_USER?.role || '';
+            const preparer = this.reportCover.preparedBy || (window.__SA_USER?.name || 'Auditor');
+            const reviewer = this.reportCover.reviewedBy || '';
+            const coverTitle = this.reportCover.title || 'Station Audit Close-Out Report';
+            const coverNotes = this.reportCover.notes || '';
+            const period = this.reportCover.reportingPeriod || (dateFrom + ' to ' + dateTo);
+            const genDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+            const genTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+            const fmtN = n => N + (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 });
+            const fmtL = n => (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 });
             const esc = v => this._esc(v);
-            const fmtN = n => (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 });
-            const fmt = n => this.fmt(n);
-            const tankVar = this.totalTankDiff - this.totalPumpLitres;
 
-            /* ── Build Pump Sales rows ── */
+            // ── SVG icon map for professional PDF ──
+            const svgIcons = {
+                payment: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
+                pump: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 22V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M3 22h10"/><path d="M13 10h2a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V9l-3-3"/></svg>',
+                tank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 2a10 10 0 0 1 0 20 10 10 0 0 1 0-20z"/><path d="M12 6v6l4 2"/></svg>',
+                haulage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>',
+                lube: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M8 2h8l2 4H6l2-4z"/><rect x="6" y="6" width="12" height="16" rx="1"/><line x1="10" y1="12" x2="14" y2="12"/></svg>',
+                expense: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+                debtor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+                variance: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+                closeout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>',
+            };
+            const sectionHeader = (svgKey, title, color) => `
+                <div class="section-header" style="background:linear-gradient(135deg,${color} 0%,${color}dd 100%);padding:12px 18px;margin:0;border-radius:12px 12px 0 0;display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px ${color}33">
+                    <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;background:rgba(255,255,255,.2);border-radius:6px;color:#fff;flex-shrink:0">${svgIcons[svgKey] || ''}</span>
+                    <h3 style="margin:0;font-size:14px;font-weight:800;color:#fff;letter-spacing:.6px;text-transform:uppercase">${esc(title)}</h3>
+                </div>`;
+
+            const kv = (label, value, bold = false) => `
+                <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f1f5f9">
+                    <span style="font-size:12px;color:#64748b">${esc(label)}</span>
+                    <span style="font-size:12px;font-weight:${bold ? '800' : '600'};color:#1e293b">${value}</span>
+                </div>`;
+
+            const tableHead = (...cols) => `<thead><tr>${cols.map(c => `<th style="padding:9px 12px;background:linear-gradient(180deg,#f8fafc,#f1f5f9);font-size:11px;font-weight:700;color:#475569;text-align:${c.right ? 'right' : 'left'};border-bottom:2px solid #e2e8f0;white-space:nowrap;letter-spacing:.3px">${c.label}</th>`).join('')}</tr></thead>`;
+
+            // ── 1. SYSTEM SALES ──
+            const sysSalesHTML = `
+                <div class="rpt-section">
+                    ${sectionHeader('payment', 'Payment/Declared', '#2563eb')}
+                    <div style="padding:14px 18px">
+                        ${kv('POS Terminals', fmtN(this.systemSales.pos_amount))}
+                        ${kv('Cash (Denomination)', fmtN(this.systemSales.cash_amount))}
+                        ${kv('Bank Transfer', fmtN(this.systemSales.transfer_amount))}
+                        ${kv('Teller / Deposit', fmtN(this.systemSales.teller_amount))}
+                        ${kv('TOTAL PAYMENT/DECLARED', fmtN(this.systemSalesTotal), true)}
+                        ${this.posTerminals.length > 0 ? `<div style="margin-top:10px;padding:10px 12px;background:#eff6ff;border-radius:8px"><div style="font-size:11px;font-weight:700;color:#3b82f6;margin-bottom:6px;letter-spacing:.3px">POS TERMINAL BREAKDOWN</div>${this.posTerminals.map(t => `<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0"><span>${esc(t.name)}</span><span style="font-weight:600">${fmtN(t.amount)}</span></div>`).join('')}</div>` : ''}
+                        ${this.transferTerminals.length > 0 ? `<div style="margin-top:10px;padding:10px 12px;background:#f5f3ff;border-radius:8px"><div style="font-size:11px;font-weight:700;color:#7c3aed;margin-bottom:6px;letter-spacing:.3px">TRANSFER TERMINAL BREAKDOWN</div>${this.transferTerminals.map(t => `<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0"><span>${esc(t.name)}</span><span style="font-weight:600">${fmtN(t.amount)}</span></div>`).join('')}</div>` : ''}
+                    </div>
+                </div>`;
+
+            // ── 2. PUMP SALES ──
             const pumpRows = this.pumpSalesGrouped.map(r => {
-                if (r.type === 'row') {
-                    return `<tr class="pdf-row"><td class="fw700">${esc(r.product)}</td><td class="mono sl500" style="font-size:10px">${r.dateFrom} → ${r.dateTo}</td><td class="text-right mono">${fmt(r.rate)}</td><td class="text-right mono fw700" style="color:#ea580c">${fmtN(r.litres)}</td><td class="text-right mono fw700" style="color:#16a34a">${fmt(r.amount)}</td></tr>`;
-                } else {
-                    return `<tr class="subtotal-row"><td class="fw900 up" style="color:#4338ca" colspan="3">${esc(r.product)} Total</td><td class="text-right mono fw900" style="color:#4338ca">${fmtN(r.totalLitres)}</td><td class="text-right mono fw900" style="color:#4338ca">${fmt(r.totalAmount)}</td></tr>`;
+                if (r.type === 'subtotal') {
+                    return `<tr style="background:#fef3c7"><td colspan="4" style="padding:7px 12px;font-size:12px;font-weight:800;color:#92400e">${esc(r.product)} Subtotal</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700">${fmtL(r.totalLitres)} L</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:800;color:#d97706">${fmtN(r.totalAmount)}</td></tr>`;
                 }
+                return `<tr><td style="padding:6px 12px;font-size:11px;color:#0369a1;font-weight:700">${esc(r.product)}</td><td style="padding:6px 12px;font-size:11px">${esc(r.dateFrom)}</td><td style="padding:6px 12px;font-size:11px">${esc(r.dateTo)}</td><td style="padding:6px 12px;text-align:right;font-size:11px">${fmtN(r.rate)}/L</td><td style="padding:6px 12px;text-align:right;font-size:11px">${fmtL(r.litres)} L</td><td style="padding:6px 12px;text-align:right;font-size:11px;color:#059669;font-weight:600">${fmtN(r.amount)}</td></tr>`;
             }).join('');
+            const pumpSalesHTML = `
+                <div class="rpt-section">
+                    ${sectionHeader('pump', 'Pump Sales', '#ea580c')}
+                    <div style="overflow-x:auto">
+                        <table style="width:100%;border-collapse:collapse">
+                            ${tableHead({ label: 'Product' }, { label: 'From' }, { label: 'To' }, { label: 'Rate', right: true }, { label: 'Litres', right: true }, { label: 'Amount', right: true })}
+                            <tbody>${pumpRows || '<tr><td colspan="6" style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">No pump sales recorded</td></tr>'}</tbody>
+                            <tfoot><tr style="background:linear-gradient(90deg,#ffedd5,#fed7aa)"><td colspan="4" style="padding:9px 12px;font-size:12px;font-weight:800;color:#9a3412">GRAND TOTAL</td><td style="padding:9px 12px;text-align:right;font-size:12px;font-weight:700">${fmtL(this.totalPumpLitres)} L</td><td style="padding:9px 12px;text-align:right;font-size:12px;font-weight:800;color:#c2410c">${fmtN(this.totalPumpSales)}</td></tr></tfoot>
+                        </table>
+                    </div>
+                </div>`;
 
-            /* ── Build Tank Reconciliation rows ── */
-            const reconRows = this.productComparison.map(c => {
-                const varColor = Math.abs(c.variance) < 0.01 ? '#16a34a' : '#dc2626';
-                const badge = Math.abs(c.variance) < 0.01
-                    ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:99px;font-weight:800;font-size:8px">BALANCED</span>'
-                    : '<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:99px;font-weight:800;font-size:8px">VARIANCE</span>';
-                return `<tr class="pdf-row"><td class="fw700">${esc(c.product)}</td><td class="text-right mono">${fmtN(c.pumpLitres)}</td><td class="text-right mono">${fmtN(c.tankDiff)}</td><td class="text-right mono fw700" style="color:${varColor}">${fmtN(c.variance)}</td><td class="text-right mono fw700" style="color:#16a34a">${fmt(c.pumpAmount)}</td><td class="text-center">${badge}</td></tr>`;
-            }).join('');
+            // ── 3. TANK DIPPING ──
+            const tankRows = this.tankProductTotals.map(t => `
+                <tr>
+                    <td style="padding:6px 12px;font-size:12px;font-weight:700;color:#0f766e">${esc(t.product)}</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px">${fmtL(t.opening)} L</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px">${fmtL(t.added)} L</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px">${fmtL(t.closing)} L</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:${t.diff >= 0 ? '#0f766e' : '#dc2626'}">${fmtL(t.diff)} L</td>
+                </tr>`).join('');
+            const tankHTML = `
+                <div class="rpt-section">
+                    ${sectionHeader('tank', 'Tank Dipping', '#0d9488')}
+                    <div style="overflow-x:auto">
+                        <table style="width:100%;border-collapse:collapse">
+                            ${tableHead({ label: 'Product' }, { label: 'Opening', right: true }, { label: 'Added', right: true }, { label: 'Closing', right: true }, { label: 'Diff (Used)', right: true })}
+                            <tbody>${tankRows || '<tr><td colspan="5" style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">No tank dipping recorded</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                </div>`;
 
-            /* ── Build Tank Dipping Summary rows ── */
-            const tankRows = (this.tankProductTotals || []).map(t => {
-                return `<tr class="pdf-row"><td class="fw700">${esc(t.product)}</td><td class="text-right mono">${fmtN(t.opening)}</td><td class="text-right mono" style="color:#16a34a">${fmtN(t.added)}</td><td class="text-right mono">${fmtN(t.closing)}</td><td class="text-right mono fw700" style="color:#0891b2">${fmtN(t.diff)}</td></tr>`;
-            }).join('') || '<tr><td colspan="5" class="text-center sl400" style="padding:12px">No tank dipping records</td></tr>';
+            // ── 4. HAULAGE ──
+            const haulRows = this.haulageByProduct.map(h => `
+                <tr>
+                    <td style="padding:6px 12px;font-size:12px;font-weight:700;color:#4338ca">${esc(h.product)}</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px">${h.count}</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px">${fmtL(h.waybill_qty)} L</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:#4338ca">${fmtL(h.quantity)} L</td>
+                </tr>`).join('');
+            const haulageHTML = `
+                <div class="rpt-section">
+                    ${sectionHeader('haulage', 'Haulage (Receipts)', '#4338ca')}
+                    <div style="overflow-x:auto">
+                        <table style="width:100%;border-collapse:collapse">
+                            ${tableHead({ label: 'Product' }, { label: 'Waybills', right: true }, { label: 'Waybill Qty', right: true }, { label: 'Actual Recv.', right: true })}
+                            <tbody>${haulRows || '<tr><td colspan="4" style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">No haulage recorded</td></tr>'}</tbody>
+                            <tfoot><tr style="background:linear-gradient(90deg,#eef2ff,#e0e7ff)"><td style="padding:9px 12px;font-size:12px;font-weight:800;color:#3730a3">TOTAL</td><td style="padding:9px 12px;text-align:right;font-size:12px;font-weight:700">${this.haulage.length}</td><td colspan="2" style="padding:9px 12px;text-align:right;font-size:12px;font-weight:800;color:#3730a3">${fmtL(this.totalHaulageQty)} L</td></tr></tfoot>
+                        </table>
+                    </div>
+                </div>`;
 
-            /* ── Build Haulage rows ── */
-            const haulRows = (this.haulageByProduct || []).map(h => {
-                const diff = h.quantity - h.waybill_qty;
-                const diffColor = diff === 0 ? '#16a34a' : '#d97706';
-                return `<tr class="pdf-row"><td class="fw700">${esc(h.product)}</td><td class="text-right mono">${h.count}</td><td class="text-right mono fw700" style="color:#4f46e5">${fmtN(h.quantity)}</td><td class="text-right mono">${fmtN(h.waybill_qty)}</td><td class="text-right mono fw700" style="color:${diffColor}">${fmtN(diff)}</td></tr>`;
-            }).join('') || '<tr><td colspan="5" class="text-center sl400" style="padding:12px">No haulage records</td></tr>';
+            // ── 5. LUBRICANTS ──
+            const lubeRows = this.lubeSections.map(ls => `
+                <tr>
+                    <td style="padding:6px 12px;font-size:12px;font-weight:600">${esc(ls.section_name || ls.name)}</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px">${(ls.items || []).length}</td>
+                    <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:#4d7c0f">${fmtN(this.lubeSectionAmount(ls))}</td>
+                </tr>`).join('');
+            const lubricantHTML = `
+                <div class="rpt-section">
+                    ${sectionHeader('lube', 'Lubricants', '#4d7c0f')}
+                    <div style="overflow-x:auto">
+                        <table style="width:100%;border-collapse:collapse">
+                            ${tableHead({ label: 'Counter / Section' }, { label: 'Items', right: true }, { label: 'Sales', right: true })}
+                            <tbody>${lubeRows || '<tr><td colspan="3" style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">No lubricant sections</td></tr>'}</tbody>
+                            <tfoot><tr style="background:linear-gradient(90deg,#f7fee7,#ecfccb)"><td colspan="2" style="padding:9px 12px;font-size:12px;font-weight:800;color:#365314">TOTAL LUBRICANT SALES</td><td style="padding:9px 12px;text-align:right;font-size:12px;font-weight:800;color:#4d7c0f">${fmtN(this.lubeTotalAmount)}</td></tr></tfoot>
+                        </table>
+                    </div>
+                </div>`;
 
-            /* ── Lube Store rows ── */
-            const lubeStoreRows = (this.lubeStoreItems || []).map(si => {
-                const cls = typeof this.storeItemClosing === 'function' ? this.storeItemClosing(si) : 0;
-                return `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #f1f5f9"><span style="font-size:10px;color:#475569">${esc(si.item_name || si.product_name || '')}</span><span style="font-size:10px;font-family:monospace"><span style="color:#94a3b8">Cls: ${cls}</span> <span style="color:#9333ea;font-weight:700;margin-left:6px">@ ${fmt(si.selling_price)}</span></span></div>`;
-            }).join('') || '<p style="font-size:10px;color:#94a3b8;text-align:center;padding:8px">No store items</p>';
-
-            /* ── Lube Counter Sales rows ── */
-            const lubeCounterRows = (this.lubeSections || []).map(ls => {
-                const secAmt = typeof this.lubeSectionAmount === 'function' ? this.lubeSectionAmount(ls) : 0;
-                const items = (ls.items || []).map(it => {
-                    const sold = typeof this.counterItemSold === 'function' ? this.counterItemSold(it) : 0;
-                    return `<div style="display:flex;justify-content:space-between;padding:2px 0 2px 12px;border-bottom:1px dashed #f8fafc"><span style="font-size:9px;color:#64748b">${esc(it.item_name || '')}</span><span style="font-size:9px;font-family:monospace;color:#64748b">${sold} × ${fmt(it.selling_price)}</span></div>`;
-                }).join('');
-                return `<div style="display:flex;justify-content:space-between;padding:5px 0"><span style="font-size:11px;font-weight:700;color:#334155">${esc(ls.name)}</span><span style="font-size:11px;font-weight:900;color:#7c3aed">${fmt(secAmt)}</span></div>${items}`;
-            }).join('') || '<p style="font-size:10px;color:#94a3b8;text-align:center;padding:8px">No counter data</p>';
-
-            /* ── Expense rows ── */
-            const expenseRows = (this.expenseCategories || []).map(cat => {
+            // ── 6. EXPENSES ──
+            const expenseRows = this.expenseCategories.map(cat => {
                 const bal = this.expenseCatBalance(cat);
-                const entries = (cat.ledger || []).map(e => {
-                    const drCr = (parseFloat(e.debit) || 0) > 0
-                        ? `<span style="color:#e11d48">Dr ${fmt(e.debit)}</span>`
-                        : (parseFloat(e.credit) || 0) > 0 ? `<span style="color:#16a34a">Cr ${fmt(e.credit)}</span>` : '';
-                    return `<div style="display:flex;justify-content:space-between;padding:2px 0 2px 12px;border-bottom:1px dashed #fdf2f8"><span style="font-size:9px;color:#64748b">${esc(e.description || e.entry_date || '')}</span><span style="font-size:9px;font-family:monospace">${drCr}</span></div>`;
-                }).join('');
-                return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #f1f5f9"><span style="font-size:11px;font-weight:600;color:#475569">${esc(cat.name)}</span><span style="font-size:11px;font-weight:900;font-family:monospace;color:#e11d48">${fmt(bal)}</span></div>${entries}`;
-            }).join('') || '<p style="font-size:10px;color:#94a3b8;text-align:center;padding:8px">No expense records</p>';
+                return `<tr><td style="padding:6px 12px;font-size:12px;font-weight:600">${esc(cat.category_name || cat.name || 'Uncategorised')}</td><td style="padding:6px 12px;text-align:right;font-size:12px">${(cat.ledger || []).length}</td><td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:#be123c">${fmtN(bal)}</td></tr>`;
+            }).join('');
+            const expensesHTML = `
+                <div class="rpt-section">
+                    ${sectionHeader('expense', 'Expenses', '#be123c')}
+                    <div style="overflow-x:auto">
+                        <table style="width:100%;border-collapse:collapse">
+                            ${tableHead({ label: 'Category' }, { label: 'Entries', right: true }, { label: 'Net Balance', right: true })}
+                            <tbody>${expenseRows || '<tr><td colspan="3" style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">No expenses recorded</td></tr>'}</tbody>
+                            <tfoot><tr style="background:linear-gradient(90deg,#fff1f2,#ffe4e6)"><td colspan="2" style="padding:9px 12px;font-size:12px;font-weight:800;color:#9f1239">TOTAL EXPENSES</td><td style="padding:9px 12px;text-align:right;font-size:12px;font-weight:800;color:#be123c">${fmtN(this.totalExpenses)}</td></tr></tfoot>
+                        </table>
+                    </div>
+                </div>`;
 
-            /* ── Debtor rows ── */
-            const debtorRows = (this.debtorAccounts || []).map(acct => {
+            // ── 7. DEBTORS ──
+            const debtorRows = this.debtorAccounts.map(acct => {
                 const bal = this.debtorBalance(acct);
-                const balColor = bal > 0 ? '#d97706' : '#16a34a';
-                const entries = (acct.ledger || []).map(e => {
-                    const drCr = (parseFloat(e.debit) || 0) > 0
-                        ? `<span style="color:#d97706">Dr ${fmt(e.debit)}</span>`
-                        : (parseFloat(e.credit) || 0) > 0 ? `<span style="color:#16a34a">Cr ${fmt(e.credit)}</span>` : '';
-                    const label = (e.entry_date || '') + (e.description ? ' — ' + e.description : '');
-                    return `<div style="display:flex;justify-content:space-between;padding:2px 0 2px 12px;border-bottom:1px dashed #fffbeb"><span style="font-size:9px;color:#64748b">${esc(label)}</span><span style="font-size:9px;font-family:monospace">${drCr}</span></div>`;
-                }).join('');
-                return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #f1f5f9"><span style="font-size:11px;font-weight:600;color:#475569">${esc(acct.name)}</span><span style="font-size:11px;font-weight:900;font-family:monospace;color:${balColor}">${fmt(bal)}</span></div>${entries}`;
-            }).join('') || '<p style="font-size:10px;color:#94a3b8;text-align:center;padding:8px">No debtor records</p>';
-
-            /* ──────────────────── FULL HTML ──────────────────── */
-            const html = `<div class="rpt">
-            <style>
-                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
-                .rpt{font-family:'Inter',system-ui,sans-serif;color:#0f172a;line-height:1.5;width:100%;max-width:1050px;box-sizing:border-box;background:#fff;padding:8px 14px}
-                .rpt *{box-sizing:border-box}
-                /* Cover */
-                .cover{min-height:500px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;page-break-after:always}
-                /* Section cards */
-                .card{border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:14px;page-break-inside:avoid}
-                .card-hdr{padding:10px 16px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#0f172a}
-                .card-hdr .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-                /* Tables */
-                .tbl{width:100%;border-collapse:collapse;font-size:10px}
-                .tbl th{text-align:left;padding:6px 10px;background:#f8fafc;color:#64748b;font-weight:700;text-transform:uppercase;font-size:9px;border-bottom:1px solid #e2e8f0}
-                .tbl td{padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#334155}
-                .tbl .text-right{text-align:right}
-                .tbl .text-center{text-align:center}
-                .tbl .mono{font-family:'SFMono-Regular',Consolas,monospace;font-size:10px}
-                .tbl .fw700{font-weight:700}
-                .tbl .fw900{font-weight:900}
-                .tbl .sl400{color:#94a3b8}
-                .tbl .sl500{color:#64748b}
-                .tbl .up{text-transform:uppercase;font-size:9px}
-                .pdf-row td{border-bottom:1px solid #f1f5f9}
-                .subtotal-row td{background:#f1f5f9;border-bottom:2px solid #c7d2fe}
-                .foot-row td{font-weight:900;font-size:11px;border-top:2px solid currentColor}
-                /* Grids */
-                .g6{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:12px;page-break-inside:avoid}
-                .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;page-break-inside:avoid}
-                .g2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;page-break-inside:avoid}
-                .g2-eq{display:grid;grid-template-columns:1fr 1fr;gap:0;page-break-inside:avoid}
-                .scard{border-radius:10px;padding:8px 6px;border:1px solid;text-align:center;overflow:hidden}
-                .scard .lbl{font-size:7px;font-weight:800;text-transform:uppercase;margin-bottom:2px;white-space:nowrap}
-                .scard .val{font-size:13px;font-weight:900;white-space:nowrap}
-                /* Sign-off */
-                .sign{border:1px dashed #cbd5e1;border-radius:12px;padding:14px;text-align:center;background:#f8fafc}
-                /* Page header */
-                .pg-hdr{text-align:center;margin-bottom:18px;padding-bottom:14px;border-bottom:2px solid #f1f5f9}
-                .pg-hdr h2{font-size:16px;font-weight:900;margin:0 0 2px}
-                .pg-hdr p{font-size:10px;color:#64748b;margin:0}
-                /* Variance cards */
-                .vcard{text-align:center;padding:14px;border-radius:12px}
-                .vcard .lbl{font-size:8px;font-weight:800;text-transform:uppercase;margin-bottom:2px}
-                .vcard .sub{font-size:9px;color:#64748b;margin-bottom:4px}
-                .vcard .val{font-size:16px;font-weight:900}
-                .vcard .badge{font-size:8px;font-weight:900;padding:2px 8px;border-radius:99px;display:inline-block;margin-top:4px}
-                /* Dashed line items */
-                .dash-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #f1f5f9}
-                .dash-row .k{font-size:10px;font-weight:600;color:#475569}
-                .dash-row .v{font-size:10px;font-weight:900;font-family:monospace}
-                .total-bar{display:flex;justify-content:space-between;padding:8px 12px;border-radius:8px;margin-top:8px}
-                .total-bar .k{font-size:9px;font-weight:900;text-transform:uppercase}
-                .total-bar .v{font-size:11px;font-weight:900}
-            </style>
-
-            <!-- ═══ COVER PAGE ═══ -->
-            <div class="cover">
-                <p style="font-size:13px;letter-spacing:6px;text-transform:uppercase;color:#6366f1;font-weight:700;margin-bottom:6px">MIAUDITOPS</p>
-                <div style="width:70px;height:3px;background:linear-gradient(90deg,#6366f1,#8b5cf6);margin:0 auto 36px"></div>
-                <h1 style="font-size:32px;font-weight:900;color:#0f172a;margin:0 0 10px">Audit Routine Report</h1>
-                <div style="width:100px;height:2px;background:#e2e8f0;margin:0 auto 36px"></div>
-                <h2 style="font-size:22px;font-weight:800;color:#1e293b;margin:0 0 6px">${esc(station)}</h2>
-                <p style="font-size:12px;color:#64748b;margin:0 0 28px">${esc(company)}</p>
-                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 36px;display:inline-block;margin-bottom:36px">
-                    <p style="font-size:9px;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;font-weight:700;margin:0 0 4px">Audit Period</p>
-                    <p style="font-size:16px;font-weight:800;color:#334155;margin:0">${dateFrom}  —  ${dateTo}</p>
-                </div>
-                <div>
-                    <p style="font-size:9px;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;font-weight:700;margin:0 0 4px">Prepared By</p>
-                    <p style="font-size:14px;font-weight:700;color:#334155;margin:0">${esc(preparer)}</p>
-                    <p style="font-size:10px;color:#64748b;margin:3px 0 0">${esc(preparerRole)}</p>
-                </div>
-            </div>
-
-            <!-- ═══ REPORT BODY ═══ -->
-            <div style="padding:10px 0">
-                <div class="pg-hdr">
-                    <h2>Audit Close-Out Report</h2>
-                    <p>${esc(station)} • ${esc(company)} • ${dateFrom} to ${dateTo}</p>
-                </div>
-
-                <!-- ── Summary Cards (6 columns like report page) ── -->
-                <div class="g6">
-                    <div class="scard" style="border-color:#bfdbfe60;background:#eff6ff">
-                        <div class="lbl" style="color:#60a5fa">System Sales</div>
-                        <div class="val" style="color:#2563eb">${fmt(this.systemSalesTotal)}</div>
-                    </div>
-                    <div class="scard" style="border-color:#fed7aa60;background:#fff7ed">
-                        <div class="lbl" style="color:#fb923c">Pump Sales</div>
-                        <div class="val" style="color:#ea580c">${fmt(this.totalPumpSales)}</div>
-                    </div>
-                    <div class="scard" style="border-color:#99f6e460;background:#f0fdfa">
-                        <div class="lbl" style="color:#2dd4bf">Total Litres</div>
-                        <div class="val" style="color:#0d9488">${fmtN(this.totalPumpLitres)} L</div>
-                    </div>
-                    <div class="scard" style="border-color:#c7d2fe60;background:#eef2ff">
-                        <div class="lbl" style="color:#818cf8">Haulage Received</div>
-                        <div class="val" style="color:#4f46e5">${fmtN(this.totalHaulageQty)} L</div>
-                    </div>
-                    <div class="scard" style="border-color:#e9d5ff60;background:#faf5ff">
-                        <div class="lbl" style="color:#a78bfa">Lubricant Sales</div>
-                        <div class="val" style="color:#9333ea">${fmt(this.lubeTotalAmount)}</div>
-                    </div>
-                    <div class="scard" style="border-color:${this.reportVariance === 0 ? '#bbf7d060' : '#fecaca60'};background:${this.reportVariance === 0 ? '#f0fdf4' : '#fef2f2'}">
-                        <div class="lbl" style="color:${this.reportVariance === 0 ? '#4ade80' : '#f87171'}">${this.reportVariance === 0 ? '✓ ' : ''} Variance</div>
-                        <div class="val" style="color:${this.reportVariance === 0 ? '#16a34a' : '#dc2626'}">${fmt(this.reportVariance)}</div>
-                    </div>
-                </div>
-
-                <!-- ── Two column: System Sales + Pump Sales ── -->
-                <div class="g2">
-                    <!-- System Sales Breakdown -->
-                    <div class="card">
-                        <div class="card-hdr" style="background:linear-gradient(90deg,rgba(59,130,246,0.08),transparent)">
-                            <div class="dot" style="background:#3b82f6"></div> System Sales Breakdown
-                        </div>
-                        <div style="padding:10px 14px">
-                            <div class="dash-row"><span class="k">POS Terminals</span><span class="v" style="color:#0f172a">${fmt(this.systemSales.pos_amount)}</span></div>
-                            <div class="dash-row"><span class="k">Cash (Denomination)</span><span class="v" style="color:#0f172a">${fmt(this.systemSales.cash_amount)}</span></div>
-                            <div class="dash-row"><span class="k">Transfer</span><span class="v" style="color:#0f172a">${fmt(this.systemSales.transfer_amount)}</span></div>
-                            <div class="dash-row"><span class="k">Teller/Credit</span><span class="v" style="color:#0f172a">${fmt(this.systemSales.teller_amount)}</span></div>
-                            <div class="total-bar" style="background:#eff6ff"><span class="k" style="color:#1d4ed8">Total System Sales</span><span class="v" style="color:#1d4ed8">${fmt(this.systemSalesTotal)}</span></div>
-                        </div>
-                    </div>
-
-                    <!-- Pump Sales Per Product -->
-                    <div class="card">
-                        <div class="card-hdr" style="background:linear-gradient(90deg,rgba(249,115,22,0.08),transparent)">
-                            <div class="dot" style="background:#f97316"></div> Pump Sales Per Product
-                        </div>
-                        <table class="tbl">
-                            <thead><tr><th>Product</th><th>Period</th><th class="text-right">Rate</th><th class="text-right" style="color:#ea580c">Litres</th><th class="text-right" style="color:#16a34a">Amount</th></tr></thead>
-                            <tbody>${pumpRows}</tbody>
-                            <tfoot><tr class="foot-row" style="color:#ea580c"><td colspan="3" style="padding:8px 10px;background:#fff7ed;text-transform:uppercase;font-size:10px">Grand Total</td><td class="text-right mono" style="padding:8px 10px;background:#fff7ed">${fmtN(this.totalPumpLitres)}</td><td class="text-right mono" style="padding:8px 10px;background:#fff7ed">${fmt(this.totalPumpSales)}</td></tr></tfoot>
+                return `<tr><td style="padding:6px 12px;font-size:12px;font-weight:600">${esc(acct.customer_name || acct.account_name || acct.name || 'Unknown')}</td><td style="padding:6px 12px;text-align:right;font-size:12px">${(acct.ledger || []).length}</td><td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:${bal > 0 ? '#b45309' : '#059669'}">${fmtN(Math.abs(bal))} ${bal > 0 ? '(DR)' : '(CR)'}</td></tr>`;
+            }).join('');
+            const debtorsHTML = `
+                <div class="rpt-section">
+                    ${sectionHeader('debtor', 'Debtors', '#b45309')}
+                    <div style="overflow-x:auto">
+                        <table style="width:100%;border-collapse:collapse">
+                            ${tableHead({ label: 'Account' }, { label: 'Entries', right: true }, { label: 'Balance', right: true })}
+                            <tbody>${debtorRows || '<tr><td colspan="3" style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">No debtor accounts</td></tr>'}</tbody>
+                            <tfoot><tr style="background:linear-gradient(90deg,#fffbeb,#fef3c7)"><td colspan="2" style="padding:9px 12px;font-size:12px;font-weight:800;color:#92400e">TOTAL OUTSTANDING</td><td style="padding:9px 12px;text-align:right;font-size:12px;font-weight:800;color:#b45309">${fmtN(this.totalDebtors)}</td></tr></tfoot>
                         </table>
                     </div>
-                </div>
+                </div>`;
 
-                <!-- ── Pump Litres vs Tank Dipping Reconciliation (full width) ── -->
-                <div class="card">
-                    <div class="card-hdr" style="background:linear-gradient(90deg,rgba(20,184,166,0.08),transparent)">
-                        <div class="dot" style="background:#14b8a6"></div> Pump Litres vs Tank Dipping Reconciliation
-                    </div>
-                    <table class="tbl">
-                        <thead><tr><th>Product</th><th class="text-right" style="color:#ea580c">Pump Litres Sold</th><th class="text-right" style="color:#0d9488">Tank Usage (Dip)</th><th class="text-right">Variance (L)</th><th class="text-right" style="color:#16a34a">Pump Amount</th><th class="text-center">Status</th></tr></thead>
-                        <tbody>${reconRows}</tbody>
-                        <tfoot><tr class="foot-row" style="color:#0f766e"><td style="padding:8px 10px;background:#f0fdfa;text-transform:uppercase;font-size:10px">Total</td><td class="text-right mono" style="padding:8px 10px;background:#f0fdfa">${fmtN(this.totalPumpLitres)}</td><td class="text-right mono" style="padding:8px 10px;background:#f0fdfa">${fmtN(this.totalTankDiff)}</td><td class="text-right mono" style="padding:8px 10px;background:#f0fdfa;color:${Math.abs(tankVar) < 0.01 ? '#16a34a' : '#dc2626'}">${fmtN(tankVar)}</td><td class="text-right mono" style="padding:8px 10px;background:#f0fdfa">${fmt(this.totalPumpSales)}</td><td style="background:#f0fdfa"></td></tr></tfoot>
-                    </table>
-                </div>
-
-                <!-- ── Two column: Tank Dipping + Haulage ── -->
-                <div class="g2">
-                    <!-- Tank Dipping Summary -->
-                    <div class="card">
-                        <div class="card-hdr" style="background:linear-gradient(90deg,rgba(6,182,212,0.08),transparent)">
-                            <div class="dot" style="background:#06b6d4"></div> Tank Dipping Summary
-                        </div>
-                        <table class="tbl">
-                            <thead><tr><th>Product</th><th class="text-right">Opening (L)</th><th class="text-right" style="color:#16a34a">Added (L)</th><th class="text-right">Closing (L)</th><th class="text-right" style="color:#0891b2">Usage (L)</th></tr></thead>
-                            <tbody>${tankRows}</tbody>
-                        </table>
-                    </div>
-
-                    <!-- Haulage / Deliveries -->
-                    <div class="card">
-                        <div class="card-hdr" style="background:linear-gradient(90deg,rgba(99,102,241,0.08),transparent)">
-                            <div class="dot" style="background:#6366f1"></div> Haulage / Deliveries Received
-                        </div>
-                        <table class="tbl">
-                            <thead><tr><th>Product</th><th class="text-right">Deliveries</th><th class="text-right" style="color:#4f46e5">Qty Received (L)</th><th class="text-right">Waybill Qty (L)</th><th class="text-right" style="color:#d97706">Short/Over</th></tr></thead>
-                            <tbody>${haulRows}</tbody>
-                            ${(this.haulageByProduct || []).length > 0 ? `<tfoot><tr class="foot-row" style="color:#4f46e5"><td colspan="2" style="padding:8px 10px;background:#eef2ff;text-transform:uppercase;font-size:10px">Total</td><td class="text-right mono" style="padding:8px 10px;background:#eef2ff">${fmtN(this.totalHaulageQty)}</td><td class="text-right mono" style="padding:8px 10px;background:#eef2ff">${fmtN((this.haulageByProduct || []).reduce((s, h) => s + h.waybill_qty, 0))}</td><td style="background:#eef2ff"></td></tr></tfoot>` : ''}
-                        </table>
-                    </div>
-                </div>
-
-                <!-- ── Lubricants Summary ── -->
-                <div class="card">
-                    <div class="card-hdr" style="background:linear-gradient(90deg,rgba(168,85,247,0.08),transparent)">
-                        <div class="dot" style="background:#a855f7"></div> Lubricants Summary
-                    </div>
-                    <div class="g2-eq" style="border-top:none">
-                        <!-- Lube Store -->
-                        <div style="padding:12px 14px;border-right:1px solid #f1f5f9">
-                            <p style="font-size:9px;font-weight:900;text-transform:uppercase;color:#9333ea;margin-bottom:8px">◼ Lube Store</p>
-                            ${lubeStoreRows}
-                            <div class="total-bar" style="background:#faf5ff;margin-top:10px"><span class="k" style="color:#7e22ce">Store Closing Value</span><span class="v" style="color:#7e22ce">${fmt(this.lubeStoreTotalValue)}</span></div>
-                        </div>
-                        <!-- Counter Sales -->
-                        <div style="padding:12px 14px">
-                            <p style="font-size:9px;font-weight:900;text-transform:uppercase;color:#7c3aed;margin-bottom:8px">◼ Counter Sales</p>
-                            ${lubeCounterRows}
-                            <div class="total-bar" style="background:#ede9fe;margin-top:10px"><span class="k" style="color:#6d28d9">Total Counter Sales</span><span class="v" style="color:#6d28d9">${fmt(this.lubeTotalAmount)}</span></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ── Expenses & Debtors (side by side) ── -->
-                <div class="g2">
-                    <!-- Expenses Summary -->
-                    <div class="card">
-                        <div class="card-hdr" style="background:linear-gradient(90deg,rgba(225,29,72,0.08),transparent)">
-                            <div class="dot" style="background:#e11d48"></div> Expenses Summary
-                        </div>
-                        <div style="padding:10px 14px">
-                            ${expenseRows}
-                            <div class="total-bar" style="background:#fff1f2;margin-top:10px"><span class="k" style="color:#be123c">Total Expenses</span><span class="v" style="color:#be123c">${fmt(this.totalExpenses)}</span></div>
-                        </div>
-                    </div>
-
-                    <!-- Debtors Summary -->
-                    <div class="card">
-                        <div class="card-hdr" style="background:linear-gradient(90deg,rgba(245,158,11,0.08),transparent)">
-                            <div class="dot" style="background:#f59e0b"></div> Debtors Summary
-                        </div>
-                        <div style="padding:10px 14px">
-                            ${debtorRows}
-                            <div class="total-bar" style="background:#fffbeb;margin-top:10px"><span class="k" style="color:#b45309">Total Outstanding</span><span class="v" style="color:#b45309">${fmt(this.totalDebtors)}</span></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ═══ Variance Analysis ═══ -->
-                <div class="card" style="border-color:${this.reportVariance === 0 && Math.abs(tankVar) < 0.01 ? '#bbf7d060' : '#fecaca60'}">
-                    <div class="card-hdr" style="background:linear-gradient(90deg,${this.reportVariance === 0 ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'},transparent)">
-                        <div class="dot" style="background:${this.reportVariance === 0 ? '#10b981' : '#ef4444'}"></div> Variance Analysis
-                    </div>
-                    <div style="padding:14px">
-                        <div class="g3">
-                            <div class="vcard" style="background:${this.reportVariance === 0 ? '#f0fdf4' : '#fef2f2'}">
-                                <div class="lbl" style="color:${this.reportVariance === 0 ? '#22c55e' : '#ef4444'}">Sales Variance</div>
-                                <div class="sub">System Sales − Pump Sales</div>
-                                <div class="val" style="color:${this.reportVariance === 0 ? '#15803d' : '#dc2626'}">${fmt(this.reportVariance)}</div>
-                                <span class="badge" style="background:${this.reportVariance === 0 ? '#dcfce7' : '#fee2e2'};color:${this.reportVariance === 0 ? '#166534' : '#991b1b'}">${this.reportVariance === 0 ? '✓ BALANCED' : this.reportVariance > 0 ? '▲ OVER' : '▼ SHORT'}</span>
+            // ── 8. VARIANCE SUMMARY ──
+            const variance = this.reportVariance;
+            const tankVsPump = this.totalTankDiff - this.totalPumpLitres;
+            const varianceHTML = `
+                <div class="rpt-section">
+                    ${sectionHeader('variance', 'Variance Summary', '#6d28d9')}
+                    <div style="padding:14px 18px">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+                            <div style="padding:14px;background:${variance === 0 ? '#f0fdf4' : '#fef2f2'};border-radius:10px;border:1px solid ${variance === 0 ? '#bbf7d0' : '#fecaca'}">
+                                <div style="font-size:11px;font-weight:700;color:${variance === 0 ? '#166534' : '#991b1b'};text-transform:uppercase;margin-bottom:4px;letter-spacing:.4px">Sales Variance</div>
+                                <div style="font-size:12px;color:#475569">Payment/Declared − Pump Sales</div>
+                                <div style="font-size:16px;font-weight:800;color:${variance === 0 ? '#166534' : variance > 0 ? '#0369a1' : '#dc2626'};margin-top:6px">${fmtN(variance)} ${variance === 0 ? '&#10004; BALANCED' : variance > 0 ? '&#9650; OVER' : '&#9660; SHORT'}</div>
                             </div>
-                            <div class="vcard" style="background:${Math.abs(tankVar) < 0.01 ? '#f0fdf4' : '#fffbeb'}">
-                                <div class="lbl" style="color:${Math.abs(tankVar) < 0.01 ? '#22c55e' : '#f59e0b'}">Tank Variance</div>
-                                <div class="sub">Tank Usage − Pump Litres</div>
-                                <div class="val" style="color:${Math.abs(tankVar) < 0.01 ? '#15803d' : '#b45309'}">${fmtN(tankVar)} L</div>
-                                <span class="badge" style="background:${Math.abs(tankVar) < 0.01 ? '#dcfce7' : '#fef3c7'};color:${Math.abs(tankVar) < 0.01 ? '#166534' : '#92400e'}">${Math.abs(tankVar) < 0.01 ? '✓ BALANCED' : tankVar > 0 ? '▲ OVER' : '▼ SHORT'}</span>
-                            </div>
-                            <div class="vcard" style="background:#eff6ff">
-                                <div class="lbl" style="color:#3b82f6">Total Revenue</div>
-                                <div class="sub">Pump Sales + Lubricants</div>
-                                <div class="val" style="color:#1d4ed8">${fmt(this.totalPumpSales + (this.lubeTotalAmount || 0))}</div>
+                            <div style="padding:14px;background:${Math.abs(tankVsPump) < 0.01 ? '#f0fdf4' : '#fef2f2'};border-radius:10px;border:1px solid ${Math.abs(tankVsPump) < 0.01 ? '#bbf7d0' : '#fecaca'}">
+                                <div style="font-size:11px;font-weight:700;color:${Math.abs(tankVsPump) < 0.01 ? '#166534' : '#991b1b'};text-transform:uppercase;margin-bottom:4px;letter-spacing:.4px">Tank vs Pump</div>
+                                <div style="font-size:12px;color:#475569">Tank Diff − Pump Litres</div>
+                                <div style="font-size:16px;font-weight:800;color:${Math.abs(tankVsPump) < 0.01 ? '#166534' : tankVsPump > 0 ? '#0369a1' : '#dc2626'};margin-top:6px">${fmtL(tankVsPump)} L ${Math.abs(tankVsPump) < 0.01 ? '&#10004; OK' : tankVsPump > 0 ? '&#9650; EXCESS' : '&#9660; SHORT'}</div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- ═══ Audit Sign-Off ═══ -->
-                <div class="card">
-                    <div class="card-hdr" style="background:linear-gradient(90deg,rgba(139,92,246,0.08),transparent)">
-                        <div class="dot" style="background:#8b5cf6"></div> Audit Sign-Off
-                    </div>
-                    <div style="padding:14px">
-                        <div class="g2">
-                            <div class="sign" style="border-color:${s.auditor_signed_at ? '#bbf7d0' : '#bfdbfe'};background:${s.auditor_signed_at ? '#f0fdf450' : '#eff6ff50'}">
-                                <p style="font-size:9px;font-weight:900;text-transform:uppercase;color:${s.auditor_signed_at ? '#15803d' : '#2563eb'};margin-bottom:6px">Auditor</p>
-                                ${s.auditor_signed_at
-                    ? `<p style="font-size:11px;font-weight:700;color:#15803d">✓ Signed off</p><p style="font-size:9px;color:#64748b;margin-top:3px">Signed: ${s.auditor_signed_at}</p>${s.auditor_comments ? `<p style="font-size:10px;color:#475569;margin-top:6px;font-style:italic">"${esc(s.auditor_comments)}"</p>` : ''}`
-                    : '<p style="font-size:10px;color:#94a3b8;font-style:italic">Pending</p>'
-                }
-                            </div>
-                            <div class="sign" style="border-color:${s.manager_signed_at ? '#bbf7d0' : s.status === 'submitted' ? '#ddd6fe' : '#e2e8f0'};background:${s.manager_signed_at ? '#f0fdf450' : s.status === 'submitted' ? '#f5f3ff50' : '#f8fafc'}">
-                                <p style="font-size:9px;font-weight:900;text-transform:uppercase;color:${s.manager_signed_at ? '#15803d' : s.status === 'submitted' ? '#7c3aed' : '#94a3b8'};margin-bottom:6px">Manager</p>
-                                ${s.manager_signed_at
-                    ? `<p style="font-size:11px;font-weight:700;color:#15803d">✓ Signed off</p><p style="font-size:9px;color:#64748b;margin-top:3px">Signed: ${s.manager_signed_at}</p>${s.manager_comments ? `<p style="font-size:10px;color:#475569;margin-top:6px;font-style:italic">"${esc(s.manager_comments)}"</p>` : ''}`
-                    : s.status === 'submitted'
-                        ? '<p style="font-size:10px;color:#7c3aed;font-style:italic">Awaiting manager sign-off</p>'
-                        : '<p style="font-size:10px;color:#94a3b8;font-style:italic">Awaiting auditor sign-off first</p>'
-                }
-                            </div>
+                        <div style="margin-top:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+                            <div style="padding:10px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:8px"><div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:.3px">PAYMENT/DECLARED</div><div style="font-size:13px;font-weight:800;color:#2563eb;margin-top:2px">${fmtN(this.systemSalesTotal)}</div></div>
+                            <div style="padding:10px;background:linear-gradient(135deg,#fff7ed,#ffedd5);border-radius:8px"><div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:.3px">PUMP SALES</div><div style="font-size:13px;font-weight:800;color:#ea580c;margin-top:2px">${fmtN(this.totalPumpSales)}</div></div>
+                            <div style="padding:10px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:8px"><div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:.3px">EXPENSES</div><div style="font-size:13px;font-weight:800;color:#be123c;margin-top:2px">${fmtN(this.totalExpenses)}</div></div>
+                            <div style="padding:10px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border-radius:8px"><div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:.3px">DEBTORS</div><div style="font-size:13px;font-weight:800;color:#b45309;margin-top:2px">${fmtN(this.totalDebtors)}</div></div>
                         </div>
                     </div>
+                </div>`;
+
+            // ── CSS ──
+            const css = `
+                *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+                body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;background:#f8fafc;color:#1e293b;-webkit-font-smoothing:antialiased}
+                .rpt-wrap{max-width:820px;margin:0 auto;padding:24px}
+                .rpt-cover{background:linear-gradient(135deg,#1e3a5f 0%,#0f172a 60%,#1e3a5f 100%);color:#fff;padding:56px 40px 40px;border-radius:14px;margin-bottom:28px;position:relative;overflow:hidden;page-break-after:always}
+                .rpt-cover::before{content:'';position:absolute;top:-60px;right:-60px;width:240px;height:240px;border-radius:50%;background:rgba(255,255,255,.04)}
+                .rpt-cover::after{content:'';position:absolute;bottom:-40px;left:40px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.03)}
+                .rpt-cover .badge{display:inline-block;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:4px 14px;font-size:10px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,.85);margin-bottom:24px;text-transform:uppercase}
+                .rpt-cover h1{font-size:26px;font-weight:900;margin:0 0 8px;letter-spacing:-.5px;line-height:1.2}
+                .rpt-cover .subtitle{font-size:13px;color:rgba(255,255,255,.65);margin:0 0 32px}
+                .rpt-cover .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;background:rgba(255,255,255,.08);border-radius:10px;padding:18px}
+                .rpt-cover .meta-item label{font-size:9px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,.5);text-transform:uppercase;display:block;margin-bottom:2px}
+                .rpt-cover .meta-item span{font-size:12px;font-weight:600;color:#fff}
+                .rpt-cover .gold-line{height:3px;background:linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b);border-radius:2px;margin:24px 0 0}
+                .rpt-section{border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin-bottom:22px;break-inside:avoid;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+                .rpt-section table{width:100%;border-collapse:collapse}
+                .rpt-section tr:nth-child(even){background:#fafbfc}
+                .rpt-section td{transition:background .15s}
+                @media print{
+                    body{background:#fff}
+                    .rpt-wrap{padding:0}
+                    .no-print{display:none!important}
+                }`;
+
+            const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${css}</style></head><body>
+                <div class="rpt-wrap">
+                    <div class="rpt-cover">
+                        <div class="badge">${esc(company)} &nbsp;|&nbsp; CONFIDENTIAL</div>
+                        <h1>${esc(coverTitle)}</h1>
+                        <p class="subtitle">${esc(station)}</p>
+                        <div class="meta-grid">
+                            <div class="meta-item"><label>Reporting Period</label><span>${esc(period)}</span></div>
+                            <div class="meta-item"><label>Station</label><span>${esc(station)}</span></div>
+                            <div class="meta-item"><label>Prepared By</label><span>${esc(preparer)}</span></div>
+                            <div class="meta-item"><label>Reviewed By</label><span>${esc(reviewer || '—')}</span></div>
+                            <div class="meta-item"><label>Generated</label><span>${genDate} ${genTime}</span></div>
+                            <div class="meta-item"><label>Status</label><span>${esc(s.status ? s.status.toUpperCase() : 'DRAFT')}</span></div>
+                        </div>
+                        <div class="gold-line"></div>
+                        ${coverNotes ? `<p style="margin:14px 0 0;font-size:11px;color:rgba(255,255,255,.7);font-style:italic">${esc(coverNotes)}</p>` : ''}
+                    </div>
+                    ${(() => {
+                    const mc = this.monthCloseout;
+                    const surplusColor = mc.surplus >= 0 ? '#059669' : '#dc2626';
+                    const surplusLabel = mc.surplus >= 0 ? 'SURPLUS' : 'DEFICIT';
+                    const expLines = mc.expenseLines.map(e => `
+                            <tr><td style="padding:5px 12px;font-size:11px;color:#64748b;padding-left:28px">Add: ${esc(e.name)}</td><td style="padding:5px 12px;text-align:right;font-size:11px;font-weight:700;color:#1e293b">${fmtN(e.amount)}</td><td style="padding:5px 12px;text-align:right;font-size:11px;color:#94a3b8">—</td></tr>`).join('');
+                    return `
+                        <div class="rpt-section" style="margin-bottom:20px">
+                            ${sectionHeader('closeout', 'Month Close-Out — Financial Reconciliation', '#334155')}
+                            <div style="overflow-x:auto">
+                                <table style="width:100%;border-collapse:collapse">
+                                    <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+                                        <th style="padding:7px 12px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Description</th>
+                                        <th style="padding:7px 12px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;width:140px">Debit (₦)</th>
+                                        <th style="padding:7px 12px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;width:140px">Credit (₦)</th>
+                                    </tr></thead>
+                                    <tbody>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563eb;margin-right:8px;vertical-align:middle"></span>System Sales</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.systemSales)}</td></tr>
+                                        <tr style="background:#fef2f2"><td style="padding:7px 12px;font-size:12px;color:#dc2626;font-weight:600"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:8px;vertical-align:middle"></span>Less: Bank Deposit</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#dc2626">– ${fmtN(mc.bankDeposit)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
+                                        <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:13px;font-weight:800;color:#0f172a">Total Balance</td><td style="padding:9px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td><td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:800;color:#0f172a">${fmtN(mc.totalBalance)}</td></tr>
+                                        ${mc.expenseLines.length > 0 ? `
+                                        <tr><td colspan="3" style="padding:0"><div style="height:1px;background:#e2e8f0"></div></td></tr>
+                                        ${expLines}` : `
+                                        <tr style="background:#fff1f2"><td style="padding:7px 12px;font-size:11px;font-weight:600;color:#94a3b8"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#cbd5e1;margin-right:8px;vertical-align:middle"></span><em>No expense categories entered</em></td><td style="padding:7px 12px;text-align:right;font-size:11px;color:#94a3b8">${fmtN(0)}</td><td style="padding:7px 12px;text-align:right;font-size:11px;color:#94a3b8">—</td></tr>`}
+                                        <tr><td colspan="3" style="padding:0"><div style="height:1px;background:#e2e8f0"></div></td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#7c3aed;margin-right:8px;vertical-align:middle"></span>Add: POS, Transfer Sales</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.posTransferSales)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#059669;margin-right:8px;vertical-align:middle"></span>Add: Cash At Hand</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.cashAtHand)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4d7c0f;margin-right:8px;vertical-align:middle"></span>Add: Lube Stock Unsold</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.lubeUnsold)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#b45309;margin-right:8px;vertical-align:middle"></span>Add: Receivables/Debtors</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.receivables)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
+                                        <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:13px;font-weight:800;color:#0f172a">Total</td><td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:800;color:#0f172a">${fmtN(mc.expectedTotal)}</td><td style="padding:9px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
+                                        <tr style="background:${mc.surplus >= 0 ? '#f0fdf4' : '#fef2f2'}"><td style="padding:11px 12px;font-size:13px;font-weight:800;color:${surplusColor}">${surplusLabel}</td><td colspan="2" style="padding:11px 12px;text-align:right;font-size:15px;font-weight:900;color:${surplusColor}">${fmtN(Math.abs(mc.surplus))}</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>`;
+                })()}
+                    ${sysSalesHTML}
+                    ${pumpSalesHTML}
+                    ${tankHTML}
+                    ${haulageHTML}
+                    ${expensesHTML}
+                    ${debtorsHTML}
+                    ${lubricantHTML}
+                    ${varianceHTML}
+                    <div style="text-align:center;padding:22px 0;color:#94a3b8;font-size:11px;border-top:2px solid #f1f5f9;margin-top:28px;letter-spacing:.3px">
+                        Generated by MIAUDITOPS &mdash; ${genDate} at ${genTime} &mdash; CONFIDENTIAL
+                    </div>
+                </div></body></html>`;
+
+            return { html, station, dateFrom, dateTo };
+        },
+
+        // ── Preview Report (fullscreen overlay) ──
+        previewReportPDF() {
+            const { html } = this._buildReportHTML();
+            const existing = document.getElementById('rpt-preview-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'rpt-preview-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.9);backdrop-filter:blur(8px);display:flex;flex-direction:column;';
+            overlay.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:linear-gradient(135deg,#1e293b,#0f172a);border-bottom:1px solid rgba(255,255,255,.1);flex-shrink:0">
+                    <div style="display:flex;align-items:center;gap:10px">
+                        <div style="width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:16px">📊</div>
+                        <div>
+                            <h3 style="color:#fff;font-size:13px;font-weight:800;margin:0">Report Preview</h3>
+                            <p style="color:#94a3b8;font-size:10px;margin:0">Scroll to review all sections &bull; Zoom to adjust size</p>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <button id="rpt-zoom-out" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">−</button>
+                        <span id="rpt-zoom-label" style="color:#94a3b8;font-size:11px;min-width:38px;text-align:center">100%</span>
+                        <button id="rpt-zoom-in" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">+</button>
+                        <div style="width:1px;height:24px;background:rgba(255,255,255,.1);margin:0 4px"></div>
+                        <button id="rpt-preview-download" style="padding:7px 14px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;cursor:pointer;font-size:11px;font-weight:700">⬇ Download PDF</button>
+                        <button id="rpt-preview-close" style="width:30px;height:30px;border-radius:6px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;font-size:16px;line-height:1">×</button>
+                    </div>
                 </div>
-            </div>
-            </div>`;
+                <div style="flex:1;overflow-y:auto;padding:24px;display:flex;justify-content:center">
+                    <div id="rpt-preview-scaler" style="transform-origin:top center;transition:transform .2s">
+                        <iframe id="rpt-preview-frame" style="width:860px;border:none;border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,.5);background:#fff;" scrolling="no"></iframe>
+                    </div>
+                </div>`;
 
-            // ── Render to PDF ──
-            const container = document.createElement('div');
-            container.id = 'print-pdf-wrap';
-            container.style.cssText = 'position:absolute;top:0;left:0;width:1050px;z-index:99999;background:#fff;overflow:hidden;padding:0;';
-            container.innerHTML = html;
-            document.body.appendChild(container);
+            document.body.appendChild(overlay);
 
-            await new Promise(r => setTimeout(r, 600));
-
-            const filename = `Audit_Report_${station.replace(/\s+/g, '_')}_${dateFrom}_to_${dateTo}.pdf`;
-            const opt = {
-                margin: [6, 10, 6, 10],
-                filename,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true, letterRendering: true, scrollY: -window.scrollY, scrollX: 0, windowWidth: 1050 },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            const frame = document.getElementById('rpt-preview-frame');
+            frame.srcdoc = html;
+            frame.onload = () => {
+                frame.style.height = (frame.contentDocument.body.scrollHeight + 32) + 'px';
             };
 
-            try {
-                this.toast('Generating PDF…', 'info');
-                const target = container.querySelector('.rpt');
-                await html2pdf().set(opt).from(target).save();
-                this.toast('PDF Downloaded');
-            } catch (e) {
-                console.error('PDF generation error:', e);
-                this.toast('PDF Generation Failed', false);
-            } finally {
-                document.body.removeChild(container);
+            let zoom = 100;
+            const scaler = document.getElementById('rpt-preview-scaler');
+            const label = document.getElementById('rpt-zoom-label');
+            const updateZoom = () => { scaler.style.transform = `scale(${zoom / 100})`; label.textContent = zoom + '%'; };
+
+            document.getElementById('rpt-zoom-in').addEventListener('click', () => { if (zoom < 150) { zoom += 10; updateZoom(); } });
+            document.getElementById('rpt-zoom-out').addEventListener('click', () => { if (zoom > 50) { zoom -= 10; updateZoom(); } });
+            document.getElementById('rpt-preview-close').addEventListener('click', () => overlay.remove());
+            document.getElementById('rpt-preview-download').addEventListener('click', () => this.downloadReportPDF());
+
+            const esc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } };
+            document.addEventListener('keydown', esc);
+        },
+
+        // ── Download Report PDF ──
+        downloadReportPDF() {
+            const { html, station, dateFrom, dateTo } = this._buildReportHTML();
+            const pw = window.open('', '_blank');
+            if (!pw) { this.toast('Pop-up blocked — please allow pop-ups for this site', false); return; }
+            pw.document.write(html);
+            pw.document.close();
+            pw.onload = () => { pw.focus(); pw.print(); };
+        },
+
+        // ══════════════════════════════════════════════
+        // ── FINAL REPORT — Professional PDF Builder ──
+        // ══════════════════════════════════════════════
+        _buildFinalReportHTML() {
+            const N = window.__NAIRA || '\u20A6';
+            const s = this.sessionData?.session || {};
+            const station = s.outlet_name || 'Station';
+            const dateFrom = s.date_from || '--';
+            const dateTo = s.date_to || '--';
+            const company = window.__SA_COMPANY || 'MIAUDITOPS';
+            const userName = this.finalReportCover.preparedBy || (window.__SA_USER?.name || 'Auditor');
+            const userRole = window.__SA_USER?.role || 'Auditor';
+            const coverTitle = this.finalReportCover.title || 'RECONCILIATION REPORT';
+            const coverSubtitle = this.finalReportCover.subtitle || 'Audit Close-Out';
+            const preparedFor = this.finalReportCover.preparedFor || 'Operations Department';
+            const coverNotes = this.finalReportCover.notes || '';
+            const status = s.status || 'draft';
+            const genDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+            const esc = v => this._esc(v);
+            const fmt = n => N + ' ' + (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 });
+            const fmtL = n => (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 });
+            const fmtPct = n => (parseFloat(n) || 0).toFixed(1) + '%';
+
+            const mc = this.monthCloseout;
+            const auditSales = mc.systemSales;
+            const bankDeposit = mc.bankDeposit;
+            const totalExpenses = mc.totalExpenses;
+            const cashAtHand = mc.cashAtHand;
+            const receivables = mc.receivables;
+            const accounted = mc.expectedTotal;  // auto-sum of all Add items
+            const variance = mc.surplus;          // expectedTotal − totalBalance
+            const totalPages = 5 + 1 + (this.finalReportIncludePhotos && (this.systemSales.teller_proof_url || this.systemSales.pos_proof_url) ? 1 : 0);
+
+
+            // ── Shared page footer helper ──
+            const pageFooter = (pg) => `
+                <div style="position:absolute;bottom:55px;left:75px;right:75px;border-top:1px solid #f1f5f9;padding-top:12px;display:flex;justify-content:space-between;align-items:center;opacity:.5">
+                    <p style="font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:2px">Generated by ${esc(company)}</p>
+                    <p style="font-size:8px;font-family:'JetBrains Mono',monospace">PAGE ${String(pg).padStart(2, '0')} OF ${String(totalPages).padStart(2, '0')}</p>
+                </div>`;
+
+            // ── Shared section title helper ──
+            const sectionTitle = (num, title, sub) => `
+                <h3 style="font-size:16px;font-weight:900;color:#000;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end">
+                    <span>${String(num).padStart(2, '0')}. ${esc(title).toUpperCase()}</span>
+                    <span style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:2px">${esc(sub)}</span>
+                </h3>`;
+
+            // ── Shared table helper ──
+            const tbl = (headers, bodyRows, footerRow) => {
+                const ths = headers.map(h => `<th style="text-align:${h.right ? 'right' : 'left'};background:#000;color:#fff;text-transform:uppercase;font-size:10px;letter-spacing:.05em;padding:8px 12px;font-weight:700">${h.label}</th>`).join('');
+                const foot = footerRow ? `<tfoot><tr style="background:#f8fafc;border-top:2px solid #000">${footerRow}</tr></tfoot>` : '';
+                return `<table style="width:100%;border-collapse:collapse"><thead><tr>${ths}</tr></thead><tbody>${bodyRows}</tbody>${foot}</table>`;
+            };
+
+            const css = `
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
+                * { margin:0; padding:0; box-sizing:border-box; }
+                body { font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; color:#1e293b; background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+                .page { width:210mm; min-height:297mm; padding:18mm 20mm; margin:0 auto; background:#fff; position:relative; page-break-after:always; }
+                .page:last-child { page-break-after:avoid; }
+                .font-mono { font-family:'JetBrains Mono',monospace; }
+                @media print { body { background:none; } .page { margin:0; width:100%; } }
+                @page { size:A4; margin:0; }
+            `;
+
+            // ══════════════════════════════════════════
+            // PAGE 1: COVER
+            // ══════════════════════════════════════════
+            const page1 = `
+            <div class="page" style="display:flex;flex-direction:column;justify-content:space-between">
+                <div style="border-bottom:4px solid #000;padding-bottom:32px;display:flex;justify-content:space-between;align-items:flex-start">
+                    <div>
+                        <h2 style="font-size:28px;font-weight:900;color:#000;line-height:1;margin-bottom:8px;letter-spacing:-.5px">${esc(company)}</h2>
+                        <p style="font-size:10px;font-weight:700;color:#64748b;letter-spacing:3px;text-transform:uppercase">Enterprise Station Auditing</p>
+                    </div>
+                    <div style="text-align:right">
+                        <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:3px">Confidential Document</p>
+                        <p style="font-size:11px;font-weight:700;color:#000;margin-top:2px">REF: ${esc(s.id || '--')}</p>
+                    </div>
+                </div>
+                <div style="padding:80px 0;text-align:center">
+                    <div style="display:inline-block;padding:6px 20px;border:2px solid #000;margin-bottom:32px">
+                        <span style="font-size:12px;font-weight:900;letter-spacing:5px;text-transform:uppercase">${esc(coverSubtitle)}</span>
+                    </div>
+                    <h1 style="font-size:48px;font-weight:900;color:#000;letter-spacing:-2px;line-height:1.1;margin-bottom:16px">${esc(coverTitle)}</h1>
+                    <div style="width:96px;height:8px;background:#f59e0b;margin:40px auto;border-radius:4px"></div>
+                    <div style="margin-top:16px">
+                        <h3 style="font-size:22px;font-weight:700;color:#1e293b">${esc(station)}</h3>
+                        <p style="color:#64748b;font-family:'JetBrains Mono',monospace;font-size:13px;margin-top:4px">${esc(dateFrom)} — ${esc(dateTo)}</p>
+                    </div>
+                    ${coverNotes ? `<p style="margin-top:20px;font-size:11px;color:#64748b;font-style:italic;max-width:400px;margin-left:auto;margin-right:auto">${esc(coverNotes)}</p>` : ''}
+                </div>
+                <div style="border-top:2px solid #000;padding-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:48px">
+                    <div>
+                        <div style="margin-bottom:16px">
+                            <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:3px;margin-bottom:4px">Prepared For</p>
+                            <p style="font-size:16px;font-weight:700;color:#000">${esc(preparedFor)}</p>
+                        </div>
+                        <div>
+                            <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:3px;margin-bottom:4px">Prepared By</p>
+                            <p style="font-size:16px;font-weight:700;color:#000">${esc(userName)}</p>
+                        </div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="margin-bottom:16px">
+                            <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:3px;margin-bottom:4px">Date Generated</p>
+                            <p style="font-size:16px;font-weight:700;color:#000">${genDate}</p>
+                        </div>
+                        <div>
+                            <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:3px;margin-bottom:4px">Status</p>
+                            <span style="display:inline-block;padding:4px 12px;background:#000;color:#fff;font-size:10px;font-weight:700;border-radius:4px;text-transform:uppercase">${esc(status)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+            // ══════════════════════════════════════════
+            // PAGE 2: SECTION 01 — FINANCIAL RECONCILIATION
+            // ══════════════════════════════════════════
+            const surplusLabel = variance >= 0 ? 'Surplus' : 'Deficit';
+            const varianceColor = variance >= 0 ? '#059669' : '#e11d48';
+            const page2 = `
+            <div class="page">
+                ${sectionTitle(1, 'Financial Reconciliation', 'Settlement Summary')}
+                <div style="margin-bottom:28px">
+                    <div style="background:#f8fafc;padding:20px;border-left:4px solid #000;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;text-align:center">
+                        <div>
+                            <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Audit Sales</p>
+                            <p style="font-size:16px;font-weight:900;color:#000">${fmt(auditSales)}</p>
+                        </div>
+                        <div>
+                            <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Total Added</p>
+                            <p style="font-size:16px;font-weight:900;color:#000">${fmt(accounted)}</p>
+                        </div>
+                        <div>
+                            <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">${esc(surplusLabel)}</p>
+                            <p style="font-size:16px;font-weight:900;color:${varianceColor}">${fmt(Math.abs(variance))}</p>
+                        </div>
+                    </div>
+                </div>
+                ${tbl(
+                [{ label: 'Description' }, { label: 'Debit (DR)', right: true }, { label: 'Credit (CR)', right: true }],
+                `<tr style="background:#f8fafc"><td style="padding:8px 12px;font-weight:700;font-size:11px">System Sales</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">—</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(auditSales)}</td></tr>
+                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500;color:#dc2626">Less: Bank Deposit</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#dc2626">– ${fmt(bankDeposit)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">—</td></tr>
+                     <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">Total Balance</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:11px;color:#94a3b8">—</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">${fmt(auditSales - bankDeposit)}</td></tr>
+                     <tr><td colspan="3" style="padding:0"><div style="height:1px;background:#e2e8f0"></div></td></tr>
+                     ${mc.expenseLines.length > 0 ? mc.expenseLines.map(e => `<tr><td style="padding:6px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: ${esc(e.name)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px">${fmt(e.amount)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8">—</td></tr>`).join('') : `<tr><td style="padding:6px 12px;padding-left:32px;font-size:11px;font-weight:500;color:#94a3b8"><em>No expense categories</em></td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8">${fmt(0)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8">—</td></tr>`}
+                     ${mc.posTransferSales > 0 ? `<tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: POS, Transfer Sales</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(mc.posTransferSales)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8">—</td></tr>` : ''}
+                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Cash At Hand</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(cashAtHand)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8">—</td></tr>
+                     ${mc.lubeUnsold > 0 ? `<tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Lube Stock Unsold</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(mc.lubeUnsold)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8">—</td></tr>` : ''}
+                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Receivables/Debtors</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(receivables)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8">—</td></tr>
+                     <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">Total</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">${fmt(accounted)}</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:11px;color:#94a3b8">—</td></tr>`,
+                `<td style="padding:12px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:1px;background:#000;color:#fff">${surplusLabel}</td><td class="font-mono" style="text-align:right;padding:12px;font-weight:800;font-size:13px;color:${variance >= 0 ? '#6ee7b7' : '#fda4af'};background:#000" colspan="2">${fmt(Math.abs(variance))}</td>`
+            )}
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;padding-top:24px">
+                    <div>
+                        <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;text-decoration:underline;margin-bottom:12px">Audit Analysis</h4>
+                        <p style="font-size:10px;line-height:1.7;color:#64748b;font-style:italic">
+                            The reconciliation compares the grand total of all added items (${fmt(accounted)}) against the total balance (${fmt(mc.totalBalance)}).
+                            ${variance < 0 ? `A deficit of <strong style="color:#e11d48">${fmt(Math.abs(variance))}</strong> requires immediate management review.` : `A surplus of <strong style="color:#059669">${fmt(variance)}</strong>.`}
+                        </p>
+                    </div>
+                    <div>
+                        <div style="border-bottom:1px solid #e2e8f0;padding-bottom:8px">
+                            <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:3px;margin-bottom:16px">Authored Signature</p>
+                            <div style="height:32px"></div>
+                            <p style="font-size:11px;font-weight:700;color:#000">${esc(userName)}</p>
+                            <p style="font-size:9px;color:#64748b;text-transform:uppercase">Name</p>
+                        </div>
+                    </div>
+                </div>
+                ${pageFooter(2)}
+            </div>`;
+
+            // ══════════════════════════════════════════
+            // PAGE 3: SECTION 02 (Pump & Tank) + 03 (Expenses) + 04 (Receivables)
+            // ══════════════════════════════════════════
+
+            // Pump breakdown
+            const pumpGroups = {};
+            this.pumpTables.forEach(pt => {
+                const prod = pt.product || 'PMS';
+                const litres = this.pumpTableLitres(pt);
+                const amount = this.pumpTableAmount(pt);
+                const rate = parseFloat(pt.rate) || 0;
+                if (!pumpGroups[prod]) pumpGroups[prod] = { product: prod, litres: 0, amount: 0, rate: 0, count: 0 };
+                pumpGroups[prod].litres += litres;
+                pumpGroups[prod].amount += amount;
+                pumpGroups[prod].rate += rate;
+                pumpGroups[prod].count++;
+            });
+            const pumpBreakdown = Object.values(pumpGroups).filter(p => p.litres > 0 || p.amount > 0).map(p => ({
+                product: p.product, litres: p.litres, rate: p.count > 0 ? p.rate / p.count : 0, amount: p.amount
+            }));
+            const pumpTotal = pumpBreakdown.reduce((s, p) => s + p.amount, 0);
+            const pumpTotalL = pumpBreakdown.reduce((s, p) => s + p.litres, 0);
+
+            const pumpRows = pumpBreakdown.map(p => `<tr><td style="padding:7px 12px;font-weight:700;font-size:11px;border-bottom:1px solid #e2e8f0">${esc(p.product)}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${fmtL(p.litres)}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${fmt(p.rate)}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-weight:700;font-size:11px;border-bottom:1px solid #e2e8f0">${fmt(p.amount)}</td></tr>`).join('');
+
+            // Tank records
+            const tankRecords = this.tankProductTotals;
+            const tankRows = tankRecords.map(t => `<tr><td style="padding:7px 12px;font-weight:700;font-size:11px;border-bottom:1px solid #e2e8f0">${esc(t.product)}${t.isLpg ? ' (kg)' : ''}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${fmtL(t.opening)}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${fmtL(t.added)}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${fmtL(t.closing)}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-weight:700;font-size:11px;border-bottom:1px solid #e2e8f0">${fmtL(t.diff)}</td></tr>`).join('');
+
+            // Expense breakdown
+            const expenseRows = this.expenseCategories.map(cat => {
+                const bal = this.expenseCatBalance(cat);
+                const entries = (cat.ledger || []).length;
+                return `<tr><td style="padding:7px 12px;font-weight:600;font-size:11px;border-bottom:1px solid #e2e8f0">${esc(cat.category_name || cat.name || 'Uncategorised')}</td><td class="font-mono" style="text-align:center;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${entries}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;font-weight:700;color:#be123c;border-bottom:1px solid #e2e8f0">${fmt(bal)}</td></tr>`;
+            }).join('');
+
+            // Debtor breakdown
+            const debtorRows = this.debtorAccounts.map(acct => {
+                const bal = this.debtorBalance(acct);
+                const entries = (acct.ledger || []).length;
+                const color = bal > 0 ? '#b45309' : '#059669';
+                const tag = bal > 0 ? 'DR' : 'CR';
+                return `<tr><td style="padding:7px 12px;font-weight:600;font-size:11px;border-bottom:1px solid #e2e8f0">${esc(acct.customer_name || acct.account_name || acct.name || 'Unknown')}</td><td class="font-mono" style="text-align:center;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${entries}</td><td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;font-weight:700;color:${color};border-bottom:1px solid #e2e8f0">${fmt(Math.abs(bal))} (${tag})</td></tr>`;
+            }).join('');
+
+            const page3 = `
+            <div class="page">
+                ${sectionTitle(2, 'Pump Sales Breakdown', 'Revenue by Product')}
+                <div style="margin-bottom:28px">
+                    ${tbl(
+                [{ label: 'Product' }, { label: 'Volume (L)', right: true }, { label: 'Avg Rate', right: true }, { label: 'Revenue', right: true }],
+                pumpRows,
+                `<td style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:1px">Grand Total</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:700;font-size:11px">${fmtL(pumpTotalL)}</td><td style="text-align:right;padding:10px 12px;font-size:11px">—</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px">${fmt(pumpTotal)}</td>`
+            )}
+                </div>
+
+                ${(() => {
+                    // Section 02a: Audit Sales Analysis (Pumps) — per-pump detail grouped by product
+                    const productOrder = ['PMS', 'AGO', 'DPK', 'LPG'];
+                    const grouped = {};
+                    this.pumpTables.forEach(pt => {
+                        const prod = pt.product || 'PMS';
+                        if (!grouped[prod]) grouped[prod] = [];
+                        const litres = this.pumpTableLitres(pt);
+                        const rate = parseFloat(pt.rate) || 0;
+                        const amount = this.pumpTableAmount(pt);
+                        if (litres > 0 || amount > 0) {
+                            grouped[prod].push({ name: pt.name || 'Pump', litres, rate, amount });
+                        }
+                    });
+                    const sortedProducts = productOrder.filter(p => grouped[p] && grouped[p].length > 0);
+                    // Also include any products not in the predefined order
+                    Object.keys(grouped).forEach(p => { if (!sortedProducts.includes(p) && grouped[p].length > 0) sortedProducts.push(p); });
+
+                    if (sortedProducts.length === 0) return '';
+
+                    let detailRows = '';
+                    let grandLitres = 0, grandAmount = 0;
+
+                    sortedProducts.forEach(prod => {
+                        const items = grouped[prod];
+                        let subLitres = 0, subAmount = 0;
+                        items.forEach(item => {
+                            subLitres += item.litres;
+                            subAmount += item.amount;
+                            detailRows += `<tr>
+                                <td style="padding:6px 12px;font-size:11px;border-bottom:1px solid #f1f5f9">${esc(item.name)}</td>
+                                <td style="padding:6px 12px;font-size:10px;color:#64748b;border-bottom:1px solid #f1f5f9">${esc(dateFrom)} to ${esc(dateTo)}</td>
+                                <td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;border-bottom:1px solid #f1f5f9">${fmt(item.rate)}</td>
+                                <td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;border-bottom:1px solid #f1f5f9">${fmtL(item.litres)}</td>
+                                <td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;font-weight:600;border-bottom:1px solid #f1f5f9">${fmt(item.amount)}</td>
+                            </tr>`;
+                        });
+                        // Subtotal row
+                        detailRows += `<tr style="background:#fef3c7">
+                            <td colspan="3" style="padding:7px 12px;font-size:11px;font-weight:800;color:#92400e;border-bottom:2px solid #fcd34d">${esc(prod)} Subtotal</td>
+                            <td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;font-weight:700;color:#92400e;border-bottom:2px solid #fcd34d">${fmtL(subLitres)}</td>
+                            <td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;font-weight:800;color:#92400e;border-bottom:2px solid #fcd34d">${fmt(subAmount)}</td>
+                        </tr>`;
+                        grandLitres += subLitres;
+                        grandAmount += subAmount;
+                    });
+
+                    return `
+                    <div style="margin-top:24px;margin-bottom:28px">
+                        <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;color:#000;display:flex;align-items:center;gap:6px">
+                            <span style="display:inline-block;width:18px;height:18px;border-radius:5px;background:#f59e0b;color:#fff;text-align:center;line-height:18px;font-size:9px;font-weight:900">2a</span>
+                            Audit Sales Analysis (Pumps)
+                        </h4>
+                        ${tbl(
+                        [{ label: 'Pump / Nozzle' }, { label: 'Date Range' }, { label: 'Rate (₦)', right: true }, { label: 'Litres', right: true }, { label: 'Amount (₦)', right: true }],
+                        detailRows,
+                        '<td colspan="3" style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:1px;background:#f0f9ff;color:#0c4a6e;border-top:2px solid #0ea5e9">Grand Total</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:800;font-size:11px;background:#f0f9ff;color:#0c4a6e;border-top:2px solid #0ea5e9">' + fmtL(grandLitres) + '</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px;background:#f0f9ff;color:#0c4a6e;border-top:2px solid #0ea5e9">' + fmt(grandAmount) + '</td>'
+                    )}
+                    </div>`;
+                })()}
+
+                <div style="margin-bottom:28px">
+                    <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;color:#000">Tank Dipping Records</h4>
+                    ${tbl(
+                    [{ label: 'Product' }, { label: 'Opening', right: true }, { label: 'Received', right: true }, { label: 'Closing', right: true }, { label: 'Consumption', right: true }],
+                    tankRows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;font-style:italic;padding:14px;font-size:11px">No tank records</td></tr>',
+                    ''
+                )}
+                </div>
+
+                ${sectionTitle(3, 'Expenses Breakdown', 'Operating Costs')}
+                <div style="margin-bottom:28px">
+                    ${tbl(
+                    [{ label: 'Category' }, { label: 'Entries', right: false }, { label: 'Net Balance', right: true }],
+                    expenseRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8;font-style:italic;padding:14px;font-size:11px">No expenses recorded</td></tr>',
+                    `<td colspan="2" style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;background:#fef2f2;color:#9f1239">Total Expenses</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px;color:#be123c;background:#fef2f2">${fmt(totalExpenses)}</td>`
+                )}
+                </div>
+
+                ${sectionTitle(4, 'Receivables', 'Outstanding Debtors')}
+                <div style="margin-bottom:20px">
+                    ${tbl(
+                    [{ label: 'Account' }, { label: 'Entries', right: false }, { label: 'Balance', right: true }],
+                    debtorRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8;font-style:italic;padding:14px;font-size:11px">No debtor accounts</td></tr>',
+                    `<td colspan="2" style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;background:#fffbeb;color:#92400e">Total Outstanding</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px;color:#b45309;background:#fffbeb">${fmt(receivables)}</td>`
+                )}
+                </div>
+                ${pageFooter(3)}
+            </div>`;
+
+            // ══════════════════════════════════════════
+            // PAGE 4: SECTION 05 (Variance) + 06 (Lubricants)
+            // ══════════════════════════════════════════
+
+            // Variance by product
+            const comparison = this.productComparison;
+            const varianceRows = comparison.map(p => {
+                const vColor = p.variance >= 0 ? '#059669' : '#e11d48';
+                const vLabel = p.variance >= 0 ? 'Surplus' : 'Deficit';
+                return `<tr>
+                    <td style="padding:7px 12px;font-weight:700;font-size:11px;border-bottom:1px solid #e2e8f0">${esc(p.product)}</td>
+                    <td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${fmtL(p.pumpLitres)}</td>
+                    <td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;border-bottom:1px solid #e2e8f0">${fmtL(p.tankDiff)}</td>
+                    <td class="font-mono" style="text-align:right;padding:7px 12px;font-size:11px;font-weight:700;color:${vColor};border-bottom:1px solid #e2e8f0">${fmtL(Math.abs(p.variance))} <span style="font-size:9px;color:${vColor};font-weight:600">${vLabel}</span></td>
+                </tr>`;
+            }).join('');
+
+            // Lubricant store items
+            const lubeItems = this.lubeStoreItems || [];
+            const lubeRows = lubeItems.map(si => {
+                const opening = parseFloat(si.opening || 0);
+                const received = parseFloat(si.received || 0);
+                const issued = this.storeItemIssued(si);
+                const closing = this.storeItemClosing(si);
+                const price = parseFloat(si.selling_price || 0);
+                const value = closing * price;
+                return `<tr>
+                    <td style="padding:6px 10px;font-weight:600;font-size:10px;border-bottom:1px solid #e2e8f0">${esc(si.item_name || si.product_name || '--')}</td>
+                    <td class="font-mono" style="text-align:center;padding:6px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${opening}</td>
+                    <td class="font-mono" style="text-align:center;padding:6px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${received}</td>
+                    <td class="font-mono" style="text-align:center;padding:6px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${issued}</td>
+                    <td class="font-mono" style="text-align:center;padding:6px 10px;font-weight:700;font-size:10px;border-bottom:1px solid #e2e8f0">${closing}</td>
+                    <td class="font-mono" style="text-align:right;padding:6px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${fmt(price)}</td>
+                    <td class="font-mono" style="text-align:right;padding:6px 10px;font-weight:700;font-size:10px;border-bottom:1px solid #e2e8f0">${fmt(value)}</td>
+                </tr>`;
+            }).join('');
+            const lubeTotal = this.lubeStoreTotalValue;
+
+            // Counter stock evaluation — per-counter breakdown
+            const counters = this.lubeSections || [];
+            const hasCounters = counters.length > 0 && counters.some(ls => (ls.items || []).length > 0);
+            const counterBlocks = counters.map(ls => {
+                const items = ls.items || [];
+                if (items.length === 0) return '';
+                const counterSalesTotal = this.lubeSectionAmount(ls);
+                const rows = items.map(it => {
+                    const o = parseFloat(it.opening || 0);
+                    const r = parseFloat(it.received || 0);
+                    const sold = this.counterItemSold(it);
+                    const cl = parseFloat(it.closing || 0);
+                    const sp = parseFloat(it.selling_price || 0);
+                    const val = sold * sp;
+                    return `<tr>
+                        <td style="padding:5px 10px;font-weight:600;font-size:10px;border-bottom:1px solid #e2e8f0">${esc(it.item_name || '--')}</td>
+                        <td class="font-mono" style="text-align:center;padding:5px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${o}</td>
+                        <td class="font-mono" style="text-align:center;padding:5px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${r}</td>
+                        <td class="font-mono" style="text-align:center;padding:5px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${sold}</td>
+                        <td class="font-mono" style="text-align:center;padding:5px 10px;font-weight:700;font-size:10px;border-bottom:1px solid #e2e8f0">${cl}</td>
+                        <td class="font-mono" style="text-align:right;padding:5px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${fmt(sp)}</td>
+                        <td class="font-mono" style="text-align:right;padding:5px 10px;font-weight:700;font-size:10px;border-bottom:1px solid #e2e8f0">${fmt(val)}</td>
+                    </tr>`;
+                }).join('');
+                return `
+                    <div style="margin-bottom:20px">
+                        <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;color:#000;display:flex;justify-content:space-between;align-items:baseline">
+                            <span>📦 ${esc(ls.name || 'Counter')}</span>
+                            <span class="font-mono" style="font-size:9px;font-weight:700;color:#059669">Sales: ${fmt(counterSalesTotal)}</span>
+                        </h4>
+                        ${tbl(
+                    [{ label: 'Product' }, { label: 'Open', right: false }, { label: 'Rcvd', right: false }, { label: 'Sold', right: false }, { label: 'Close', right: false }, { label: 'Price', right: true }, { label: 'Sales Value', right: true }],
+                    rows,
+                    `<td colspan="6" style="padding:8px 12px;font-weight:800;font-size:10px;text-transform:uppercase;background:#ecfdf5;color:#059669">Counter Sales Total</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-weight:900;font-size:10px;color:#059669;background:#ecfdf5">${fmt(counterSalesTotal)}</td>`
+                )}
+                    </div>`;
+            }).filter(b => b).join('');
+            const counterTotalSales = this.lubeTotalAmount;
+
+            // Stock consolidation — merge store + counters
+            const consolidation = this.lubeConsolidation || [];
+            const hasConsolidation = consolidation.length > 0;
+            const consolidationRows = consolidation.map(row => {
+                return `<tr>
+                    <td style="padding:6px 10px;font-weight:700;font-size:10px;border-bottom:1px solid #e2e8f0">${esc(row.product_name || '--')}</td>
+                    <td class="font-mono" style="text-align:center;padding:6px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${row.store_closing}</td>
+                    <td class="font-mono" style="text-align:center;padding:6px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${row.counter_closing}</td>
+                    <td class="font-mono" style="text-align:center;padding:6px 10px;font-weight:800;font-size:10px;border-bottom:1px solid #e2e8f0">${row.total_closing}</td>
+                    <td class="font-mono" style="text-align:right;padding:6px 10px;font-size:10px;border-bottom:1px solid #e2e8f0">${fmt(row.cost_price)}</td>
+                    <td class="font-mono" style="text-align:right;padding:6px 10px;font-weight:800;font-size:10px;border-bottom:1px solid #e2e8f0">${fmt(row.total_value)}</td>
+                </tr>`;
+            }).join('');
+            const consolidationTotalValue = this.lubeConsolidationTotalValue;
+
+            // Build Section 06 HTML
+            let section06 = `
+                ${sectionTitle(6, 'Lubricant Sales & Stock Evaluation', 'Inventory Position')}
+
+                <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;color:#000">🏪 Lube Store (Warehouse)</h4>
+                <div style="margin-bottom:20px">
+                    ${lubeItems.length > 0 ? tbl(
+                [{ label: 'Product' }, { label: 'Open', right: false }, { label: 'Rcvd', right: false }, { label: 'Issued', right: false }, { label: 'Close', right: false }, { label: 'Unit Price', right: true }, { label: 'Stock Value', right: true }],
+                lubeRows,
+                `<td colspan="6" style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;background:#f0fdf4;color:#166534">Total Store Stock Value</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px;color:#166534;background:#f0fdf4">${fmt(lubeTotal)}</td>`
+            ) : '<p style="text-align:center;color:#94a3b8;font-style:italic;padding:16px;font-size:11px">No lube store data</p>'}
+                </div>`;
+
+            // Append counter tables only when counters exist
+            if (hasCounters) {
+                section06 += `
+                <div style="margin-top:20px;border-top:2px solid #e2e8f0;padding-top:16px">
+                    <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;color:#000;display:flex;justify-content:space-between;align-items:baseline">
+                        <span>Counter Stock Evaluation</span>
+                        <span class="font-mono" style="font-size:9px;font-weight:700;color:#059669">Total Counter Sales: ${fmt(counterTotalSales)}</span>
+                    </h4>
+                    ${counterBlocks}
+                </div>`;
             }
+
+            // Append consolidation only when data exists
+            if (hasConsolidation) {
+                section06 += `
+                <div style="margin-top:20px;border-top:2px solid #000;padding-top:16px">
+                    <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;color:#000">📊 Consolidated Stock Summary (Store + Counters)</h4>
+                    ${tbl(
+                    [{ label: 'Product' }, { label: 'Store Close', right: false }, { label: 'Counter Close', right: false }, { label: 'Total Close', right: false }, { label: 'Cost Price', right: true }, { label: 'Total Value', right: true }],
+                    consolidationRows,
+                    `<td colspan="5" style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;background:#eff6ff;color:#1e40af">Grand Total Stock Value</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px;color:#1e40af;background:#eff6ff">${fmt(consolidationTotalValue)}</td>`
+                )}
+                </div>`;
+            }
+
+            const page4 = `
+            <div class="page">
+                ${sectionTitle(5, 'Variance Analysis', 'Pump vs Tank Comparison')}
+                <div style="margin-bottom:32px">
+                    ${tbl(
+                [{ label: 'Product' }, { label: 'Pump Sales (L)', right: true }, { label: 'Tank Consumption (L)', right: true }, { label: 'Variance (L)', right: true }],
+                varianceRows || '<tr><td colspan="4" style="text-align:center;color:#94a3b8;font-style:italic;padding:14px;font-size:11px">No comparison data</td></tr>',
+                ''
+            )}
+                    <div style="margin-top:12px;padding:12px 16px;background:#f8fafc;border-left:3px solid #000;font-size:10px;color:#64748b;font-style:italic">
+                        <strong style="color:#1e293b">Note:</strong> Positive variance indicates tank consumption exceeded pump sales (possible leakage or measurement discrepancy). Negative indicates pump sales exceeded tank dip (possible meter over-read).
+                    </div>
+                </div>
+
+                ${section06}
+                ${pageFooter(4)}
+            </div>`;
+
+            // ══════════════════════════════════════════
+            // PAGE 5: SECTION 07 (Metrics) + 08 (Infographics)
+            // ══════════════════════════════════════════
+
+            // Calculate key metrics
+            const depositPct = auditSales > 0 ? (bankDeposit / auditSales * 100) : 0;
+            const expensePct = auditSales > 0 ? (totalExpenses / auditSales * 100) : 0;
+            const cashPct = auditSales > 0 ? (cashAtHand / auditSales * 100) : 0;
+            const debtorPct = auditSales > 0 ? (receivables / auditSales * 100) : 0;
+            const lubePct = auditSales > 0 ? (lubeTotal / auditSales * 100) : 0;
+            const numProducts = pumpBreakdown.length;
+            const avgDailySales = (() => {
+                const d1 = new Date(dateFrom), d2 = new Date(dateTo);
+                const days = Math.max(1, Math.ceil((d2 - d1) / 86400000) + 1);
+                return auditSales / days;
+            })();
+            const topProduct = pumpBreakdown.length > 0 ? pumpBreakdown.reduce((a, b) => a.amount > b.amount ? a : b) : null;
+            const totalVolume = pumpTotalL;
+            const avgPricePerLitre = totalVolume > 0 ? pumpTotal / totalVolume : 0;
+            const haulageCount = (this.haulage || []).length;
+            const totalHaulage = this.totalHaulageQty;
+
+            const metricCard = (label, value, sub, color) => `
+                <div style="background:#f8fafc;padding:16px;border-radius:8px;border-left:4px solid ${color}">
+                    <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${label}</p>
+                    <p style="font-size:18px;font-weight:900;color:#000;line-height:1">${value}</p>
+                    ${sub ? `<p style="font-size:9px;color:#64748b;margin-top:4px">${sub}</p>` : ''}
+                </div>`;
+
+            // Infographic bars (max bar width based on highest value)
+            const maxSalesAmt = Math.max(...pumpBreakdown.map(p => p.amount), 1);
+            const barRows = pumpBreakdown.map(p => {
+                const pct = (p.amount / maxSalesAmt * 100);
+                return `<div style="margin-bottom:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                        <span style="font-size:11px;font-weight:800;color:#000">${esc(p.product)}</span>
+                        <span class="font-mono" style="font-size:10px;font-weight:700;color:#64748b">${fmt(p.amount)}</span>
+                    </div>
+                    <div style="height:18px;background:#f1f5f9;border-radius:4px;overflow:hidden">
+                        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#f59e0b,#d97706);border-radius:4px;transition:width .3s"></div>
+                    </div>
+                    <p style="font-size:8px;color:#94a3b8;margin-top:2px">${fmtL(p.litres)} litres · Avg ${fmt(p.rate)}/L</p>
+                </div>`;
+            }).join('');
+
+            // Expense share pie-style bars
+            const maxExpAmt = Math.max(...this.expenseCategories.map(c => Math.abs(this.expenseCatBalance(c))), 1);
+            const expenseBars = this.expenseCategories.filter(c => this.expenseCatBalance(c) !== 0).map(cat => {
+                const bal = Math.abs(this.expenseCatBalance(cat));
+                const pct = (bal / maxExpAmt * 100);
+                return `<div style="margin-bottom:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+                        <span style="font-size:10px;font-weight:700;color:#000">${esc(cat.name)}</span>
+                        <span class="font-mono" style="font-size:9px;font-weight:700;color:#be123c">${fmt(bal)}</span>
+                    </div>
+                    <div style="height:10px;background:#fff1f2;border-radius:3px;overflow:hidden">
+                        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#fb7185,#e11d48);border-radius:3px"></div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // Reconciliation donut-style summary
+            const reconItems = [
+                { label: 'Bank Deposit', amount: bankDeposit, color: '#3b82f6' },
+                { label: 'Expenses', amount: totalExpenses, color: '#e11d48' },
+                { label: 'Cash at Hand', amount: cashAtHand, color: '#10b981' },
+                { label: 'Receivables', amount: receivables, color: '#f59e0b' },
+            ].filter(r => r.amount > 0);
+            const reconMax = Math.max(...reconItems.map(r => r.amount), 1);
+            const reconBars = reconItems.map(r => `
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                    <div style="width:8px;height:8px;border-radius:50%;background:${r.color};flex-shrink:0"></div>
+                    <div style="flex:1">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+                            <span style="font-size:10px;font-weight:600;color:#000">${r.label}</span>
+                            <span class="font-mono" style="font-size:9px;font-weight:700;color:#000">${fmt(r.amount)}</span>
+                        </div>
+                        <div style="height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden">
+                            <div style="height:100%;width:${(r.amount / reconMax * 100)}%;background:${r.color};border-radius:3px"></div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            const page5 = `
+            <div class="page">
+                ${sectionTitle(7, 'Key Metrics', 'Performance Dashboard')}
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:32px">
+                    ${metricCard('Total Revenue', fmt(auditSales), `${numProducts} products`, '#000')}
+                    ${metricCard('Avg Daily Sales', fmt(avgDailySales), `${esc(dateFrom)} – ${esc(dateTo)}`, '#3b82f6')}
+                    ${metricCard('Total Volume', fmtL(totalVolume) + ' L', `Avg ${fmt(avgPricePerLitre)}/L`, '#f59e0b')}
+                    ${metricCard('Deposit Rate', fmtPct(depositPct), fmt(bankDeposit) + ' deposited', '#10b981')}
+                    ${metricCard('Expense Ratio', fmtPct(expensePct), fmt(totalExpenses) + ' spent', '#e11d48')}
+                    ${metricCard('Lube Stock', fmt(lubeTotal), lubeItems.length + ' items in store', '#8b5cf6')}
+                    ${metricCard('Cash Retained', fmtPct(cashPct), fmt(cashAtHand) + ' at hand', '#06b6d4')}
+                    ${metricCard('Debtors', fmtPct(debtorPct), fmt(receivables) + ' outstanding', '#b45309')}
+                    ${metricCard('Deliveries', haulageCount + ' trips', fmtL(totalHaulage) + ' L received', '#6366f1')}
+                    ${topProduct ? metricCard('Top Product', esc(topProduct.product), fmt(topProduct.amount) + ' revenue', '#059669') : metricCard('Top Product', '—', 'No data', '#94a3b8')}
+                </div>
+
+                ${sectionTitle(8, 'Infographics', 'Visual Analysis')}
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+                    <div>
+                        <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;color:#000">Revenue by Product</h4>
+                        ${barRows || '<p style="color:#94a3b8;font-size:10px;font-style:italic">No product data</p>'}
+                    </div>
+                    <div>
+                        <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;color:#000">Expense Distribution</h4>
+                        ${expenseBars || '<p style="color:#94a3b8;font-size:10px;font-style:italic">No expense data</p>'}
+
+                        <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin:20px 0 14px;color:#000">Fund Allocation</h4>
+                        ${reconBars}
+                    </div>
+                </div>
+                ${pageFooter(5)}
+            </div>`;
+
+            // ══════════════════════════════════════════
+            // PAGE 6: SECTION 09 — 3D PIE CHART ANALYTICS
+            // ══════════════════════════════════════════
+
+            // Color palette for pie slices
+            const pieColors = ['#3b82f6', '#f59e0b', '#10b981', '#e11d48', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6366f1'];
+
+            // Helper: build a 3D pie chart with legend
+            const pie3D = (items, emptyMsg) => {
+                if (!items || items.length === 0) return `<p style="color:#94a3b8;font-size:10px;font-style:italic;text-align:center;padding:16px">${emptyMsg}</p>`;
+                const total = items.reduce((s, i) => s + i.value, 0);
+                if (total <= 0) return `<p style="color:#94a3b8;font-size:10px;font-style:italic;text-align:center;padding:16px">${emptyMsg}</p>`;
+
+                // Build conic-gradient stops
+                let angle = 0;
+                const stops = items.map((item, idx) => {
+                    const share = item.value / total;
+                    const deg = share * 360;
+                    const color = pieColors[idx % pieColors.length];
+                    const start = angle;
+                    angle += deg;
+                    item._color = color;
+                    item._pct = (share * 100).toFixed(1);
+                    return `${color} ${start.toFixed(1)}deg ${angle.toFixed(1)}deg`;
+                }).join(', ');
+
+                // Legend rows
+                const legend = items.map(item => `
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+                        <div style="width:8px;height:8px;border-radius:2px;background:${item._color};flex-shrink:0"></div>
+                        <span style="font-size:9px;font-weight:600;color:#334155;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.label)}</span>
+                        <span class="font-mono" style="font-size:8px;font-weight:700;color:#64748b;white-space:nowrap">${item.display}</span>
+                        <span class="font-mono" style="font-size:8px;color:#94a3b8;white-space:nowrap">${item._pct}%</span>
+                    </div>`).join('');
+
+                return `
+                <div style="display:flex;align-items:center;gap:14px">
+                    <div style="position:relative;width:100px;height:100px;flex-shrink:0">
+                        <div style="width:100px;height:100px;border-radius:50%;background:conic-gradient(${stops});transform:rotateX(55deg);box-shadow:0 8px 0 rgba(0,0,0,.12),0 12px 0 rgba(0,0,0,.06);position:relative"></div>
+                        <div style="position:absolute;top:50%;left:50%;width:30px;height:30px;border-radius:50%;background:#fff;transform:translate(-50%,-50%) rotateX(55deg);box-shadow:inset 0 1px 3px rgba(0,0,0,.1)"></div>
+                    </div>
+                    <div style="flex:1;min-width:0">${legend}</div>
+                </div>`;
+            };
+
+            // ── Data for each pie chart ──
+
+            // 1. Sales Revenue by Product
+            const salesPieItems = pumpBreakdown.map(p => ({
+                label: p.product, value: p.amount, display: fmt(p.amount)
+            }));
+
+            // 2. Expense Distribution
+            const expPieItems = this.expenseCategories
+                .filter(c => this.expenseCatBalance(c) !== 0)
+                .map(c => ({
+                    label: c.name, value: Math.abs(this.expenseCatBalance(c)),
+                    display: fmt(Math.abs(this.expenseCatBalance(c)))
+                }));
+
+            // 3. Debtors
+            const debtorPieItems = this.debtorAccounts
+                .filter(a => this.debtorBalance(a) !== 0)
+                .map(a => ({
+                    label: a.account_name || a.name,
+                    value: Math.abs(this.debtorBalance(a)),
+                    display: fmt(Math.abs(this.debtorBalance(a)))
+                }));
+
+            // 4. Purchases / Haulage
+            const haulPieItems = (this.haulageByProduct || []).map(h => ({
+                label: h.product, value: h.quantity, display: fmtL(h.quantity) + ' L'
+            }));
+
+            // 5. Lubricant (Counter + Main Store)
+            const lubePieItems = [];
+            // Add each counter section
+            counters.filter(ls => (ls.items || []).length > 0).forEach(ls => {
+                const val = this.lubeSectionAmount(ls);
+                if (val > 0) lubePieItems.push({ label: ls.name || 'Counter', value: val, display: fmt(val) });
+            });
+            // Add Main Store
+            if (lubeTotal > 0) lubePieItems.push({ label: 'Main Store', value: lubeTotal, display: fmt(lubeTotal) });
+
+            // 6. Fund Allocation
+            const fundPieItems = [
+                { label: 'Bank Deposit', value: bankDeposit, display: fmt(bankDeposit) },
+                { label: 'Expenses', value: totalExpenses, display: fmt(totalExpenses) },
+                { label: 'Cash at Hand', value: cashAtHand, display: fmt(cashAtHand) },
+                { label: 'Debtors', value: receivables, display: fmt(receivables) },
+                { label: 'Lube Stock', value: lubeTotal, display: fmt(lubeTotal) },
+            ].filter(f => f.value > 0);
+
+            const chartTitle = (icon, text) => `<h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;color:#000;border-bottom:1px solid #e2e8f0;padding-bottom:6px">${icon} ${esc(text)}</h4>`;
+
+            const page6 = `
+            <div class="page">
+                ${sectionTitle(9, 'Charts & Analytics', '3D Pie Chart Breakdown')}
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px">
+                    <div>
+                        ${chartTitle('&#128202;', 'Sales Revenue by Product')}
+                        ${pie3D(salesPieItems, 'No sales data')}
+                    </div>
+                    <div>
+                        ${chartTitle('&#128184;', 'Expense Distribution')}
+                        ${pie3D(expPieItems, 'No expense data')}
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:28px">
+                    <div>
+                        ${chartTitle('&#129534;', 'Outstanding Debtors')}
+                        ${pie3D(debtorPieItems, 'No debtors')}
+                    </div>
+                    <div>
+                        ${chartTitle('&#128667;', 'Purchases / Haulage')}
+                        ${pie3D(haulPieItems, 'No haulage records')}
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:28px">
+                    <div>
+                        ${chartTitle('&#129524;', 'Lubricant')}
+                        ${pie3D(lubePieItems, 'No lubricant data')}
+                    </div>
+                    <div>
+                        ${chartTitle('&#128176;', 'Fund Allocation')}
+                        ${pie3D(fundPieItems, 'No allocation data')}
+                    </div>
+                </div>
+                ${pageFooter(6)}
+            </div>`;
+
+            // ══════════════════════════════════════════
+            // PAGE 7: SECTION 10 — PHOTO EVIDENCE (optional)
+            // ══════════════════════════════════════════
+            const tellerUrl = this.systemSales.teller_proof_url || '';
+            const posUrl = this.systemSales.pos_proof_url || '';
+            const showPhotos = this.finalReportIncludePhotos && (tellerUrl || posUrl);
+
+            const page7 = showPhotos ? `
+            <div class="page">
+                ${sectionTitle(10, 'Photo Evidence', 'Supporting Documents')}
+                <p style="font-size:10px;color:#64748b;margin-bottom:24px;font-style:italic">
+                    The following supporting documents were uploaded during the audit period <strong>${esc(dateFrom)}</strong> to <strong>${esc(dateTo)}</strong> for <strong>${esc(station)}</strong>.
+                </p>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px">
+                    ${tellerUrl ? `
+                    <div>
+                        <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;color:#000;display:flex;align-items:center;gap:6px">
+                            <span style="display:inline-block;width:20px;height:20px;border-radius:6px;background:#3b82f6;color:#fff;text-align:center;line-height:20px;font-size:10px;font-weight:900">T</span>
+                            Teller / Deposit Slip
+                        </h4>
+                        <div style="border:2px solid #e2e8f0;border-radius:12px;overflow:hidden;background:#f8fafc">
+                            <img src="${esc(tellerUrl)}" alt="Teller Deposit Slip" style="width:100%;display:block;object-fit:contain;max-height:340px" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+                            <div style="display:none;height:200px;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-style:italic">Image could not be loaded</div>
+                        </div>
+                        <p style="font-size:8px;color:#94a3b8;margin-top:6px;text-align:center">Teller deposit proof</p>
+                    </div>` : ''}
+                    ${posUrl ? `
+                    <div>
+                        <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;color:#000;display:flex;align-items:center;gap:6px">
+                            <span style="display:inline-block;width:20px;height:20px;border-radius:6px;background:#10b981;color:#fff;text-align:center;line-height:20px;font-size:10px;font-weight:900">P</span>
+                            POS Receipt
+                        </h4>
+                        <div style="border:2px solid #e2e8f0;border-radius:12px;overflow:hidden;background:#f8fafc">
+                            <img src="${esc(posUrl)}" alt="POS Receipt" style="width:100%;display:block;object-fit:contain;max-height:340px" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+                            <div style="display:none;height:200px;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-style:italic">Image could not be loaded</div>
+                        </div>
+                        <p style="font-size:8px;color:#94a3b8;margin-top:6px;text-align:center">POS terminal receipt</p>
+                    </div>` : ''}
+                </div>
+
+                <div style="margin-top:32px;padding:16px 20px;background:#f8fafc;border-left:4px solid #000;border-radius:0 8px 8px 0">
+                    <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px">Verification Note</p>
+                    <p style="font-size:10px;color:#64748b;line-height:1.6">
+                        These images serve as documentary evidence for the reconciliation process.
+                        ${tellerUrl ? `The deposit slip confirms the bank deposit of <strong>${fmt(bankDeposit)}</strong>.` : ''}
+                        ${posUrl ? `The POS receipt confirms POS transactions of <strong>${fmt(parseFloat(this.systemSales.pos_amount) || 0)}</strong>.` : ''}
+                    </p>
+                </div>
+                ${pageFooter(totalPages)}
+            </div>` : '';
+
+            const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Final Audit Report — ${esc(company)}</title><style>${css}</style></head><body>${page1}${page2}${page3}${page4}${page5}${page6}${page7}</body></html>`;
+            return { html, station, dateFrom, dateTo };
+        },
+
+        // ── Preview Final Report (fullscreen overlay) ──
+        previewFinalReport() {
+            const { html } = this._buildFinalReportHTML();
+            const existing = document.getElementById('final-rpt-preview-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'final-rpt-preview-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.92);backdrop-filter:blur(8px);display:flex;flex-direction:column;';
+            overlay.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:#000;border-bottom:1px solid rgba(255,255,255,.1);flex-shrink:0">
+                    <div style="display:flex;align-items:center;gap:10px">
+                        <div style="width:34px;height:34px;border-radius:8px;background:#f59e0b;display:flex;align-items:center;justify-content:center">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" width="18" height="18"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        </div>
+                        <div>
+                            <h3 style="color:#fff;font-size:13px;font-weight:800;margin:0">Final Report Preview</h3>
+                            <p style="color:#94a3b8;font-size:10px;margin:0">Scroll to review all pages &bull; Zoom to adjust</p>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <button id="frpt-zoom-out" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">−</button>
+                        <span id="frpt-zoom-label" style="color:#94a3b8;font-size:11px;min-width:38px;text-align:center">100%</span>
+                        <button id="frpt-zoom-in" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">+</button>
+                        <div style="width:1px;height:24px;background:rgba(255,255,255,.1);margin:0 4px"></div>
+                        <button id="frpt-preview-download" style="padding:7px 14px;border-radius:8px;background:#f59e0b;border:none;color:#000;cursor:pointer;font-size:11px;font-weight:800">⬇ Download PDF</button>
+                        <button id="frpt-preview-close" style="width:30px;height:30px;border-radius:6px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;font-size:16px;line-height:1">×</button>
+                    </div>
+                </div>
+                <div style="flex:1;overflow-y:auto;padding:24px;display:flex;justify-content:center">
+                    <div id="frpt-preview-scaler" style="transform-origin:top center;transition:transform .2s">
+                        <iframe id="frpt-preview-frame" style="width:860px;border:none;border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,.5);background:#fff;" scrolling="no"></iframe>
+                    </div>
+                </div>`;
+
+            document.body.appendChild(overlay);
+
+            const frame = document.getElementById('frpt-preview-frame');
+            frame.srcdoc = html;
+            frame.onload = () => { frame.style.height = (frame.contentDocument.body.scrollHeight + 32) + 'px'; };
+
+            let zoom = 100;
+            const scaler = document.getElementById('frpt-preview-scaler');
+            const label = document.getElementById('frpt-zoom-label');
+            const updateZoom = () => { scaler.style.transform = `scale(${zoom / 100})`; label.textContent = zoom + '%'; };
+
+            document.getElementById('frpt-zoom-in').addEventListener('click', () => { if (zoom < 150) { zoom += 10; updateZoom(); } });
+            document.getElementById('frpt-zoom-out').addEventListener('click', () => { if (zoom > 50) { zoom -= 10; updateZoom(); } });
+            document.getElementById('frpt-preview-close').addEventListener('click', () => overlay.remove());
+            document.getElementById('frpt-preview-download').addEventListener('click', () => this.downloadFinalReport());
+
+            const esc2 = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc2); } };
+            document.addEventListener('keydown', esc2);
+        },
+
+        // ── Download Final Report PDF ──
+        downloadFinalReport() {
+            const { html } = this._buildFinalReportHTML();
+            const pw = window.open('', '_blank');
+            if (!pw) { this.toast('Pop-up blocked — please allow pop-ups for this site', false); return; }
+            pw.document.write(html);
+            pw.document.close();
+            pw.onload = () => { pw.focus(); pw.print(); };
         },
 
         _esc(str) {

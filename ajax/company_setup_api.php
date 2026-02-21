@@ -80,6 +80,13 @@ try {
                 break;
             }
             
+            // ── Subscription limit check ──
+            $limit = check_client_limit($company_id);
+            if (!$limit['allowed']) {
+                echo json_encode(['success' => false, 'message' => "Client limit reached ({$limit['current']}/{$limit['max']}). Upgrade your plan to add more clients."]);
+                break;
+            }
+            
             $code = generate_client_code($company_id, $name);
             
             $stmt = $pdo->prepare("INSERT INTO clients (company_id, name, code, contact_person, email, phone, address, industry) VALUES (?,?,?,?,?,?,?,?)");
@@ -171,6 +178,13 @@ try {
             $client = get_client($client_id, $company_id);
             if (!$client) {
                 echo json_encode(['success' => false, 'message' => 'Invalid client']);
+                break;
+            }
+            
+            // ── Subscription limit check ──
+            $limit = check_outlet_limit($company_id);
+            if (!$limit['allowed']) {
+                echo json_encode(['success' => false, 'message' => "Outlet limit reached ({$limit['current']}/{$limit['max']}). Upgrade your plan to add more outlets."]);
                 break;
             }
             

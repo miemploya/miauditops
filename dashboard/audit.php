@@ -43,15 +43,10 @@ $stmt = $pdo->prepare("SELECT v.*, u.first_name, u.last_name FROM variance_repor
 $stmt->execute([$company_id, $client_id]);
 $variances = $stmt->fetchAll();
 
-// Fetch today's sign-off
-$stmt = $pdo->prepare("SELECT d.*, u1.first_name as aud_first, u1.last_name as aud_last, u2.first_name as mgr_first, u2.last_name as mgr_last FROM daily_audit_signoffs d LEFT JOIN users u1 ON d.auditor_id = u1.id LEFT JOIN users u2 ON d.manager_id = u2.id WHERE d.company_id = ? AND d.client_id = ? AND d.audit_date = CURDATE()");
-$stmt->execute([$company_id, $client_id]);
-$signoff = $stmt->fetch();
 
 $js_transactions = json_encode($transactions, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_lodgments = json_encode($lodgments, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_variances = json_encode($variances, JSON_HEX_TAG | JSON_HEX_APOS);
-$js_signoff = json_encode($signoff ?: null, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
 ?>
 <!DOCTYPE html>
@@ -96,27 +91,27 @@ $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">POS</p>
-                    <p class="text-lg font-black text-blue-600" x-text="fmt(todaySummary.pos)"></p>
+                    <p class="text-lg font-black text-blue-600" x-text="fmt(filteredSummary.pos)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Cash</p>
-                    <p class="text-lg font-black text-emerald-600" x-text="fmt(todaySummary.cash)"></p>
+                    <p class="text-lg font-black text-emerald-600" x-text="fmt(filteredSummary.cash)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Transfer</p>
-                    <p class="text-lg font-black text-violet-600" x-text="fmt(todaySummary.transfer)"></p>
+                    <p class="text-lg font-black text-violet-600" x-text="fmt(filteredSummary.transfer)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Total</p>
-                    <p class="text-lg font-black text-slate-800 dark:text-white" x-text="fmt(todaySummary.total)"></p>
+                    <p class="text-lg font-black text-slate-800 dark:text-white" x-text="fmt(filteredSummary.total)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Declared</p>
-                    <p class="text-lg font-black text-amber-600" x-text="fmt(todaySummary.declared)"></p>
+                    <p class="text-lg font-black text-amber-600" x-text="fmt(filteredSummary.declared)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Variance</p>
-                    <p class="text-lg font-black" :class="parseFloat(todaySummary.variance) === 0 ? 'text-emerald-600' : 'text-red-600'" x-text="fmt(todaySummary.variance)"></p>
+                    <p class="text-lg font-black" :class="parseFloat(filteredSummary.variance) === 0 ? 'text-emerald-600' : 'text-red-600'" x-text="fmt(filteredSummary.variance)"></p>
                 </div>
             </div>
 
@@ -306,70 +301,106 @@ $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
 
                         <div class="overflow-x-auto">
-                            <table class="w-full text-sm">
+                            <table class="w-full text-sm min-w-[800px]" style="table-layout:fixed">
+                                <colgroup>
+                                    <col style="width:32px">   <!-- Chevron -->
+                                    <col style="width:14%">    <!-- Date -->
+                                    <col style="width:14%">    <!-- Outlet -->
+                                    <col style="width:8%">     <!-- Shift -->
+                                    <col style="width:12%">    <!-- POS -->
+                                    <col style="width:12%">    <!-- Cash -->
+                                    <col style="width:12%">    <!-- Transfer -->
+                                    <col style="width:12%">    <!-- Total -->
+                                    <col style="width:10%">    <!-- Variance -->
+                                    <col style="width:120px">  <!-- Actions -->
+                                </colgroup>
                                 <thead class="bg-slate-50 dark:bg-slate-800/50">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">Date</th>
-                                        <th class="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">Outlet</th>
-                                        <th class="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">Shift</th>
-                                        <th class="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">POS</th>
-                                        <th class="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">Cash</th>
-                                        <th class="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">Transfer</th>
-                                        <th class="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">Total</th>
-                                        <th class="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">Variance</th>
-                                        <th class="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase">Actions</th>
+                                        <th class="pl-3 pr-1 py-3 text-left text-xs font-bold text-slate-500 uppercase"></th>
+                                        <th class="px-2 py-3 text-left text-xs font-bold text-slate-500 uppercase">Date</th>
+                                        <th class="px-2 py-3 text-left text-xs font-bold text-slate-500 uppercase">Outlet</th>
+                                        <th class="px-2 py-3 text-left text-xs font-bold text-slate-500 uppercase">Shift</th>
+                                        <th class="px-2 py-3 text-right text-xs font-bold text-slate-500 uppercase">POS</th>
+                                        <th class="px-2 py-3 text-right text-xs font-bold text-slate-500 uppercase">Cash</th>
+                                        <th class="px-2 py-3 text-right text-xs font-bold text-slate-500 uppercase">Transfer</th>
+                                        <th class="px-2 py-3 text-right text-xs font-bold text-slate-500 uppercase">Total</th>
+                                        <th class="px-2 py-3 text-right text-xs font-bold text-slate-500 uppercase">Variance</th>
+                                        <th class="px-2 py-3 text-center text-xs font-bold text-slate-500 uppercase">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody x-init="$nextTick(()=>lucide.createIcons())">
-                                    <template x-for="t in filteredTransactions" :key="t.id">
-                                        <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                                            <td class="px-4 py-3 font-mono text-xs" x-text="t.transaction_date"></td>
-                                            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 text-xs font-semibold" x-text="t.outlet_name || '—'"></span></td>
-                                            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold capitalize" x-text="t.shift"></span></td>
-                                            <td class="px-4 py-3 text-right font-mono" x-text="fmt(t.pos_amount)"></td>
-                                            <td class="px-4 py-3 text-right font-mono" x-text="fmt(t.cash_amount)"></td>
-                                            <td class="px-4 py-3 text-right font-mono" x-text="fmt(t.transfer_amount)"></td>
-                                            <td class="px-4 py-3 text-right font-bold" x-text="fmt(t.actual_total)"></td>
-                                            <td class="px-4 py-3 text-right font-bold" :class="parseFloat(t.variance) === 0 ? 'text-emerald-600' : 'text-red-600'" x-text="fmt(t.variance)"></td>
-                                            <td class="px-4 py-2.5 text-center">
-                                                <div class="flex flex-wrap gap-1 justify-center">
-                                                    <!-- POS Approve -->
-                                                    <template x-if="parseFloat(t.pos_amount) > 0 && !parseInt(t.pos_approved)">
-                                                        <button @click="approveSalesPayment(t.id, 'pos')" class="px-2 py-0.5 bg-blue-100 hover:bg-blue-200 text-blue-700 text-[10px] font-bold rounded-md transition-all" title="Approve POS as lodgment">✓ POS</button>
-                                                    </template>
-                                                    <template x-if="parseFloat(t.pos_amount) > 0 && parseInt(t.pos_approved)">
-                                                        <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md">✓ POS</span>
-                                                    </template>
-                                                    <!-- Transfer Approve -->
-                                                    <template x-if="parseFloat(t.transfer_amount) > 0 && !parseInt(t.transfer_approved)">
-                                                        <button @click="approveSalesPayment(t.id, 'transfer')" class="px-2 py-0.5 bg-purple-100 hover:bg-purple-200 text-purple-700 text-[10px] font-bold rounded-md transition-all" title="Approve Transfer as lodgment">✓ TRF</button>
-                                                    </template>
-                                                    <template x-if="parseFloat(t.transfer_amount) > 0 && parseInt(t.transfer_approved)">
-                                                        <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md">✓ TRF</span>
-                                                    </template>
-                                                    <!-- Cash Status -->
-                                                    <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'pending'">
-                                                        <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-md" title="Cash pending deposit confirmation">⏳ Cash</span>
-                                                    </template>
-                                                    <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'deposited'">
-                                                        <span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-md">🏦 Cash</span>
-                                                    </template>
-                                                    <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'confirmed'">
-                                                        <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md">✓ Cash</span>
-                                                    </template>
-                                                    <!-- Edit & Delete -->
-                                                    <button @click="editSale(t)" class="px-2 py-0.5 bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 text-[10px] font-bold rounded-md transition-all" title="Edit">
-                                                        <i data-lucide="pencil" class="w-3 h-3 inline"></i>
-                                                    </button>
-                                                    <button @click="deleteSale(t.id)" class="px-2 py-0.5 bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-700 text-[10px] font-bold rounded-md transition-all" title="Delete">
-                                                        <i data-lucide="trash-2" class="w-3 h-3 inline"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
+                                    <template x-for="group in groupedByDate" :key="group.date">
+                                        <tbody>
+                                            <!-- Date Summary Row (click to expand) -->
+                                            <tr @click="toggleDate(group.date)" class="border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                                <td class="pl-3 pr-1 py-3">
+                                                    <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 transition-transform duration-200" :class="expandedDates[group.date] ? 'rotate-0' : '-rotate-90'"></i>
+                                                </td>
+                                                <td class="px-2 py-3">
+                                                    <span class="font-bold text-sm text-slate-800 dark:text-white" x-text="group.date"></span>
+                                                    <span class="ml-1 px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 text-[10px] font-bold" x-text="group.items.length + ' outlet' + (group.items.length > 1 ? 's' : '')"></span>
+                                                </td>
+                                                <td class="px-2 py-3" colspan="2"></td>
+                                                <td class="px-2 py-3 text-right font-bold font-mono text-blue-600 text-xs" x-text="fmt(group.pos)"></td>
+                                                <td class="px-2 py-3 text-right font-bold font-mono text-emerald-600 text-xs" x-text="fmt(group.cash)"></td>
+                                                <td class="px-2 py-3 text-right font-bold font-mono text-violet-600 text-xs" x-text="fmt(group.transfer)"></td>
+                                                <td class="px-2 py-3 text-right font-black text-slate-800 dark:text-white text-xs" x-text="fmt(group.total)"></td>
+                                                <td class="px-2 py-3 text-right font-bold text-xs" :class="group.variance === 0 ? 'text-emerald-600' : 'text-red-600'" x-text="fmt(group.variance)"></td>
+                                                <td class="px-2 py-3"></td>
+                                            </tr>
+                                            <!-- Child Rows (per outlet) -->
+                                            <template x-for="t in group.items" :key="t.id">
+                                                <tr x-show="expandedDates[group.date]" x-transition class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                                    <td class="pl-3 pr-1 py-2.5"></td>
+                                                    <td class="px-2 py-2.5 font-mono text-xs text-slate-400" x-text="t.transaction_date"></td>
+                                                    <td class="px-2 py-2.5"><span class="px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 text-xs font-semibold" x-text="t.outlet_name || '—'"></span></td>
+                                                    <td class="px-2 py-2.5"><span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold capitalize" x-text="t.shift"></span></td>
+                                                    <td class="px-2 py-2.5 text-right font-mono text-xs" x-text="fmt(t.pos_amount)"></td>
+                                                    <td class="px-2 py-2.5 text-right font-mono text-xs" x-text="fmt(t.cash_amount)"></td>
+                                                    <td class="px-2 py-2.5 text-right font-mono text-xs" x-text="fmt(t.transfer_amount)"></td>
+                                                    <td class="px-2 py-2.5 text-right font-bold text-xs" x-text="fmt(t.actual_total)"></td>
+                                                    <td class="px-2 py-2.5 text-right font-bold text-xs" :class="parseFloat(t.variance) === 0 ? 'text-emerald-600' : 'text-red-600'" x-text="fmt(t.variance)"></td>
+                                                    <td class="px-2 py-2 text-center">
+                                                        <div class="flex flex-nowrap gap-1 justify-center">
+                                                            <!-- POS Approve -->
+                                                            <template x-if="parseFloat(t.pos_amount) > 0 && !parseInt(t.pos_approved)">
+                                                                <button @click.stop="approveSalesPayment(t.id, 'pos')" class="px-1.5 py-0.5 bg-blue-100 hover:bg-blue-200 text-blue-700 text-[10px] font-bold rounded-md transition-all whitespace-nowrap" title="Approve POS">✓POS</button>
+                                                            </template>
+                                                            <template x-if="parseFloat(t.pos_amount) > 0 && parseInt(t.pos_approved)">
+                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">✓POS</span>
+                                                            </template>
+                                                            <!-- Transfer Approve -->
+                                                            <template x-if="parseFloat(t.transfer_amount) > 0 && !parseInt(t.transfer_approved)">
+                                                                <button @click.stop="approveSalesPayment(t.id, 'transfer')" class="px-1.5 py-0.5 bg-purple-100 hover:bg-purple-200 text-purple-700 text-[10px] font-bold rounded-md transition-all whitespace-nowrap" title="Approve Transfer">✓TRF</button>
+                                                            </template>
+                                                            <template x-if="parseFloat(t.transfer_amount) > 0 && parseInt(t.transfer_approved)">
+                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">✓TRF</span>
+                                                            </template>
+                                                            <!-- Cash Status -->
+                                                            <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'pending'">
+                                                                <span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-md whitespace-nowrap" title="Cash pending">⏳</span>
+                                                            </template>
+                                                            <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'deposited'">
+                                                                <span class="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-md whitespace-nowrap">🏦</span>
+                                                            </template>
+                                                            <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'confirmed'">
+                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">✓$</span>
+                                                            </template>
+                                                            <!-- Edit & Delete -->
+                                                            <button @click.stop="editSale(t)" class="px-1.5 py-0.5 bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 text-[10px] font-bold rounded-md transition-all" title="Edit">
+                                                                <i data-lucide="pencil" class="w-3 h-3 inline"></i>
+                                                            </button>
+                                                            <button @click.stop="deleteSale(t.id)" class="px-1.5 py-0.5 bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-700 text-[10px] font-bold rounded-md transition-all" title="Delete">
+                                                                <i data-lucide="trash-2" class="w-3 h-3 inline"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
                                     </template>
                                     <tr x-show="filteredTransactions.length === 0">
-                                        <td colspan="9" class="px-4 py-12 text-center text-slate-400">No transactions match your filters</td>
+                                        <td colspan="10" class="px-4 py-12 text-center text-slate-400">No transactions match your filters</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -477,7 +508,12 @@ $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <span class="px-2 py-0.5 rounded-full text-xs font-bold" :class="l.status==='confirmed'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'" x-text="l.status"></span>
                                             </td>
                                             <td class="px-4 py-3 text-center">
-                                                <button x-show="l.status==='pending'" @click="confirmLodgment(l.id)" class="px-3 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold rounded-lg hover:scale-105 transition-all">Confirm</button>
+                                                <div class="flex items-center gap-1 justify-center">
+                                                    <button x-show="l.status==='pending'" @click="confirmLodgment(l.id)" class="px-3 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold rounded-lg hover:scale-105 transition-all">Confirm</button>
+                                                    <button @click="deleteLodgment(l.id)" class="px-2 py-1 bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 text-xs font-bold rounded-lg transition-all" title="Delete">
+                                                        <i data-lucide="trash-2" class="w-3 h-3 inline"></i>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     </template>
@@ -517,74 +553,6 @@ $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
                 </div>
             </div>
 
-            <!-- =============== TAB: Audit Sign-Off =============== -->
-            <div x-show="currentTab === 'signoff'" x-transition>
-                <div class="max-w-2xl mx-auto glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
-                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-500/10 via-purple-500/5 to-transparent">
-                        <h3 class="font-bold text-slate-900 dark:text-white">Daily Audit Sign-Off</h3>
-                        <p class="text-xs text-slate-500"><?php echo date('l, F j, Y'); ?></p>
-                    </div>
-                    <div class="p-6 space-y-6">
-                        <!-- Summary -->
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
-                                <p class="text-xs font-bold text-emerald-600 uppercase">Total Revenue</p>
-                                <p class="text-2xl font-black text-emerald-700" x-text="fmt(todaySummary.total)"></p>
-                            </div>
-                            <div class="p-4 rounded-xl" :class="parseFloat(todaySummary.variance) === 0 ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800' : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'" class="border">
-                                <p class="text-xs font-bold uppercase" :class="parseFloat(todaySummary.variance) === 0 ? 'text-emerald-600' : 'text-red-600'">Variance</p>
-                                <p class="text-2xl font-black" :class="parseFloat(todaySummary.variance) === 0 ? 'text-emerald-700' : 'text-red-700'" x-text="fmt(todaySummary.variance)"></p>
-                            </div>
-                        </div>
-
-                        <!-- Auditor Sign-Off -->
-                        <div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700" :class="signoff?.auditor_signed_at ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''">
-                            <div class="flex items-center gap-3 mb-3">
-                                <div class="w-8 h-8 rounded-lg flex items-center justify-center" :class="signoff?.auditor_signed_at ? 'bg-emerald-500' : 'bg-slate-200'">
-                                    <i :data-lucide="signoff?.auditor_signed_at ? 'check' : 'user'" class="w-4 h-4 text-white"></i>
-                                </div>
-                                <div>
-                                    <p class="text-sm font-bold text-slate-800 dark:text-white">Auditor Sign-Off</p>
-                                    <p class="text-xs text-slate-400" x-text="signoff?.auditor_signed_at ? ('Signed: ' + signoff.aud_first + ' ' + signoff.aud_last) : 'Pending'"></p>
-                                </div>
-                            </div>
-                            <template x-if="!signoff?.auditor_signed_at">
-                                <div>
-                                    <textarea x-model="signoffForm.auditor_comments" placeholder="Auditor comments..." rows="2" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm mb-2"></textarea>
-                                    <button @click="signOff('auditor')" class="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-sm font-bold rounded-lg shadow-lg hover:scale-105 transition-all">Sign as Auditor</button>
-                                </div>
-                            </template>
-                        </div>
-
-                        <!-- Manager Sign-Off -->
-                        <div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700" :class="signoff?.manager_signed_at ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''">
-                            <div class="flex items-center gap-3 mb-3">
-                                <div class="w-8 h-8 rounded-lg flex items-center justify-center" :class="signoff?.manager_signed_at ? 'bg-emerald-500' : 'bg-slate-200'">
-                                    <i :data-lucide="signoff?.manager_signed_at ? 'check' : 'user-check'" class="w-4 h-4 text-white"></i>
-                                </div>
-                                <div>
-                                    <p class="text-sm font-bold text-slate-800 dark:text-white">Manager Sign-Off</p>
-                                    <p class="text-xs text-slate-400" x-text="signoff?.manager_signed_at ? ('Signed: ' + signoff.mgr_first + ' ' + signoff.mgr_last) : 'Pending'"></p>
-                                </div>
-                            </div>
-                            <template x-if="signoff?.auditor_signed_at && !signoff?.manager_signed_at">
-                                <div>
-                                    <textarea x-model="signoffForm.manager_comments" placeholder="Manager comments..." rows="2" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm mb-2"></textarea>
-                                    <button @click="signOff('manager')" class="px-4 py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold rounded-lg shadow-lg hover:scale-105 transition-all">Sign as Manager</button>
-                                </div>
-                            </template>
-                        </div>
-
-                        <template x-if="signoff?.status === 'completed'">
-                            <div class="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 text-center">
-                                <i data-lucide="check-circle" class="w-8 h-8 text-emerald-500 mx-auto mb-2"></i>
-                                <p class="text-sm font-bold text-emerald-700">Audit Complete</p>
-                                <p class="text-xs text-emerald-600">Both auditor and manager have signed off</p>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-            </div>
 
         </main>
     </div>
@@ -668,23 +636,21 @@ function auditApp() {
             { id: 'sales', label: 'Sales Entry', icon: 'receipt', activeClass: 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm border-blue-200' },
             { id: 'lodgments', label: 'Bank Lodgments', icon: 'landmark', activeClass: 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm border-emerald-200' },
             { id: 'variance', label: 'Variance', icon: 'alert-triangle', activeClass: 'bg-white dark:bg-slate-900 text-amber-600 shadow-sm border-amber-200' },
-            { id: 'signoff', label: 'Audit Sign-Off', icon: 'shield-check', activeClass: 'bg-white dark:bg-slate-900 text-violet-600 shadow-sm border-violet-200' },
         ],
         transactions: <?php echo $js_transactions; ?>,
         lodgments: <?php echo $js_lodgments; ?>,
         variances: <?php echo $js_variances; ?>,
-        signoff: <?php echo $js_signoff; ?>,
         todaySummary: <?php echo $js_today; ?>,
         outlets: <?php echo $js_outlets; ?>,
         pendingCash: <?php echo $js_pending_cash; ?>,
         salesForm: { dateMode: 'single', date: new Date().toISOString().split('T')[0], date_from: new Date().toISOString().split('T')[0], date_to: new Date().toISOString().split('T')[0], shift: 'full_day', outlet_id: '', system_amount: 0, declared_pos: 0, declared_cash: 0, declared_transfer: 0, notes: '' },
         lodgmentForm: { date: new Date().toISOString().split('T')[0], bank: '', account: '', amount: 0, reference: '', linked_cash_txn_id: '' },
-        signoffForm: { auditor_comments: '', manager_comments: '' },
-        dateFilter: 'all',
+        dateFilter: 'today',
         outletFilter: 'all',
         customFrom: '',
         customTo: '',
         editingTx: null,
+        expandedDates: {},
         editForm: { id: 0, transaction_date: '', shift: '', outlet_id: '', pos_amount: 0, cash_amount: 0, transfer_amount: 0, declared_total: 0, notes: '' },
 
         get systemTotal() {
@@ -730,6 +696,39 @@ function auditApp() {
                 map[name].count++;
             });
             return Object.values(map).sort((a,b) => b.total - a.total);
+        },
+
+        get filteredSummary() {
+            const s = { pos: 0, cash: 0, transfer: 0, total: 0, declared: 0, variance: 0 };
+            this.filteredTransactions.forEach(t => {
+                s.pos += parseFloat(t.pos_amount || 0);
+                s.cash += parseFloat(t.cash_amount || 0);
+                s.transfer += parseFloat(t.transfer_amount || 0);
+                s.total += parseFloat(t.actual_total || 0);
+                s.declared += parseFloat(t.declared_total || 0);
+                s.variance += parseFloat(t.variance || 0);
+            });
+            return s;
+        },
+
+        get groupedByDate() {
+            const map = {};
+            this.filteredTransactions.forEach(t => {
+                const d = t.transaction_date;
+                if (!map[d]) map[d] = { date: d, items: [], pos: 0, cash: 0, transfer: 0, total: 0, variance: 0 };
+                map[d].items.push(t);
+                map[d].pos += parseFloat(t.pos_amount || 0);
+                map[d].cash += parseFloat(t.cash_amount || 0);
+                map[d].transfer += parseFloat(t.transfer_amount || 0);
+                map[d].total += parseFloat(t.actual_total || 0);
+                map[d].variance += parseFloat(t.variance || 0);
+            });
+            return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
+        },
+
+        toggleDate(date) {
+            this.expandedDates[date] = !this.expandedDates[date];
+            this.$nextTick(() => lucide.createIcons());
         },
 
         fmt(v) { return '₦' + parseFloat(v||0).toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2}); },
@@ -882,6 +881,18 @@ function auditApp() {
             try {
                 const fd = new FormData();
                 fd.append('action', 'delete_sales');
+                fd.append('id', id);
+                const res = await fetch('../ajax/audit_api.php', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success) { location.reload(); } else { alert(data.message || 'Error'); }
+            } catch(e) { alert('Network error'); }
+        },
+
+        async deleteLodgment(id) {
+            if (!confirm('Are you sure you want to delete this lodgment record?')) return;
+            try {
+                const fd = new FormData();
+                fd.append('action', 'delete_lodgment');
                 fd.append('id', id);
                 const res = await fetch('../ajax/audit_api.php', { method: 'POST', body: fd });
                 const data = await res.json();

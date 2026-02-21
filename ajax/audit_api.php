@@ -238,10 +238,35 @@ try {
                 break;
             }
 
-            $stmt = $pdo->prepare("UPDATE sales_transactions SET transaction_date = ?, shift = ?, outlet_id = ?, pos_amount = ?, cash_amount = ?, transfer_amount = ?, declared_total = ?, notes = ?, updated_at = NOW() WHERE id = ? AND company_id = ?");
-            $stmt->execute([$date, $shift, $outlet_id, $pos, $cash, $transfer, $declared, $notes, $id, $company_id]);
+            $stmt = $pdo->prepare("UPDATE sales_transactions SET transaction_date = ?, shift = ?, outlet_id = ?, pos_amount = ?, cash_amount = ?, transfer_amount = ?, actual_total = ?, declared_total = ?, variance = ?, notes = ?, updated_at = NOW() WHERE id = ? AND company_id = ?");
+            $stmt->execute([$date, $shift, $outlet_id, $pos, $cash, $transfer, $actual, $declared, $variance, $notes, $id, $company_id]);
 
-            log_audit($company_id, $user_id, 'sales_updated', 'audit', $id, "Updated sales ₦" . number_format($actual, 2));
+            // Sync variance report for this transaction
+            $severity = abs($variance) > 50000 ? 'critical' : (abs($variance) > 10000 ? 'major' : (abs($variance) > 1000 ? 'moderate' : 'minor'));
+            // Check if a variance report already exists for this transaction
+            $vchk = $pdo->prepare("SELECT id FROM variance_reports WHERE reference_type = 'sales_transaction' AND reference_id = ? AND company_id = ?");
+            $vchk->execute([$id, $company_id]);
+            $existing_var = $vchk->fetch();
+
+            if (abs($variance) > 0.01) {
+                if ($existing_var) {
+                    // Update existing variance report
+                    $stmt = $pdo->prepare("UPDATE variance_reports SET report_date = ?, expected_amount = ?, actual_amount = ?, variance_amount = ?, severity = ?, description = 'Auto-detected: sales transaction variance' WHERE id = ?");
+                    $stmt->execute([$date, $declared, $actual, $variance, $severity, $existing_var['id']]);
+                } else {
+                    // Create new variance report
+                    $stmt = $pdo->prepare("INSERT INTO variance_reports (company_id, client_id, report_date, category, expected_amount, actual_amount, variance_amount, severity, description, reference_type, reference_id) VALUES (?,?,?,?,?,?,?,?, 'Auto-detected: sales transaction variance','sales_transaction',?)");
+                    $stmt->execute([$company_id, $client_id, $date, 'sales', $declared, $actual, $variance, $severity, $id]);
+                }
+            } else {
+                // No variance — remove existing report if any
+                if ($existing_var) {
+                    $stmt = $pdo->prepare("DELETE FROM variance_reports WHERE id = ?");
+                    $stmt->execute([$existing_var['id']]);
+                }
+            }
+
+            log_audit($company_id, $user_id, 'sales_updated', 'audit', $id, "Updated sales ₦" . number_format($actual, 2) . " (Var: ₦" . number_format($variance, 2) . ")");
             echo json_encode(['success' => true]);
             break;
 
@@ -266,6 +291,36 @@ try {
             $stmt->execute([$id, $company_id]);
 
             log_audit($company_id, $user_id, 'sales_deleted', 'audit', $id, "Deleted sales record ₦" . number_format($txn['actual_total'], 2));
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'delete_lodgment':
+            $id = intval($_POST['id'] ?? 0);
+            if (!$id) {
+                echo json_encode(['success' => false, 'message' => 'Invalid lodgment ID']);
+                break;
+            }
+
+            // Verify ownership and get linked info
+            $chk = $pdo->prepare("SELECT id, source_txn_id, source, amount FROM bank_lodgments WHERE id = ? AND company_id = ? AND deleted_at IS NULL");
+            $chk->execute([$id, $company_id]);
+            $lodgment = $chk->fetch();
+            if (!$lodgment) {
+                echo json_encode(['success' => false, 'message' => 'Lodgment not found']);
+                break;
+            }
+
+            // Soft delete
+            $stmt = $pdo->prepare("UPDATE bank_lodgments SET deleted_at = NOW() WHERE id = ? AND company_id = ?");
+            $stmt->execute([$id, $company_id]);
+
+            // If linked to a cash transaction, reset its lodgment status back to pending
+            if ($lodgment['source_txn_id'] && in_array($lodgment['source'], ['cash_deposit', 'manual'])) {
+                $stmt = $pdo->prepare("UPDATE sales_transactions SET cash_lodgment_status = 'pending' WHERE id = ? AND company_id = ?");
+                $stmt->execute([$lodgment['source_txn_id'], $company_id]);
+            }
+
+            log_audit($company_id, $user_id, 'lodgment_deleted', 'audit', $id, "Deleted lodgment ₦" . number_format($lodgment['amount'], 2));
             echo json_encode(['success' => true]);
             break;
 

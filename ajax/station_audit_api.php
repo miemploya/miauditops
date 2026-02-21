@@ -19,6 +19,15 @@ require_non_viewer();
 $user_id = $_SESSION['user_id'];
 $action  = $_POST['action'] ?? $_GET['action'] ?? '';
 
+// Helper: reject input containing '&' character
+function reject_ampersand($value, $field_label = 'Name') {
+    if (strpos($value, '&') !== false) {
+        echo json_encode(['success' => false, 'message' => "$field_label cannot contain the '&' symbol. Please use 'and' instead."]);
+        return true;
+    }
+    return false;
+}
+
 // Auto-create tables if they don't exist
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_expense_categories (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -59,6 +68,22 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_debtor_ledger (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_account (account_id, company_id)
 )");;
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS station_audit_documents (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT NOT NULL,
+    session_id INT DEFAULT NULL,
+    uploaded_by INT NOT NULL,
+    original_name VARCHAR(255) NOT NULL DEFAULT '',
+    stored_name VARCHAR(255) NOT NULL DEFAULT '',
+    file_path VARCHAR(500) NOT NULL DEFAULT '',
+    file_size BIGINT NOT NULL DEFAULT 0,
+    file_type VARCHAR(100) DEFAULT '',
+    doc_label VARCHAR(255) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_company (company_id),
+    INDEX idx_session (session_id, company_id)
+)");
 
 ensure_trash_table($pdo);
 purge_expired_trash($pdo);
@@ -130,9 +155,9 @@ try {
                     $stmt->execute([$prev_pt['id'], $company_id]);
                     $prev_tanks = $stmt->fetchAll();
 
-                    $tank_ins = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing) VALUES (?, ?, ?, ?, ?, ?, 0, 0)");
+                    $tank_ins = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing, capacity_kg, max_fill_percent) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)");
                     foreach ($prev_tanks as $t) {
-                        $tank_ins->execute([$sid, $new_pt_id, $company_id, $t['tank_name'], $t['product'], floatval($t['closing'])]);
+                        $tank_ins->execute([$sid, $new_pt_id, $company_id, $t['tank_name'], $t['product'], floatval($t['closing']), floatval($t['capacity_kg'] ?? 0), floatval($t['max_fill_percent'] ?? 100)]);
                         $tanks_copied++;
                     }
                 }
@@ -175,6 +200,24 @@ try {
                         // closing starts equal to opening so Sold (= Opening + Received − Closing) starts at 0
                         $item_ins->execute([$new_ls_id, $new_si_id, $company_id, $li['item_name'], $carry_opening, $carry_opening, floatval($li['selling_price']), $li['sort_order']]);
                     }
+                }
+
+                // Copy expense categories from previous session (names only, no ledger entries)
+                $stmt = $pdo->prepare("SELECT category_name FROM station_expense_categories WHERE session_id = ? AND company_id = ? ORDER BY category_name");
+                $stmt->execute([$prev_session, $company_id]);
+                $prev_cats = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                $cat_ins = $pdo->prepare("INSERT INTO station_expense_categories (session_id, company_id, category_name) VALUES (?, ?, ?)");
+                foreach ($prev_cats as $cname) {
+                    $cat_ins->execute([$sid, $company_id, $cname]);
+                }
+
+                // Copy debtor accounts from previous session (names only, no ledger entries)
+                $stmt = $pdo->prepare("SELECT customer_name FROM station_debtor_accounts WHERE session_id = ? AND company_id = ? ORDER BY customer_name");
+                $stmt->execute([$prev_session, $company_id]);
+                $prev_debtors = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                $deb_ins = $pdo->prepare("INSERT INTO station_debtor_accounts (session_id, company_id, customer_name) VALUES (?, ?, ?)");
+                foreach ($prev_debtors as $dname) {
+                    $deb_ins->execute([$sid, $company_id, $dname]);
                 }
             }
 
@@ -320,13 +363,26 @@ try {
         case 'delete_pump_table':
             $id = intval($_POST['id'] ?? 0);
 
-            // Delete readings first
-            $stmt = $pdo->prepare("DELETE FROM station_pump_readings WHERE pump_table_id = ? AND company_id = ?");
+            // Snapshot pump table + readings + tanks
+            $stmt = $pdo->prepare("SELECT * FROM station_pump_tables WHERE id = ? AND company_id = ?");
             $stmt->execute([$id, $company_id]);
+            $pt_row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($pt_row) {
+                $snap = $pt_row;
+                $stmt2 = $pdo->prepare("SELECT * FROM station_pump_readings WHERE pump_table_id = ? AND company_id = ?");
+                $stmt2->execute([$id, $company_id]);
+                $snap['readings'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+                $stmt3 = $pdo->prepare("SELECT * FROM station_tank_dipping WHERE pump_table_id = ? AND company_id = ?");
+                $stmt3->execute([$id, $company_id]);
+                $snap['tanks'] = $stmt3->fetchAll(PDO::FETCH_ASSOC);
+                $label = ($pt_row['product'] ?? 'Pump Table') . ' — ' . ($pt_row['date_from'] ?? '') . ' to ' . ($pt_row['date_to'] ?? '');
+                move_to_trash($pdo, $company_id, 'pump_table', $id, $label, $snap, $user_id);
+            }
 
-            // Delete the table
-            $stmt = $pdo->prepare("DELETE FROM station_pump_tables WHERE id = ? AND company_id = ?");
-            $stmt->execute([$id, $company_id]);
+            // Cascade delete
+            $pdo->prepare("DELETE FROM station_pump_readings WHERE pump_table_id = ? AND company_id = ?")->execute([$id, $company_id]);
+            $pdo->prepare("DELETE FROM station_tank_dipping WHERE pump_table_id = ? AND company_id = ?")->execute([$id, $company_id]);
+            $pdo->prepare("DELETE FROM station_pump_tables WHERE id = ? AND company_id = ?")->execute([$id, $company_id]);
 
             echo json_encode(['success' => true]);
             break;
@@ -367,23 +423,27 @@ try {
                 $insert->execute([$new_table_id, $company_id, $pr['pump_name'], floatval($pr['closing']), $order++]);
             }
 
-            // Copy tanks from previous pump table: closing → opening
-            $stmt = $pdo->prepare("SELECT tank_name, product, closing FROM station_tank_dipping WHERE pump_table_id = ? AND company_id = ? ORDER BY tank_name");
+            // Copy tanks from previous pump table: closing → opening, preserving capacity_kg
+            $stmt = $pdo->prepare("SELECT tank_name, product, closing, capacity_kg FROM station_tank_dipping WHERE pump_table_id = ? AND company_id = ? ORDER BY tank_name");
             $stmt->execute([$prev_table_id, $company_id]);
             $prev_tanks = $stmt->fetchAll();
 
             $tanks_copied = 0;
             $copied_tanks = [];
-            $tank_ins = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing) VALUES (?, ?, ?, ?, ?, ?, 0, 0)");
+            $tank_ins = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing, capacity_kg, max_fill_percent) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)");
             foreach ($prev_tanks as $t) {
-                $tank_ins->execute([$session_id, $new_table_id, $company_id, $t['tank_name'], $t['product'], floatval($t['closing'])]);
+                $cap = floatval($t['capacity_kg'] ?? 0);
+                $mfp = floatval($t['max_fill_percent'] ?? 100);
+                $tank_ins->execute([$session_id, $new_table_id, $company_id, $t['tank_name'], $t['product'], floatval($t['closing']), $cap, $mfp]);
                 $copied_tanks[] = [
                     'id' => $pdo->lastInsertId(),
                     'tank_name' => $t['tank_name'],
                     'product' => $t['product'],
                     'opening' => floatval($t['closing']),
                     'added' => 0,
-                    'closing' => 0
+                    'closing' => 0,
+                    'capacity_kg' => $cap,
+                    'max_fill_percent' => $mfp
                 ];
                 $tanks_copied++;
             }
@@ -418,7 +478,7 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Pump table not found']);
                 break;
             }
-            $stmt = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing) VALUES (?,?,?,?,?,0,0,0)");
+            $stmt = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing, capacity_kg, max_fill_percent) VALUES (?,?,?,?,?,0,0,0,0,100)");
             $stmt->execute([$ptInfo['session_id'], $pump_table_id, $company_id, $tank_name, $ptInfo['product']]);
             echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
             break;
@@ -438,7 +498,7 @@ try {
             $stmt = $pdo->prepare("DELETE FROM station_tank_dipping WHERE pump_table_id = ? AND company_id = ?");
             $stmt->execute([$pump_table_id, $company_id]);
 
-            $insert = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $insert = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing, capacity_kg, max_fill_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             // Get session_id from the pump table
             $stmt2 = $pdo->prepare("SELECT session_id, product FROM station_pump_tables WHERE id = ? AND company_id = ?");
             $stmt2->execute([$pump_table_id, $company_id]);
@@ -455,6 +515,8 @@ try {
                     floatval($t['opening'] ?? 0),
                     floatval($t['added'] ?? 0),
                     floatval($t['closing'] ?? 0),
+                    floatval($t['capacity_kg'] ?? 0),
+                    floatval($t['max_fill_percent'] ?? 100),
                 ]);
             }
 
@@ -471,10 +533,10 @@ try {
                 $next_pt_id = $stmt3->fetchColumn();
 
                 if ($next_pt_id) {
-                    // For each saved tank, update the matching tank in the next rate period
-                    $upd = $pdo->prepare("UPDATE station_tank_dipping SET opening = ? WHERE pump_table_id = ? AND company_id = ? AND tank_name = ?");
+                    // Sync closing→opening AND carry forward capacity_kg + max_fill_percent
+                    $upd = $pdo->prepare("UPDATE station_tank_dipping SET opening = ?, capacity_kg = ?, max_fill_percent = ? WHERE pump_table_id = ? AND company_id = ? AND tank_name = ?");
                     foreach ($tanks as $t) {
-                        $upd->execute([floatval($t['closing'] ?? 0), $next_pt_id, $company_id, $t['tank_name'] ?? '']);
+                        $upd->execute([floatval($t['closing'] ?? 0), floatval($t['capacity_kg'] ?? 0), floatval($t['max_fill_percent'] ?? 100), $next_pt_id, $company_id, $t['tank_name'] ?? '']);
                         $synced += $upd->rowCount();
                     }
                 }
@@ -691,6 +753,11 @@ try {
                 echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error']);
                 break;
             }
+            // 2MB file size limit
+            if ($_FILES['file']['size'] > 2 * 1024 * 1024) {
+                echo json_encode(['success' => false, 'message' => 'File too large. Maximum 2MB allowed.']);
+                break;
+            }
 
             $upload_dir = '../uploads/teller_proofs/';
             if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
@@ -720,6 +787,11 @@ try {
             $session_id = intval($_POST['session_id'] ?? 0);
             if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
                 echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error']);
+                break;
+            }
+            // 2MB file size limit
+            if ($_FILES['file']['size'] > 2 * 1024 * 1024) {
+                echo json_encode(['success' => false, 'message' => 'File too large. Maximum 2MB allowed.']);
                 break;
             }
 
@@ -992,6 +1064,18 @@ try {
         case 'delete_lube_section':
             $section_id = intval($_POST['section_id'] ?? 0);
 
+            // Snapshot
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_sections WHERE id = ? AND company_id = ?");
+            $stmt->execute([$section_id, $company_id]);
+            $sec_row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($sec_row) {
+                $snap = $sec_row;
+                $stmt2 = $pdo->prepare("SELECT * FROM station_lube_items WHERE section_id = ? AND company_id = ?");
+                $stmt2->execute([$section_id, $company_id]);
+                $snap['items'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+                move_to_trash($pdo, $company_id, 'lube_section', $section_id, $sec_row['name'] ?? 'Lube Section', $snap, $user_id);
+            }
+
             $pdo->prepare("DELETE FROM station_lube_items WHERE section_id = ? AND company_id = ?")->execute([$section_id, $company_id]);
             $pdo->prepare("DELETE FROM station_lube_sections WHERE id = ? AND company_id = ?")->execute([$section_id, $company_id]);
             echo json_encode(['success' => true]);
@@ -1124,6 +1208,10 @@ try {
 
         case 'delete_lube_product':
             $id = intval($_POST['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_products WHERE id=? AND company_id=?");
+            $stmt->execute([$id, $company_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) move_to_trash($pdo, $company_id, 'lube_product', $id, $row['product_name'] ?? 'Lube Product', $row, $user_id);
             $pdo->prepare("DELETE FROM station_lube_products WHERE id=? AND company_id=?")->execute([$id, $company_id]);
             echo json_encode(['success' => true]);
             break;
@@ -1156,14 +1244,24 @@ try {
 
         case 'delete_lube_supplier':
             $id = intval($_POST['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_suppliers WHERE id=? AND company_id=?");
+            $stmt->execute([$id, $company_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) move_to_trash($pdo, $company_id, 'lube_supplier', $id, $row['supplier_name'] ?? 'Supplier', $row, $user_id);
             $pdo->prepare("DELETE FROM station_lube_suppliers WHERE id=? AND company_id=?")->execute([$id, $company_id]);
             echo json_encode(['success' => true]);
             break;
 
         // ───────── GRN CRUD ─────────
         case 'get_lube_grns':
-            $stmt = $pdo->prepare("SELECT g.*, s.supplier_name FROM station_lube_grn g LEFT JOIN station_lube_suppliers s ON g.supplier_id=s.id WHERE g.company_id=? ORDER BY g.grn_date DESC, g.id DESC LIMIT 100");
-            $stmt->execute([$company_id]);
+            $grn_session_id = intval($_POST['session_id'] ?? 0);
+            if ($grn_session_id) {
+                $stmt = $pdo->prepare("SELECT g.*, s.supplier_name FROM station_lube_grn g LEFT JOIN station_lube_suppliers s ON g.supplier_id=s.id WHERE g.company_id=? AND g.session_id=? ORDER BY g.grn_date DESC, g.id DESC LIMIT 100");
+                $stmt->execute([$company_id, $grn_session_id]);
+            } else {
+                $stmt = $pdo->prepare("SELECT g.*, s.supplier_name FROM station_lube_grn g LEFT JOIN station_lube_suppliers s ON g.supplier_id=s.id WHERE g.company_id=? ORDER BY g.grn_date DESC, g.id DESC LIMIT 100");
+                $stmt->execute([$company_id]);
+            }
             $grns = $stmt->fetchAll();
             foreach ($grns as &$grn) {
                 $stmt2 = $pdo->prepare("SELECT gi.* FROM station_lube_grn_items gi WHERE gi.grn_id=?");
@@ -1258,6 +1356,17 @@ try {
 
         case 'delete_lube_grn':
             $id = intval($_POST['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_grn WHERE id=? AND company_id=?");
+            $stmt->execute([$id, $company_id]);
+            $grn_row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($grn_row) {
+                $snap = $grn_row;
+                $stmt2 = $pdo->prepare("SELECT * FROM station_lube_grn_items WHERE grn_id=? AND company_id=?");
+                $stmt2->execute([$id, $company_id]);
+                $snap['items'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+                $label = 'GRN #' . $id . ' — ' . ($grn_row['grn_date'] ?? '');
+                move_to_trash($pdo, $company_id, 'lube_grn', $id, $label, $snap, $user_id);
+            }
             $pdo->prepare("DELETE FROM station_lube_grn_items WHERE grn_id=? AND company_id=?")->execute([$id, $company_id]);
             $pdo->prepare("DELETE FROM station_lube_grn WHERE id=? AND company_id=?")->execute([$id, $company_id]);
             echo json_encode(['success' => true]);
@@ -1318,6 +1427,17 @@ try {
 
         case 'delete_lube_stock_count':
             $id = intval($_POST['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_stock_counts WHERE id=? AND company_id=?");
+            $stmt->execute([$id, $company_id]);
+            $sc_row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($sc_row) {
+                $snap = $sc_row;
+                $stmt2 = $pdo->prepare("SELECT * FROM station_lube_stock_count_items WHERE count_id=? AND company_id=?");
+                $stmt2->execute([$id, $company_id]);
+                $snap['items'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+                $label = 'Stock Count — ' . ($sc_row['date_from'] ?? '') . ' to ' . ($sc_row['date_to'] ?? '');
+                move_to_trash($pdo, $company_id, 'lube_stock_count', $id, $label, $snap, $user_id);
+            }
             $pdo->prepare("DELETE FROM station_lube_stock_count_items WHERE count_id=? AND company_id=?")->execute([$id, $company_id]);
             $pdo->prepare("DELETE FROM station_lube_stock_counts WHERE id=? AND company_id=?")->execute([$id, $company_id]);
             echo json_encode(['success' => true]);
@@ -1387,6 +1507,17 @@ try {
 
         case 'delete_counter_stock_count':
             $id = intval($_POST['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_counter_stock_counts WHERE id=? AND company_id=?");
+            $stmt->execute([$id, $company_id]);
+            $csc_row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($csc_row) {
+                $snap = $csc_row;
+                $stmt2 = $pdo->prepare("SELECT * FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?");
+                $stmt2->execute([$id, $company_id]);
+                $snap['items'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+                $label = 'Counter Stock — ' . ($csc_row['date_from'] ?? '') . ' to ' . ($csc_row['date_to'] ?? '');
+                move_to_trash($pdo, $company_id, 'counter_stock_count', $id, $label, $snap, $user_id);
+            }
             $pdo->prepare("DELETE FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?")->execute([$id, $company_id]);
             $pdo->prepare("DELETE FROM station_counter_stock_counts WHERE id=? AND company_id=?")->execute([$id, $company_id]);
             echo json_encode(['success' => true]);
@@ -1406,6 +1537,7 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Category name is required']);
                 break;
             }
+            if (reject_ampersand($category_name, 'Category name')) break;
             $stmt = $pdo->prepare("INSERT INTO station_expense_categories (session_id, company_id, category_name) VALUES (?, ?, ?)");
             $stmt->execute([$session_id, $company_id, $category_name]);
             $cat_id = $pdo->lastInsertId();
@@ -1430,16 +1562,57 @@ try {
         // ───────── Delete Expense Ledger Entry ─────────
         case 'delete_expense_entry':
             $entry_id = intval($_POST['entry_id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_expense_ledger WHERE id = ? AND company_id = ?");
+            $stmt->execute([$entry_id, $company_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) move_to_trash($pdo, $company_id, 'expense_entry', $entry_id, ($row['description'] ?? 'Expense') . ' — ' . ($row['entry_date'] ?? ''), $row, $user_id);
             $pdo->prepare("DELETE FROM station_expense_ledger WHERE id = ? AND company_id = ?")->execute([$entry_id, $company_id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ───────── Update Expense Ledger Entry ─────────
+        case 'update_expense_entry':
+            $entry_id       = intval($_POST['entry_id'] ?? 0);
+            $entry_date     = $_POST['entry_date'] ?? date('Y-m-d');
+            $description    = clean_input($_POST['description'] ?? '');
+            $debit          = floatval($_POST['debit'] ?? 0);
+            $credit         = floatval($_POST['credit'] ?? 0);
+            $payment_method = clean_input($_POST['payment_method'] ?? 'cash');
+            $stmt = $pdo->prepare("UPDATE station_expense_ledger SET entry_date = ?, description = ?, debit = ?, credit = ?, payment_method = ? WHERE id = ? AND company_id = ?");
+            $stmt->execute([$entry_date, $description, $debit, $credit, $payment_method, $entry_id, $company_id]);
             echo json_encode(['success' => true]);
             break;
 
         // ───────── Delete Expense Category ─────────
         case 'delete_expense_category':
             $category_id = intval($_POST['category_id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_expense_categories WHERE id = ? AND company_id = ?");
+            $stmt->execute([$category_id, $company_id]);
+            $cat_row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($cat_row) {
+                $snap = $cat_row;
+                $stmt2 = $pdo->prepare("SELECT * FROM station_expense_ledger WHERE category_id = ? AND company_id = ?");
+                $stmt2->execute([$category_id, $company_id]);
+                $snap['ledger'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+                move_to_trash($pdo, $company_id, 'expense_category', $category_id, $cat_row['category_name'] ?? 'Expense Category', $snap, $user_id);
+            }
             $pdo->prepare("DELETE FROM station_expense_ledger WHERE category_id = ? AND company_id = ?")->execute([$category_id, $company_id]);
             $pdo->prepare("DELETE FROM station_expense_categories WHERE id = ? AND company_id = ?")->execute([$category_id, $company_id]);
             echo json_encode(['success' => true]);
+            break;
+
+        // ───────── Rename Expense Category ─────────
+        case 'rename_expense_category':
+            $category_id = intval($_POST['category_id'] ?? 0);
+            $new_name = clean_input($_POST['new_name'] ?? '');
+            if (empty($new_name)) {
+                echo json_encode(['success' => false, 'message' => 'Category name is required']);
+                break;
+            }
+            if (reject_ampersand($new_name, 'Category name')) break;
+            $stmt = $pdo->prepare("UPDATE station_expense_categories SET category_name = ? WHERE id = ? AND company_id = ?");
+            $stmt->execute([$new_name, $category_id, $company_id]);
+            echo json_encode(['success' => true, 'new_name' => $new_name]);
             break;
 
         // ───────── Create Debtor Account ─────────
@@ -1450,6 +1623,7 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Customer name is required']);
                 break;
             }
+            if (reject_ampersand($customer_name, 'Customer name')) break;
             $stmt = $pdo->prepare("INSERT INTO station_debtor_accounts (session_id, company_id, customer_name) VALUES (?, ?, ?)");
             $stmt->execute([$session_id, $company_id, $customer_name]);
             $acct_id = $pdo->lastInsertId();
@@ -1473,15 +1647,210 @@ try {
         // ───────── Delete Debtor Ledger Entry ─────────
         case 'delete_debtor_entry':
             $entry_id = intval($_POST['entry_id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_debtor_ledger WHERE id = ? AND company_id = ?");
+            $stmt->execute([$entry_id, $company_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) move_to_trash($pdo, $company_id, 'debtor_entry', $entry_id, ($row['description'] ?? 'Debtor Entry') . ' — ' . ($row['entry_date'] ?? ''), $row, $user_id);
             $pdo->prepare("DELETE FROM station_debtor_ledger WHERE id = ? AND company_id = ?")->execute([$entry_id, $company_id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ───────── Update Debtor Ledger Entry ─────────
+        case 'update_debtor_entry':
+            $entry_id    = intval($_POST['entry_id'] ?? 0);
+            $entry_date  = $_POST['entry_date'] ?? date('Y-m-d');
+            $description = clean_input($_POST['description'] ?? '');
+            $debit       = floatval($_POST['debit'] ?? 0);
+            $credit      = floatval($_POST['credit'] ?? 0);
+            $stmt = $pdo->prepare("UPDATE station_debtor_ledger SET entry_date = ?, description = ?, debit = ?, credit = ? WHERE id = ? AND company_id = ?");
+            $stmt->execute([$entry_date, $description, $debit, $credit, $entry_id, $company_id]);
             echo json_encode(['success' => true]);
             break;
 
         // ───────── Delete Debtor Account ─────────
         case 'delete_debtor_account':
             $account_id = intval($_POST['account_id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_debtor_accounts WHERE id = ? AND company_id = ?");
+            $stmt->execute([$account_id, $company_id]);
+            $acct_row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($acct_row) {
+                $snap = $acct_row;
+                $stmt2 = $pdo->prepare("SELECT * FROM station_debtor_ledger WHERE account_id = ? AND company_id = ?");
+                $stmt2->execute([$account_id, $company_id]);
+                $snap['ledger'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+                move_to_trash($pdo, $company_id, 'debtor_account', $account_id, $acct_row['customer_name'] ?? 'Debtor Account', $snap, $user_id);
+            }
             $pdo->prepare("DELETE FROM station_debtor_ledger WHERE account_id = ? AND company_id = ?")->execute([$account_id, $company_id]);
             $pdo->prepare("DELETE FROM station_debtor_accounts WHERE id = ? AND company_id = ?")->execute([$account_id, $company_id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ───────── Rename Debtor Account ─────────
+        case 'rename_debtor_account':
+            $account_id = intval($_POST['account_id'] ?? 0);
+            $new_name = clean_input($_POST['new_name'] ?? '');
+            if (empty($new_name)) {
+                echo json_encode(['success' => false, 'message' => 'Customer name is required']);
+                break;
+            }
+            if (reject_ampersand($new_name, 'Customer name')) break;
+            $stmt = $pdo->prepare("UPDATE station_debtor_accounts SET customer_name = ? WHERE id = ? AND company_id = ?");
+            $stmt->execute([$new_name, $account_id, $company_id]);
+            echo json_encode(['success' => true, 'new_name' => $new_name]);
+            break;
+
+        // ───────── Upload Document (with 2MB + 1GB quota) ─────────
+        case 'upload_document':
+            $session_id = intval($_POST['session_id'] ?? 0);
+            $doc_label  = clean_input($_POST['doc_label'] ?? '');
+
+            if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+                echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error']);
+                break;
+            }
+
+            // 2MB per-file limit
+            $max_file = 2 * 1024 * 1024;
+            if ($_FILES['file']['size'] > $max_file) {
+                echo json_encode(['success' => false, 'message' => 'File too large. Maximum 2MB per file.']);
+                break;
+            }
+
+            // 1GB company storage quota check
+            $storage_limit = 1 * 1024 * 1024 * 1024; // 1GB
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(file_size), 0) FROM station_audit_documents WHERE company_id = ?");
+            $stmt->execute([$company_id]);
+            $used = (int)$stmt->fetchColumn();
+            if (($used + $_FILES['file']['size']) > $storage_limit) {
+                $usedMB  = round($used / 1024 / 1024, 1);
+                $limitMB = round($storage_limit / 1024 / 1024, 0);
+                echo json_encode(['success' => false, 'message' => "Storage quota exceeded. Used: {$usedMB}MB / {$limitMB}MB. Delete some files first."]);
+                break;
+            }
+
+            // Validate file type
+            $ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
+            $allowed = ['jpg','jpeg','png','gif','webp','pdf','doc','docx','xls','xlsx'];
+            if (!in_array($ext, $allowed)) {
+                echo json_encode(['success' => false, 'message' => 'Invalid file type. Allowed: ' . implode(', ', $allowed)]);
+                break;
+            }
+
+            $upload_dir = '../uploads/audit_documents/' . $company_id . '/';
+            if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+
+            $stored_name = 'doc_' . $company_id . '_' . $session_id . '_' . time() . '_' . mt_rand(1000,9999) . '.' . $ext;
+            $filepath = $upload_dir . $stored_name;
+
+            if (move_uploaded_file($_FILES['file']['tmp_name'], $filepath)) {
+                $original = clean_input($_FILES['file']['name']);
+                $label = $doc_label ?: pathinfo($original, PATHINFO_FILENAME);
+                $ftype = $_FILES['file']['type'] ?: 'application/octet-stream';
+
+                $stmt = $pdo->prepare("INSERT INTO station_audit_documents (company_id, session_id, uploaded_by, original_name, stored_name, file_path, file_size, file_type, doc_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$company_id, $session_id ?: null, $user_id, $original, $stored_name, $filepath, $_FILES['file']['size'], $ftype, $label]);
+
+                echo json_encode([
+                    'success' => true,
+                    'id' => $pdo->lastInsertId(),
+                    'file_path' => $filepath,
+                    'doc_label' => $label,
+                    'file_size' => $_FILES['file']['size']
+                ]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Failed to save file']);
+            }
+            break;
+
+        // ───────── List Documents ─────────
+        case 'list_documents':
+            $session_filter = $_GET['session_id'] ?? $_POST['session_id'] ?? '';
+
+            // Storage usage
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(file_size), 0) FROM station_audit_documents WHERE company_id = ?");
+            $stmt->execute([$company_id]);
+            $total_used = (int)$stmt->fetchColumn();
+
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM station_audit_documents WHERE company_id = ?");
+            $stmt->execute([$company_id]);
+            $total_count = (int)$stmt->fetchColumn();
+
+            // Documents list
+            if ($session_filter && $session_filter !== 'all') {
+                $stmt = $pdo->prepare("SELECT d.*, s.date_from, s.date_to, co.name as outlet_name FROM station_audit_documents d LEFT JOIN station_audit_sessions s ON d.session_id = s.id LEFT JOIN client_outlets co ON s.outlet_id = co.id WHERE d.company_id = ? AND d.session_id = ? ORDER BY d.created_at DESC");
+                $stmt->execute([$company_id, intval($session_filter)]);
+            } else {
+                $stmt = $pdo->prepare("SELECT d.*, s.date_from, s.date_to, co.name as outlet_name FROM station_audit_documents d LEFT JOIN station_audit_sessions s ON d.session_id = s.id LEFT JOIN client_outlets co ON s.outlet_id = co.id WHERE d.company_id = ? ORDER BY d.created_at DESC");
+                $stmt->execute([$company_id]);
+            }
+            $docs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $storage_limit = 1 * 1024 * 1024 * 1024;
+            echo json_encode([
+                'success' => true,
+                'documents' => $docs,
+                'storage' => [
+                    'used' => $total_used,
+                    'limit' => $storage_limit,
+                    'count' => $total_count,
+                    'percent' => $storage_limit > 0 ? round($total_used / $storage_limit * 100, 2) : 0
+                ]
+            ]);
+            break;
+
+        // ───────── Get Storage Usage ─────────
+        case 'get_storage_usage':
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(file_size), 0) FROM station_audit_documents WHERE company_id = ?");
+            $stmt->execute([$company_id]);
+            $total_used = (int)$stmt->fetchColumn();
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM station_audit_documents WHERE company_id = ?");
+            $stmt->execute([$company_id]);
+            $total_count = (int)$stmt->fetchColumn();
+            $storage_limit = 1 * 1024 * 1024 * 1024;
+            echo json_encode([
+                'success' => true,
+                'used' => $total_used,
+                'limit' => $storage_limit,
+                'count' => $total_count,
+                'percent' => $storage_limit > 0 ? round($total_used / $storage_limit * 100, 2) : 0
+            ]);
+            break;
+
+        // ───────── Rename Document ─────────
+        case 'rename_document':
+            $doc_id = intval($_POST['doc_id'] ?? 0);
+            $new_label = clean_input($_POST['doc_label'] ?? '');
+            if (!$doc_id || !$new_label) {
+                echo json_encode(['success' => false, 'message' => 'Missing document ID or label']);
+                break;
+            }
+            $stmt = $pdo->prepare("UPDATE station_audit_documents SET doc_label = ? WHERE id = ? AND company_id = ?");
+            $stmt->execute([$new_label, $doc_id, $company_id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ───────── Delete Document ─────────
+        case 'delete_document':
+            $doc_id = intval($_POST['doc_id'] ?? 0);
+            if (!$doc_id) {
+                echo json_encode(['success' => false, 'message' => 'Missing document ID']);
+                break;
+            }
+            // Get file path first
+            $stmt = $pdo->prepare("SELECT file_path, original_name FROM station_audit_documents WHERE id = ? AND company_id = ?");
+            $stmt->execute([$doc_id, $company_id]);
+            $doc = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$doc) {
+                echo json_encode(['success' => false, 'message' => 'Document not found']);
+                break;
+            }
+            // Delete physical file
+            if ($doc['file_path'] && file_exists($doc['file_path'])) {
+                @unlink($doc['file_path']);
+            }
+            // Delete DB record
+            $pdo->prepare("DELETE FROM station_audit_documents WHERE id = ? AND company_id = ?")->execute([$doc_id, $company_id]);
+            log_audit($company_id, $user_id, 'document_deleted', 'station_audit_documents', $doc_id, $doc['original_name'] ?? '');
             echo json_encode(['success' => true]);
             break;
 

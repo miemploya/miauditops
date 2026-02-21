@@ -309,6 +309,13 @@ foreach ($clients as $c) {
                                         <option value="1" selected>1 — Single Kitchen</option>
                                         <option value="2">2 — Two Kitchens</option>
                                         <option value="3">3 — Three Kitchens</option>
+                                        <option value="4">4 — Four Kitchens</option>
+                                        <option value="5">5 — Five Kitchens</option>
+                                        <option value="6">6 — Six Kitchens</option>
+                                        <option value="7">7 — Seven Kitchens</option>
+                                        <option value="8">8 — Eight Kitchens</option>
+                                        <option value="9">9 — Nine Kitchens</option>
+                                        <option value="10">10 — Ten Kitchens</option>
                                     </select>
                                     <p class="text-[9px] text-amber-500 mt-1">Kitchen departments will be auto-created for this restaurant</p>
                                 </div>

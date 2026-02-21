@@ -85,11 +85,11 @@ try {
 
             // Determine next status based on current status and user role
             $new_status = null;
-            if ($req['status'] === 'submitted' && in_array($user_role, ['department_head','business_owner','super_admin'])) {
+            if ($req['status'] === 'submitted' && in_array($user_role, ['department_head','hod','business_owner','super_admin'])) {
                 $new_status = 'hod_approved';
             } elseif ($req['status'] === 'hod_approved' && in_array($user_role, ['auditor','business_owner','super_admin'])) {
                 $new_status = 'audit_approved';
-            } elseif ($req['status'] === 'audit_approved' && in_array($user_role, ['business_owner','super_admin'])) {
+            } elseif ($req['status'] === 'audit_approved' && in_array($user_role, ['ceo','business_owner','super_admin'])) {
                 $new_status = 'ceo_approved';
             }
 

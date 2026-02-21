@@ -28,15 +28,18 @@ $SUBSCRIPTION_PLANS = [
             'dashboard',
             'company_setup',
             'audit',          // Sales Entry tab only (tab-locked)
+            'stock',          // Departments tab only (tab-locked) — 1 department
             'main_store',     // Products + Stock In only (tab-locked)
             'department_store',
             'settings',       // Company Profile only (tab-locked)
             'trash',
+            'billing',        // Billing always accessible
         ],
 
         // ── Tab-level restrictions inside allowed modules ──
         'tab_locks' => [
             'audit'      => ['sales_entry'],                         // only this tab allowed
+            'stock'      => ['departments'],                         // only departments tab allowed
             'main_store' => ['products', 'stock_in'],                // only these tabs allowed
             'settings'   => ['company'],                             // only this tab allowed
         ],
@@ -46,6 +49,7 @@ $SUBSCRIPTION_PLANS = [
         'viewer_role'    => false,
         'audit_export'   => false,
         'station_audit'  => false,
+        'support_services' => false,
     ],
 
     'professional' => [
@@ -71,10 +75,10 @@ $SUBSCRIPTION_PLANS = [
             'main_store',      // all tabs
             'department_store',
             'finance',         // Revenue + Expenses only (tab-locked)
-            'requisitions',
             'reports',         // Sales + Stock only (tab-locked)
             'settings',        // all tabs
             'trash',
+            'billing',         // Billing always accessible
         ],
 
         // ── Tab-level restrictions ──
@@ -88,6 +92,7 @@ $SUBSCRIPTION_PLANS = [
         'viewer_role'    => false,
         'audit_export'   => false,
         'station_audit'  => false,
+        'support_services' => false,
     ],
 
     'enterprise' => [
@@ -113,11 +118,13 @@ $SUBSCRIPTION_PLANS = [
             'main_store',
             'department_store',
             'finance',
-            'requisitions',
+            'requisitions',    // Enterprise-only
             'reports',
             'settings',
             'trash',
             'station_audit',
+            'support',
+            'billing',         // Billing always accessible
         ],
 
         // ── No tab restrictions ──
@@ -128,6 +135,7 @@ $SUBSCRIPTION_PLANS = [
         'viewer_role'    => true,
         'audit_export'   => true,
         'station_audit'  => true,
+        'support_services' => true,
     ],
 ];
 

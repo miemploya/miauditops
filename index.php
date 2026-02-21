@@ -51,6 +51,11 @@ if (isset($_SESSION['user_id'])) {
             <span class="text-lg font-black tracking-tight">MIAUDITOPS</span>
         </div>
         <div class="flex items-center gap-3">
+            <!-- Nav Links (Hidden on mobile) -->
+            <a href="#features" class="hidden md:inline-block text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors">Features</a>
+            <a href="pricing.php" class="hidden md:inline-flex items-center gap-1.5 text-sm font-semibold text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Pricing
+            </a>
             <!-- Theme Toggle -->
             <button class="theme-toggle-btn w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/10 border border-slate-200 dark:border-white/10 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-white/20 transition-all" title="Toggle theme">
                 <svg class="icon-sun w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>

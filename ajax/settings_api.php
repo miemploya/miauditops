@@ -56,6 +56,13 @@ try {
         case 'add_user':
             if (!is_admin_role()) { echo json_encode(['success' => false, 'message' => 'Unauthorized']); break; }
 
+            // ── Subscription limit check ──
+            $limit = check_user_limit($company_id);
+            if (!$limit['allowed']) {
+                echo json_encode(['success' => false, 'message' => "User limit reached ({$limit['current']}/{$limit['max']}). Upgrade your plan to add more users."]);
+                break;
+            }
+
             $first    = clean_input($_POST['first_name'] ?? '');
             $last     = clean_input($_POST['last_name'] ?? '');
             $email    = clean_input($_POST['email'] ?? '');

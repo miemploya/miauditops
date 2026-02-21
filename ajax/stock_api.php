@@ -4,6 +4,7 @@
  * Handles: add_product, update_stock, receive_delivery, log_wastage, save_count
  */
 require_once '../includes/functions.php';
+require_once '../includes/trash_helper.php';
 header('Content-Type: application/json');
 
 if (!is_logged_in()) {
@@ -227,20 +228,37 @@ try {
             $selling_unit_price = floatval($_POST['selling_unit_price'] ?? 0);
             // If no selling unit specified, reset yield to 1 and shot price to 0
             if (empty($selling_unit)) { $yield_per_unit = 1; $selling_unit_price = 0; }
+
+            // ── Subscription limit check ──
+            $limit = check_product_limit($company_id, $client_id);
+            if (!$limit['allowed']) {
+                echo json_encode(['success' => false, 'message' => "Product limit reached ({$limit['current']}/{$limit['max']}). Upgrade your plan to add more products."]);
+                break;
+            }
+
+            // Auto-generate SKU if empty
+            if (empty($sku)) {
+                $initials = strtoupper(implode('', array_map(fn($w) => substr($w, 0, 1), explode(' ', $name))));
+                $sku = 'P' . $initials . rand(100, 999);
+            }
             
             $stmt = $pdo->prepare("INSERT INTO products (company_id, client_id, name, sku, category, unit, selling_unit, yield_per_unit, selling_unit_price, unit_cost, selling_price, current_stock, reorder_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
             $stmt->execute([$company_id, $client_id, $name, $sku, $category, $unit, $selling_unit ?: null, $yield_per_unit, $selling_unit_price, $cost, $price, $stock, $reorder]);
             $pid = $pdo->lastInsertId();
             
             log_audit($company_id, $user_id, 'product_added', 'stock', $pid, "Product '$name' added with stock $stock" . ($selling_unit ? ", sells as $yield_per_unit {$selling_unit}s" : ''));
-            echo json_encode(['success' => true, 'id' => $pid]);
+            echo json_encode(['success' => true, 'id' => $pid, 'sku' => $sku]);
             break;
 
         case 'delete_product':
             $pid = intval($_POST['product_id'] ?? 0);
             if (!$pid) { echo json_encode(['success' => false, 'message' => 'Product ID required']); break; }
-            $stmt = $pdo->prepare("DELETE FROM products WHERE id = ? AND company_id = ? AND client_id = ?");
+            // Snapshot before delete
+            $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ? AND company_id = ? AND client_id = ?");
             $stmt->execute([$pid, $company_id, $client_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) move_to_trash($pdo, $company_id, 'product', $pid, $row['name'] ?? 'Product #'.$pid, $row, $user_id);
+            $pdo->prepare("DELETE FROM products WHERE id = ? AND company_id = ? AND client_id = ?")->execute([$pid, $company_id, $client_id]);
             log_audit($company_id, $user_id, 'product_deleted', 'stock', $pid, "Product #$pid deleted");
             echo json_encode(['success' => true]);
             break;
@@ -327,7 +345,7 @@ try {
             // Get delivery details before deleting
             $stmt = $pdo->prepare("SELECT * FROM supplier_deliveries WHERE id = ? AND company_id = ? AND client_id = ?");
             $stmt->execute([$delivery_id, $company_id, $client_id]);
-            $del = $stmt->fetch();
+            $del = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$del) {
                 echo json_encode(['success' => false, 'message' => 'Delivery not found']);
@@ -336,6 +354,9 @@ try {
 
             $product_id = $del['product_id'];
             $del_qty    = intval($del['quantity']);
+
+            // Snapshot to trash
+            move_to_trash($pdo, $company_id, 'delivery', $delivery_id, ($del['supplier_name'] ?? 'Delivery') . ' — ' . ($del['delivery_date'] ?? ''), $del, $user_id);
 
             $pdo->beginTransaction();
 
@@ -511,8 +532,16 @@ try {
             
             if (!$dept_id || !$prod_id) { echo json_encode(['success'=>false,'message'=>'Invalid Dept/Product']); break; }
             
-            $stmt = $pdo->prepare("DELETE FROM department_stock WHERE department_id = ? AND product_id = ? AND company_id = ? AND client_id = ?");
+            // Snapshot
+            $stmt = $pdo->prepare("SELECT ds.*, p.name as product_name, d.name as dept_name FROM department_stock ds LEFT JOIN products p ON p.id = ds.product_id LEFT JOIN stock_departments d ON d.id = ds.department_id WHERE ds.department_id = ? AND ds.product_id = ? AND ds.company_id = ? AND ds.client_id = ?");
             $stmt->execute([$dept_id, $prod_id, $company_id, $client_id]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (!empty($rows)) {
+                $label = ($rows[0]['product_name'] ?? 'Product') . ' — ' . ($rows[0]['dept_name'] ?? 'Dept #'.$dept_id);
+                move_to_trash($pdo, $company_id, 'dept_product', $prod_id, $label, $rows, $user_id);
+            }
+            
+            $pdo->prepare("DELETE FROM department_stock WHERE department_id = ? AND product_id = ? AND company_id = ? AND client_id = ?")->execute([$dept_id, $prod_id, $company_id, $client_id]);
             
             log_audit($company_id, $user_id, 'dept_product_removed', 'stock', $prod_id, "Product removed from dept $dept_id");
             echo json_encode(['success' => true]);
@@ -617,8 +646,13 @@ try {
                 break;
             }
 
-            $stmt = $pdo->prepare("DELETE FROM kitchen_recipes WHERE product_id = ? AND ingredient_product_id = ? AND company_id = ? AND client_id = ?");
+            // Snapshot before delete
+            $stmt = $pdo->prepare("SELECT kr.*, p.name as ingredient_name FROM kitchen_recipes kr LEFT JOIN products p ON p.id = kr.ingredient_product_id WHERE kr.product_id = ? AND kr.ingredient_product_id = ? AND kr.company_id = ? AND kr.client_id = ?");
             $stmt->execute([$product_id, $ingredient_id, $company_id, $client_id]);
+            $ing_row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($ing_row) move_to_trash($pdo, $company_id, 'recipe_ingredient', $ingredient_id, ($ing_row['ingredient_name'] ?? 'Ingredient') . ' in Product #'.$product_id, $ing_row, $user_id);
+
+            $pdo->prepare("DELETE FROM kitchen_recipes WHERE product_id = ? AND ingredient_product_id = ? AND company_id = ? AND client_id = ?")->execute([$product_id, $ingredient_id, $company_id, $client_id]);
 
             // Recalculate total cost
             $total_cost = 0;
@@ -995,6 +1029,13 @@ try {
                 break;
             }
             
+            // ── Subscription limit check ──
+            $limit = check_department_limit($company_id, $client_id);
+            if (!$limit['allowed']) {
+                echo json_encode(['success' => false, 'message' => "Department limit reached ({$limit['current']}/{$limit['max']}). Upgrade your plan to add more departments."]);
+                break;
+            }
+            
             // Validate parent belongs to same company/client if specified
             if ($parent_id > 0) {
                 $chk = $pdo->prepare("SELECT id FROM stock_departments WHERE id = ? AND company_id = ? AND client_id = ? AND deleted_at IS NULL");
@@ -1200,75 +1241,101 @@ try {
             echo json_encode(['success' => true]);
             break;
             
+        // ---- Category management ----
+        case 'add_category':
+            $cat_name = trim($_POST['name'] ?? '');
+            if (!$cat_name) { echo json_encode(['success' => false, 'message' => 'Category name required']); exit; }
+            try {
+                $stmt = $pdo->prepare("INSERT INTO product_categories (company_id, client_id, name) VALUES (?,?,?)");
+                $stmt->execute([$company_id, $client_id, $cat_name]);
+                echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+            } catch (PDOException $e) {
+                if ($e->getCode() == 23000) echo json_encode(['success' => false, 'message' => 'Category already exists']);
+                else throw $e;
+            }
+            break;
+
+        case 'delete_category':
+            $cat_id = intval($_POST['id'] ?? 0);
+            if (!$cat_id) { echo json_encode(['success' => false, 'message' => 'Category ID required']); exit; }
+            $stmt = $pdo->prepare("SELECT * FROM product_categories WHERE id = ? AND company_id = ? AND client_id = ?");
+            $stmt->execute([$cat_id, $company_id, $client_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) move_to_trash($pdo, $company_id, 'product_category', $cat_id, $row['name'] ?? 'Category', $row, $user_id);
+            $pdo->prepare("DELETE FROM product_categories WHERE id = ? AND company_id = ? AND client_id = ?")->execute([$cat_id, $company_id, $client_id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'rename_category':
+            $cat_id  = intval($_POST['id'] ?? 0);
+            $new_name = trim($_POST['name'] ?? '');
+            if (!$cat_id || !$new_name) { echo json_encode(['success' => false, 'message' => 'Category ID and new name are required']); exit; }
+            try {
+                $old_stmt = $pdo->prepare("SELECT name FROM product_categories WHERE id = ? AND company_id = ? AND client_id = ?");
+                $old_stmt->execute([$cat_id, $company_id, $client_id]);
+                $old_name = $old_stmt->fetchColumn();
+                $stmt = $pdo->prepare("UPDATE product_categories SET name = ? WHERE id = ? AND company_id = ? AND client_id = ?");
+                $stmt->execute([$new_name, $cat_id, $company_id, $client_id]);
+                if ($old_name) {
+                    $upd = $pdo->prepare("UPDATE products SET category = ? WHERE category = ? AND company_id = ? AND client_id = ?");
+                    $upd->execute([$new_name, $old_name, $company_id, $client_id]);
+                }
+                echo json_encode(['success' => true]);
+            } catch (PDOException $e) {
+                if ($e->getCode() == 23000) echo json_encode(['success' => false, 'message' => 'A category with that name already exists']);
+                else throw $e;
+            }
+            break;
+
+        // ---- Supplier management ----
+        case 'add_supplier':
+            $name    = trim($_POST['name'] ?? '');
+            $contact = trim($_POST['contact_person'] ?? '');
+            $phone   = trim($_POST['phone'] ?? '');
+            $email   = trim($_POST['email'] ?? '');
+            $address = trim($_POST['address'] ?? '');
+            $cat     = trim($_POST['category'] ?? '');
+            $notes   = trim($_POST['notes'] ?? '');
+            if (!$name) { echo json_encode(['success' => false, 'message' => 'Supplier name required']); exit; }
+            try {
+                $stmt = $pdo->prepare("INSERT INTO suppliers (company_id, client_id, name, contact_person, phone, email, address, category, notes) VALUES (?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([$company_id, $client_id, $name, $contact, $phone, $email, $address, $cat, $notes]);
+                echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+            } catch (PDOException $e) {
+                if ($e->getCode() == 23000) echo json_encode(['success' => false, 'message' => 'Supplier already exists']);
+                else throw $e;
+            }
+            break;
+
+        case 'update_supplier':
+            $sid     = intval($_POST['id'] ?? 0);
+            $name    = trim($_POST['name'] ?? '');
+            $contact = trim($_POST['contact_person'] ?? '');
+            $phone   = trim($_POST['phone'] ?? '');
+            $email   = trim($_POST['email'] ?? '');
+            $address = trim($_POST['address'] ?? '');
+            $cat     = trim($_POST['category'] ?? '');
+            $notes   = trim($_POST['notes'] ?? '');
+            $status  = trim($_POST['status'] ?? 'active');
+            if (!$sid || !$name) { echo json_encode(['success' => false, 'message' => 'Supplier ID and name required']); exit; }
+            $stmt = $pdo->prepare("UPDATE suppliers SET name=?, contact_person=?, phone=?, email=?, address=?, category=?, notes=?, status=? WHERE id=? AND company_id=? AND client_id=?");
+            $stmt->execute([$name, $contact, $phone, $email, $address, $cat, $notes, $status, $sid, $company_id, $client_id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'delete_supplier':
+            $sid = intval($_POST['id'] ?? 0);
+            if (!$sid) { echo json_encode(['success' => false, 'message' => 'Supplier ID required']); exit; }
+            $stmt = $pdo->prepare("SELECT * FROM suppliers WHERE id = ? AND company_id = ? AND client_id = ?");
+            $stmt->execute([$sid, $company_id, $client_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) move_to_trash($pdo, $company_id, 'supplier', $sid, $row['name'] ?? 'Supplier', $row, $user_id);
+            $pdo->prepare("DELETE FROM suppliers WHERE id = ? AND company_id = ? AND client_id = ?")->execute([$sid, $company_id, $client_id]);
+            echo json_encode(['success' => true]);
+            break;
+
         default:
             echo json_encode(['success' => false, 'message' => 'Unknown action']);
-    }
-
-    // ---- Category management (outside switch for cleanliness, re-check action) ----
-    if ($action === 'add_category') {
-        $cat_name = trim($_POST['name'] ?? '');
-        if (!$cat_name) { echo json_encode(['success' => false, 'message' => 'Category name required']); exit; }
-        try {
-            $stmt = $pdo->prepare("INSERT INTO product_categories (company_id, client_id, name) VALUES (?,?,?)");
-            $stmt->execute([$company_id, $client_id, $cat_name]);
-            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
-        } catch (PDOException $e) {
-            if ($e->getCode() == 23000) echo json_encode(['success' => false, 'message' => 'Category already exists']);
-            else throw $e;
-        }
-        exit;
-    }
-    if ($action === 'delete_category') {
-        $cat_id = intval($_POST['id'] ?? 0);
-        if (!$cat_id) { echo json_encode(['success' => false, 'message' => 'Category ID required']); exit; }
-        $stmt = $pdo->prepare("DELETE FROM product_categories WHERE id = ? AND company_id = ? AND client_id = ?");
-        $stmt->execute([$cat_id, $company_id, $client_id]);
-        echo json_encode(['success' => true]);
-        exit;
-    }
-    // ---- Supplier management ----
-    if ($action === 'add_supplier') {
-        $name    = trim($_POST['name'] ?? '');
-        $contact = trim($_POST['contact_person'] ?? '');
-        $phone   = trim($_POST['phone'] ?? '');
-        $email   = trim($_POST['email'] ?? '');
-        $address = trim($_POST['address'] ?? '');
-        $cat     = trim($_POST['category'] ?? '');
-        $notes   = trim($_POST['notes'] ?? '');
-        if (!$name) { echo json_encode(['success' => false, 'message' => 'Supplier name required']); exit; }
-        try {
-            $stmt = $pdo->prepare("INSERT INTO suppliers (company_id, client_id, name, contact_person, phone, email, address, category, notes) VALUES (?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $name, $contact, $phone, $email, $address, $cat, $notes]);
-            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
-        } catch (PDOException $e) {
-            if ($e->getCode() == 23000) echo json_encode(['success' => false, 'message' => 'Supplier already exists']);
-            else throw $e;
-        }
-        exit;
-    }
-    if ($action === 'update_supplier') {
-        $sid     = intval($_POST['id'] ?? 0);
-        $name    = trim($_POST['name'] ?? '');
-        $contact = trim($_POST['contact_person'] ?? '');
-        $phone   = trim($_POST['phone'] ?? '');
-        $email   = trim($_POST['email'] ?? '');
-        $address = trim($_POST['address'] ?? '');
-        $cat     = trim($_POST['category'] ?? '');
-        $notes   = trim($_POST['notes'] ?? '');
-        $status  = trim($_POST['status'] ?? 'active');
-        if (!$sid || !$name) { echo json_encode(['success' => false, 'message' => 'Supplier ID and name required']); exit; }
-        $stmt = $pdo->prepare("UPDATE suppliers SET name=?, contact_person=?, phone=?, email=?, address=?, category=?, notes=?, status=? WHERE id=? AND company_id=? AND client_id=?");
-        $stmt->execute([$name, $contact, $phone, $email, $address, $cat, $notes, $status, $sid, $company_id, $client_id]);
-        echo json_encode(['success' => true]);
-        exit;
-    }
-    if ($action === 'delete_supplier') {
-        $sid = intval($_POST['id'] ?? 0);
-        if (!$sid) { echo json_encode(['success' => false, 'message' => 'Supplier ID required']); exit; }
-        $stmt = $pdo->prepare("DELETE FROM suppliers WHERE id = ? AND company_id = ? AND client_id = ?");
-        $stmt->execute([$sid, $company_id, $client_id]);
-        echo json_encode(['success' => true]);
-        exit;
     }
 } catch (Exception $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();

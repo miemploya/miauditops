@@ -48,6 +48,8 @@ $roles = [
     'finance_officer' => 'Finance Officer',
     'store_officer' => 'Store Officer',
     'department_head' => 'Department Head',
+    'hod' => 'HOD (Requisition Approver)',
+    'ceo' => 'CEO (Final Approver)',
     'viewer' => 'Viewer (Read Only)',
 ];
 
@@ -237,8 +239,14 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
                         <!-- Permissions Section (Add only) -->
                         <template x-if="!editingUserId">
                             <div>
-                                <label class="text-[11px] font-semibold mb-2 block text-slate-500">Module Permissions</label>
-                                <div class="grid grid-cols-2 gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                                <label class="text-[11px] font-semibold mb-1 block text-slate-500">Module Permissions</label>
+                                <template x-if="userForm.role === 'hod' || userForm.role === 'ceo'">
+                                    <div class="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-300">
+                                        <i data-lucide="info" class="w-3.5 h-3.5 inline -mt-0.5 mr-1"></i>
+                                        <strong x-text="userForm.role === 'hod' ? 'HOD' : 'CEO'"></strong> role is restricted to <strong>Requisitions</strong> only (approval workflow).
+                                    </div>
+                                </template>
+                                <div x-show="userForm.role !== 'hod' && userForm.role !== 'ceo'" class="grid grid-cols-2 gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                                     <template x-for="(info, key) in allPermissions" :key="key">
                                         <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700/50 transition-colors cursor-pointer">
                                             <input type="checkbox" :value="key" x-model="userForm.permissions" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
@@ -488,8 +496,8 @@ function settingsApp() {
             window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h && this.tabs.some(t => t.id === h)) this.currentTab = h; });
         },
 
-        getRoleGradient(r) { return { business_owner:'bg-gradient-to-br from-violet-500 to-purple-600', auditor:'bg-gradient-to-br from-blue-500 to-indigo-600', finance_officer:'bg-gradient-to-br from-emerald-500 to-teal-600', store_officer:'bg-gradient-to-br from-amber-500 to-orange-600', department_head:'bg-gradient-to-br from-slate-500 to-slate-700', viewer:'bg-gradient-to-br from-gray-400 to-gray-500' }[r] || 'bg-gradient-to-br from-slate-500 to-slate-700'; },
-        getRoleBadge(r) { return { business_owner:'bg-violet-100 text-violet-700', auditor:'bg-blue-100 text-blue-700', finance_officer:'bg-emerald-100 text-emerald-700', store_officer:'bg-amber-100 text-amber-700', department_head:'bg-slate-100 text-slate-600', viewer:'bg-gray-100 text-gray-600' }[r] || 'bg-slate-100 text-slate-600'; },
+        getRoleGradient(r) { return { business_owner:'bg-gradient-to-br from-violet-500 to-purple-600', auditor:'bg-gradient-to-br from-blue-500 to-indigo-600', finance_officer:'bg-gradient-to-br from-emerald-500 to-teal-600', store_officer:'bg-gradient-to-br from-amber-500 to-orange-600', department_head:'bg-gradient-to-br from-slate-500 to-slate-700', hod:'bg-gradient-to-br from-rose-500 to-pink-600', ceo:'bg-gradient-to-br from-yellow-500 to-amber-600', viewer:'bg-gradient-to-br from-gray-400 to-gray-500' }[r] || 'bg-gradient-to-br from-slate-500 to-slate-700'; },
+        getRoleBadge(r) { return { business_owner:'bg-violet-100 text-violet-700', auditor:'bg-blue-100 text-blue-700', finance_officer:'bg-emerald-100 text-emerald-700', store_officer:'bg-amber-100 text-amber-700', department_head:'bg-slate-100 text-slate-600', hod:'bg-rose-100 text-rose-700', ceo:'bg-yellow-100 text-yellow-700', viewer:'bg-gray-100 text-gray-600' }[r] || 'bg-slate-100 text-slate-600'; },
 
         // === Company ===
         async updateCompany() {
@@ -512,6 +520,11 @@ function settingsApp() {
             this.userForm = { first_name:'', last_name:'', email:'', phone:'', role:'department_head', department:'', password:'', permissions: Object.keys(this.allPermissions), client_ids: this.allClients.map(c => String(c.id)) };
             this.showUserModal = true;
             this.$nextTick(() => lucide.createIcons());
+            this.$watch('userForm.role', (val) => {
+                if (val === 'hod' || val === 'ceo') {
+                    this.userForm.permissions = ['requisitions'];
+                }
+            });
         },
         openEditUser(u) {
             this.editingUserId = u.id;

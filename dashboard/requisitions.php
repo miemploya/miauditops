@@ -14,9 +14,14 @@ $user_id    = $_SESSION['user_id'];
 $user_role  = get_user_role();
 $page_title = 'Requisitions';
 
-// Products for line items
-$stmt = $pdo->prepare("SELECT id, name, sku, unit, unit_cost FROM products WHERE company_id = ? AND deleted_at IS NULL ORDER BY name");
-$stmt->execute([$company_id]);
+// Departments created by client (from Stock Audit)
+$stmt = $pdo->prepare("SELECT sd.id, sd.name, sd.type FROM stock_departments sd WHERE sd.company_id = ? AND sd.client_id = ? AND sd.deleted_at IS NULL ORDER BY sd.name");
+$stmt->execute([$company_id, $client_id]);
+$client_departments = $stmt->fetchAll();
+
+// Products for line items (client-specific)
+$stmt = $pdo->prepare("SELECT id, name, sku, unit, unit_cost, category FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL ORDER BY category, name");
+$stmt->execute([$company_id, $client_id]);
 $products = $stmt->fetchAll();
 
 // All requisitions with requestor info
@@ -58,6 +63,7 @@ $js_all_reqs = json_encode($all_reqs, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_pending  = json_encode($pending_for_me, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_pos      = json_encode($pos, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_depts    = json_encode($departments, JSON_HEX_TAG | JSON_HEX_APOS);
+$js_client_depts = json_encode($client_departments, JSON_HEX_TAG | JSON_HEX_APOS);
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -79,8 +85,36 @@ $js_depts    = json_encode($departments, JSON_HEX_TAG | JSON_HEX_APOS);
             <?php display_flash_message(); ?>
 
             <!-- Page Header -->
-            <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center justify-between mb-4">
                 <div><h1 class="text-2xl font-black text-slate-900 dark:text-white">Requisitions</h1><p class="text-sm text-slate-500">Purchase request & approval management</p></div>
+            </div>
+
+            <!-- Guide Note -->
+            <div class="mb-6 rounded-2xl border border-blue-200/60 dark:border-blue-800/40 bg-gradient-to-r from-blue-50 via-indigo-50/50 to-transparent dark:from-blue-950/30 dark:via-indigo-950/20 dark:to-transparent overflow-hidden">
+                <div class="px-5 py-4 flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 flex-shrink-0 mt-0.5">
+                        <i data-lucide="lightbulb" class="w-4 h-4 text-white"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-800 dark:text-white mb-1">When is this module useful?</h4>
+                        <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-2">
+                            This module is ideal when your station audit grows into a <strong>full operations management</strong> workflow. 
+                            Station managers can formally <strong>request supplies</strong> (fuel, lubricants, equipment), 
+                            route requests through a <strong>multi-level approval chain</strong> (HOD → Auditor → CEO), 
+                            and management can <strong>approve before purchasing</strong> — creating a clear, auditable procurement trail from 
+                            <span class="font-semibold text-indigo-600 dark:text-indigo-400">Requisition → Approval → Purchase Order</span>.
+                        </p>
+                        <div class="flex items-start gap-2 px-3 py-2.5 bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 rounded-xl">
+                            <i data-lucide="user-plus" class="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5"></i>
+                            <p class="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                                <strong>Setup required:</strong> To use this module, the auditor or admin must first create 
+                                <strong>user accounts</strong> (username &amp; password) for station managers, department heads, and 
+                                management staff who need access to submit or approve requisitions. 
+                                Go to <strong class="text-amber-900 dark:text-amber-200">Settings → User Management</strong> to add team members and assign their roles.
+                            </p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- KPI Strip -->
@@ -124,8 +158,13 @@ $js_depts    = json_encode($departments, JSON_HEX_TAG | JSON_HEX_APOS);
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
                                 <div>
                                     <label class="text-[11px] font-semibold mb-1 block text-slate-500">Department *</label>
-                                    <input type="text" x-model="reqForm.department" list="dept-list" placeholder="e.g. Operations" required class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    <datalist id="dept-list"><?php foreach($departments as $d): ?><option value="<?= htmlspecialchars($d) ?>"><?php endforeach; ?></datalist>
+                                    <select x-model="reqForm.department" required class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
+                                        <option value="">Select Department...</option>
+                                        <option value="Main Store">Main Store</option>
+                                        <template x-for="dept in clientDepartments" :key="dept.id">
+                                            <option :value="dept.name" x-text="dept.name"></option>
+                                        </template>
+                                    </select>
                                 </div>
                                 <div>
                                     <label class="text-[11px] font-semibold mb-1 block text-slate-500">Purpose / Description *</label>
@@ -180,12 +219,15 @@ $js_depts    = json_encode($departments, JSON_HEX_TAG | JSON_HEX_APOS);
                                         <template x-for="(line, idx) in reqForm.items" :key="idx">
                                             <tr class="border-t border-slate-100 dark:border-slate-800">
                                                 <td class="px-3 py-2">
-                                                    <div class="flex gap-2">
-                                                        <select x-model="line.product_id" @change="autoFillProduct(line)" class="w-1/2 px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
-                                                            <option value="">— or type below —</option>
-                                                            <template x-for="p in products" :key="p.id"><option :value="p.id" x-text="p.name"></option></template>
+                                                    <div class="space-y-1.5">
+                                                        <select x-model="line.product_id" @change="autoFillProduct(line)" class="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+                                                            <option value="">— Select Product or type custom below —</option>
+                                                            <option value="custom" class="font-bold text-indigo-600">✏️ Custom / Unlisted Item</option>
+                                                            <template x-for="p in products" :key="p.id"><option :value="p.id" x-text="(p.category ? '[' + p.category + '] ' : '') + p.name + (p.sku ? ' (' + p.sku + ')' : '')"></option></template>
                                                         </select>
-                                                        <input type="text" x-model="line.description" placeholder="Item description..." class="w-1/2 px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+                                                        <template x-if="!line.product_id || line.product_id === 'custom'">
+                                                            <input type="text" x-model="line.description" placeholder="Type item name / description..." class="w-full px-2 py-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-300 dark:border-amber-700 rounded-lg text-xs placeholder-amber-400 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all">
+                                                        </template>
                                                     </div>
                                                 </td>
                                                 <td class="px-3 py-2"><input type="number" x-model.number="line.quantity" min="1" class="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold"></td>
@@ -431,6 +473,7 @@ function reqApp() {
             { id: 'pos', label: 'Purchase Orders', icon: 'file-check' },
         ],
         products: <?= $js_products ?>,
+        clientDepartments: <?= $js_client_depts ?>,
         myReqs: <?= $js_my_reqs ?>,
         allReqs: <?= $js_all_reqs ?>,
         pendingApprovals: <?= $js_pending ?>,
@@ -447,9 +490,17 @@ function reqApp() {
         addLineItem() { this.reqForm.items.push({product_id:'', description:'', quantity:1, unit_price:0}); this.$nextTick(() => lucide.createIcons()); },
         resetForm() { this.reqForm = { department:'', purpose:'', priority:'medium', items:[{product_id:'', description:'', quantity:1, unit_price:0}] }; },
         autoFillProduct(line) {
+            if (line.product_id === 'custom') {
+                line.description = '';
+                line.unit_price = 0;
+                return;
+            }
             if (line.product_id) {
                 const p = this.products.find(p => p.id == line.product_id);
                 if (p) { line.description = p.name; line.unit_price = parseFloat(p.unit_cost) || 0; }
+            } else {
+                line.description = '';
+                line.unit_price = 0;
             }
         },
         fmt(v) { return '₦' + parseFloat(v||0).toLocaleString('en-NG',{minimumFractionDigits:2}); },

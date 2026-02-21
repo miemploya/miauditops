@@ -314,7 +314,8 @@ if ($is_kitchen) {
             $today = $pdo->prepare("
                 SELECT COALESCE(ds.added,0) as issued, COALESCE(ds.qty_sold,0) as sold,
                        COALESCE(ds.transfer_out,0) + COALESCE(ds.transfer_to_main,0) as returned,
-                       COALESCE(ds.return_in,0) as return_in
+                       COALESCE(ds.return_in,0) as return_in,
+                       ds.selling_price as dept_selling_price
                 FROM department_stock ds
                 WHERE ds.department_id = ? AND ds.product_id = ? AND ds.stock_date = ?
                   AND ds.company_id = ? AND ds.client_id = ?
@@ -339,12 +340,17 @@ if ($is_kitchen) {
             $prod_nm->execute([$pid]);
             $pinfo = $prod_nm->fetch();
 
+            // Use the snapshotted department_stock selling_price (preserves original price at time of issue)
+            // Only fall back to products.selling_price if department price is missing or zero
+            $dept_price = floatval($t['dept_selling_price'] ?? 0);
+            $effective_price = $dept_price > 0 ? $dept_price : floatval($pinfo['selling_price'] ?? 0);
+
             $reconciliation_data[] = [
                 'product_id' => $pid,
                 'department_id' => $did,
                 'dept_name' => $dept_nm->fetchColumn() ?: "Dept #$did",
                 'product_name' => $pinfo['name'] ?? '',
-                'selling_price' => $pinfo['selling_price'] ?? 0,
+                'selling_price' => $effective_price,
                 'unit_cost' => $pinfo['unit_cost'] ?? 0,
                 'opening' => $opening,
                 'issued' => $issued,
