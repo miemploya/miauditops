@@ -7,6 +7,7 @@
 config/db.php
 config/.env.paystack.php
 config/google_config.php
+config/mail.php
 
 # OS
 Thumbs.db

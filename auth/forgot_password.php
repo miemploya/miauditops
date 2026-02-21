@@ -1,16 +1,16 @@
 <?php
 /**
  * MIAUDITOPS — Forgot Password
- * User enters email + company code → receives a reset link (displayed on screen for now).
+ * User enters email + company code → receives a reset link via email.
  */
 session_start();
 if (isset($_SESSION['user_id'])) { header('Location: ../dashboard/index.php'); exit; }
 
 require_once '../config/db.php';
+require_once '../includes/mail_helper.php';
 
 $error = '';
 $success = '';
-$reset_link = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
@@ -47,10 +47,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 . str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME']));
             $reset_link = $base . '/reset_password.php?token=' . $token;
 
-            $success = "A password reset link has been generated for <strong>{$user['first_name']}</strong>. The link expires in 1 hour.";
+            // Send the reset email
+            $mail_result = send_password_reset_email($email, $user['first_name'], $reset_link);
+            
+            if ($mail_result['success']) {
+                $success = 'A password reset link has been sent to <strong>' . htmlspecialchars($email) . '</strong>. Please check your inbox (and spam folder). The link expires in 1 hour.';
+            } else {
+                $error = 'We could not send the reset email. Please try again or contact your administrator.';
+            }
         } else {
             // Show generic success to prevent email enumeration
-            $success = 'If an account with that email and company code exists, a reset link has been generated.';
+            $success = 'If an account with that email and company code exists, a reset link has been sent.';
         }
     }
 }
@@ -113,18 +120,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if ($success): ?>
                 <div class="mb-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 dark:text-emerald-400 text-sm">
                     <div class="flex items-center gap-2 mb-2">
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span class="font-bold">Check Below</span>
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        <span class="font-bold">Check Your Email</span>
                     </div>
                     <p><?php echo $success; ?></p>
-                    <?php if ($reset_link): ?>
-                        <div class="mt-3 p-3 bg-slate-100 dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10">
-                            <p class="text-[10px] text-slate-400 uppercase font-bold mb-1">Reset Link (copy this):</p>
-                            <a href="<?php echo htmlspecialchars($reset_link); ?>" class="text-xs text-violet-600 dark:text-violet-400 break-all hover:underline">
-                                <?php echo htmlspecialchars($reset_link); ?>
-                            </a>
-                        </div>
-                    <?php endif; ?>
                 </div>
             <?php else: ?>
                 <form method="POST" class="space-y-3">
