@@ -202,32 +202,16 @@ foreach ($cos_departments as $cd) {
     }
 }
 
-$pnl_opening = $hist_main + $hist_depts;
-$needs_manual_opening = false;
+$pnl_opening_computed = $hist_main + $hist_depts;
 
-// --- C) First-time client check: if computed opening is 0 and no prior activity exists ---
-if ($pnl_opening == 0) {
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM supplier_deliveries WHERE company_id = ? AND client_id = ? AND delivery_date <= ? AND deleted_at IS NULL");
-    $stmt->execute([$company_id, $client_id, $opening_date]);
-    $has_prior_deliveries = (int)$stmt->fetchColumn() > 0;
+// --- C) Check for manually saved opening stock override for this period ---
+$stmt = $pdo->prepare("SELECT opening_value FROM client_opening_stock WHERE company_id = ? AND client_id = ? AND period_start = ?");
+$stmt->execute([$company_id, $client_id, $period_start]);
+$manual_opening = $stmt->fetchColumn();
+$has_manual_opening = ($manual_opening !== false);
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM stock_movements WHERE company_id = ? AND client_id = ? AND DATE(created_at) <= ?");
-    $stmt->execute([$company_id, $client_id, $opening_date]);
-    $has_prior_movements = (int)$stmt->fetchColumn() > 0;
-
-    if (!$has_prior_deliveries && !$has_prior_movements) {
-        // Check for manually saved opening stock for this period
-        $stmt = $pdo->prepare("SELECT opening_value FROM client_opening_stock WHERE company_id = ? AND client_id = ? AND period_start = ?");
-        $stmt->execute([$company_id, $client_id, $period_start]);
-        $manual_opening = $stmt->fetchColumn();
-        if ($manual_opening !== false) {
-            $pnl_opening = (float)$manual_opening;
-        } else {
-            // Flag: no data at all — show manual input option on the UI
-            $needs_manual_opening = true;
-        }
-    }
-}
+// Use manual override if saved, otherwise use computed value
+$pnl_opening = $has_manual_opening ? (float)$manual_opening : $pnl_opening_computed;
 
 // Proper CoS = Opening + Purchases - Closing
 $pnl_cos = $pnl_opening + $pnl_purchases - $pnl_closing;
@@ -907,22 +891,21 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                                     </tr>
                                     <tr>
                                         <td class="py-1.5 pl-6">Opening Stock
-                                            <?php if ($needs_manual_opening): ?>
-                                            <span class="text-[10px] text-amber-600 font-semibold ml-1">(First period — enter manually)</span>
+                                            <?php if ($has_manual_opening): ?>
+                                            <span class="text-[10px] text-emerald-600 font-semibold ml-1">(adjusted)</span>
                                             <?php endif; ?>
                                         </td>
                                         <td></td>
                                         <td class="text-right font-semibold tabular-nums">
-                                            <?php if ($needs_manual_opening): ?>
                                             <div class="flex items-center justify-end gap-1 print-hidden" id="opening-input-row">
                                                 <span class="text-xs text-slate-400">₦</span>
-                                                <input type="number" id="manual-opening-val" step="0.01" min="0" value="0" 
-                                                    class="w-28 px-2 py-1 text-right text-xs font-bold border border-amber-400 rounded-lg bg-amber-50 dark:bg-amber-900/20 dark:border-amber-600 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-400" placeholder="0.00">
-                                                <button onclick="saveManualOpening()" class="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition-all">Set</button>
+                                                <input type="number" id="manual-opening-val" step="0.01" min="0" value="<?php echo number_format($pnl_opening, 2, '.', ''); ?>" 
+                                                    class="w-28 px-2 py-1 text-right text-xs font-bold border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-400" placeholder="0.00">
+                                                <button onclick="saveManualOpening()" id="opening-save-btn" class="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition-all">Save</button>
                                             </div>
                                             <span class="hidden print-show"><?php echo number_format($pnl_opening, 2); ?></span>
-                                            <?php else: ?>
-                                            <?php echo number_format($pnl_opening, 2); ?>
+                                            <?php if ($pnl_opening_computed > 0 && $has_manual_opening): ?>
+                                            <span class="text-[9px] text-slate-400 block text-right mt-0.5 print-hidden">Auto: ₦<?php echo number_format($pnl_opening_computed, 2); ?></span>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -1108,7 +1091,7 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <td class="py-1.5 text-right font-black tabular-nums pr-4 border-t-2 border-slate-800 dark:border-slate-300"><?php echo format_currency(abs($pnl_cos)); ?></td>
                                                 </tr>
                                             </table>
-                                            <p class="text-[10px] text-slate-400 italic">Opening stock is derived from the prior period closing stock valuation. Purchases include all supplier deliveries recorded during the period. Closing stock represents current inventory at cost across main store and all departments.</p>
+                                            <p class="text-[10px] text-slate-400 italic">Opening stock is auto-derived from the prior period's closing stock valuation but can be manually adjusted if needed. Purchases include all supplier deliveries recorded during the period. Closing stock represents current inventory at cost across main store and all departments.</p>
                                         </td>
                                     </tr>
                                     <tr><td colspan="2" class="border-b border-slate-100 dark:border-slate-800"></td></tr>
@@ -1934,10 +1917,13 @@ Example:
 </div>
 
 <script>
-/* Save manual opening stock for first-time clients */
+/* Save opening stock adjustment */
 function saveManualOpening() {
     const val = parseFloat(document.getElementById('manual-opening-val').value) || 0;
     if (val < 0) { alert('Opening stock cannot be negative.'); return; }
+    const btn = document.getElementById('opening-save-btn');
+    btn.textContent = '...';
+    btn.disabled = true;
     const fd = new FormData();
     fd.append('action', 'save_opening_stock');
     fd.append('opening_value', val);
@@ -1946,13 +1932,18 @@ function saveManualOpening() {
         .then(r => r.json())
         .then(d => {
             if (d.success) {
-                // Reload to recalculate P&L with saved opening
-                window.location.reload();
+                btn.textContent = '✓';
+                btn.classList.remove('bg-amber-500');
+                btn.classList.add('bg-emerald-500');
+                // Reload to recalculate P&L with new opening
+                setTimeout(() => window.location.reload(), 500);
             } else {
+                btn.textContent = 'Save';
+                btn.disabled = false;
                 alert(d.message || 'Error saving opening stock');
             }
         })
-        .catch(() => alert('Failed to save opening stock'));
+        .catch(() => { btn.textContent = 'Save'; btn.disabled = false; alert('Failed to save opening stock'); });
 }
 
 function financeApp() {
