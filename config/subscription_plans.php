@@ -69,7 +69,7 @@ $SUBSCRIPTION_PLANS = [
 
         // ── Limits ──
         'max_users'       => 4,
-        'max_clients'     => 3,
+        'max_clients'     => 1,
         'max_outlets'     => 10,
         'max_products'    => 0,    // 0 = unlimited
         'max_departments' => 10,
@@ -116,7 +116,7 @@ $SUBSCRIPTION_PLANS = [
             'Monthly P&L Statement',
             'PDF Export',
             '4 Users',
-            '3 Clients',
+            '1 Client',
             '10 Outlets',
             'Unlimited Products',
             '10 Departments',
