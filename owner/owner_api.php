@@ -53,7 +53,7 @@ switch ($action) {
             (SELECT COUNT(*) FROM client_outlets co WHERE co.company_id = c.id AND co.deleted_at IS NULL) as outlet_count,
             cs.plan_name, cs.status as sub_status, cs.expires_at, cs.billing_cycle,
             cs.max_users, cs.max_outlets, cs.max_products, cs.max_departments, cs.max_clients,
-            cs.data_retention_days, cs.pdf_export, cs.viewer_role, cs.station_audit
+            cs.data_retention_days, cs.pdf_export, cs.viewer_role, cs.station_audit, cs.addon_client_packs
             FROM companies c
             LEFT JOIN company_subscriptions cs ON cs.company_id = c.id
             WHERE c.deleted_at IS NULL
@@ -100,11 +100,21 @@ switch ($action) {
 
         // Load plan defaults from config
         $plan_cfg = get_plan_config($plan);
+
+        // Add-on packs: each pack = +1 client + 6 departments @ ₦25,000/mo
+        $addon_packs = max(0, (int)($_POST['addon_client_packs'] ?? 0));
+
         $max_users       = (int)($_POST['max_users']       ?? $plan_cfg['max_users']);
         $max_outlets     = (int)($_POST['max_outlets']     ?? $plan_cfg['max_outlets']);
         $max_products    = (int)($_POST['max_products']    ?? $plan_cfg['max_products']);
-        $max_departments = (int)($_POST['max_departments'] ?? $plan_cfg['max_departments']);
-        $max_clients     = (int)($_POST['max_clients']     ?? $plan_cfg['max_clients']);
+
+        // Calculate effective limits from plan base + add-ons
+        $base_clients    = (int)$plan_cfg['max_clients'];
+        $base_departments = (int)$plan_cfg['max_departments'];
+        $max_clients     = $base_clients + $addon_packs;
+        // If plan has unlimited departments (0), keep unlimited; otherwise add 6 per pack
+        $max_departments = ($base_departments === 0) ? 0 : $base_departments + ($addon_packs * 6);
+
         $data_retention  = (int)($_POST['data_retention_days'] ?? $plan_cfg['data_retention_days']);
         $pdf_export      = (int)($_POST['pdf_export']      ?? ($plan_cfg['pdf_export'] ? 1 : 0));
         $viewer_role     = (int)($_POST['viewer_role']     ?? ($plan_cfg['viewer_role'] ? 1 : 0));
@@ -121,7 +131,8 @@ switch ($action) {
             'max_products' => $max_products, 'max_departments' => $max_departments,
             'max_clients' => $max_clients, 'data_retention_days' => $data_retention,
             'pdf_export' => $pdf_export, 'viewer_role' => $viewer_role,
-            'station_audit' => $station_audit, 'notes' => $notes,
+            'station_audit' => $station_audit, 'addon_client_packs' => $addon_packs,
+            'notes' => $notes,
         ];
 
         if ($existing->fetch()) {
@@ -136,7 +147,7 @@ switch ($action) {
             $pdo->prepare("INSERT INTO company_subscriptions ($cols) VALUES ($placeholders)")
                 ->execute(array_values($fields));
         }
-        echo json_encode(['success' => true, 'plan_applied' => $plan, 'limits' => $fields]);
+        echo json_encode(['success' => true, 'plan_applied' => $plan, 'addon_packs' => $addon_packs, 'limits' => $fields]);
         break;
 
 

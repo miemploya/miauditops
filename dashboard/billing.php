@@ -174,6 +174,39 @@ require_login();
                             </div>
                         </template>
 
+                        <!-- ═══════════ Active Add-Ons ═══════════ -->
+                        <template x-if="sub.addon_client_packs > 0">
+                            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-amber-200 dark:border-amber-500/30 shadow-xl overflow-hidden">
+                                <div class="px-6 py-4 border-b border-amber-100 dark:border-amber-500/20 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/5 dark:to-orange-500/5">
+                                    <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                        <i data-lucide="package-plus" class="w-4 h-4 text-amber-500"></i> Active Add-Ons
+                                    </h3>
+                                </div>
+                                <div class="p-6">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <div>
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-2xl font-black text-amber-600 dark:text-amber-400" x-text="sub.addon_client_packs"></span>
+                                                <span class="text-sm font-semibold text-slate-600 dark:text-slate-400" x-text="sub.addon_client_packs === 1 ? 'Add-On Pack' : 'Add-On Packs'"></span>
+                                            </div>
+                                            <p class="text-xs text-slate-500 dark:text-slate-400">
+                                                Includes <strong class="text-slate-700 dark:text-slate-300" x-text="'+' + sub.addon_extra_clients + ' client(s)'"></strong> and
+                                                <strong class="text-slate-700 dark:text-slate-300" x-text="'+' + sub.addon_extra_depts + ' department(s)'"></strong>
+                                            </p>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="text-lg font-black text-amber-600 dark:text-amber-400" x-text="'₦' + sub.addon_monthly_cost.toLocaleString()"></span>
+                                            <p class="text-[10px] text-slate-400 font-semibold">/month</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2 text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-lg px-3 py-2">
+                                        <i data-lucide="info" class="w-3 h-3 shrink-0"></i>
+                                        <span>Add-on packs are managed by the platform administrator. Contact support to adjust.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
                         <!-- ═══════════ Tabs ═══════════ -->
                         <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800">
                             <button @click="tab = 'invoices'" class="px-4 py-2.5 text-sm font-semibold border-b-2 transition-all cursor-pointer"

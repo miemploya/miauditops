@@ -32,6 +32,11 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS billing_invoices (
     INDEX idx_due (due_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+// ── Add addon_client_packs column if missing ──
+try {
+    $pdo->exec("ALTER TABLE company_subscriptions ADD COLUMN addon_client_packs INT DEFAULT 0");
+} catch (Exception $e) { /* column already exists */ }
+
 $company_id = $_SESSION['company_id'] ?? 0;
 $user_id    = $_SESSION['user_id'] ?? 0;
 $action     = $_POST['action'] ?? '';
@@ -133,6 +138,7 @@ try {
             $plan_cfg = get_plan_config($plan_key);
             $prices   = get_dynamic_prices();
 
+            $addon_packs = (int)($sub['addon_client_packs'] ?? 0);
             $subscription = [
                 'plan_name'     => $plan_key,
                 'plan_label'    => $plan_cfg['label'] ?? ucfirst($plan_key),
@@ -145,6 +151,10 @@ try {
                 'days_remaining'=> !empty($sub['expires_at'])
                     ? max(0, (int)ceil((strtotime($sub['expires_at']) - time()) / 86400))
                     : null,
+                'addon_client_packs'  => $addon_packs,
+                'addon_monthly_cost'  => $addon_packs * 25000,
+                'addon_extra_clients' => $addon_packs,
+                'addon_extra_depts'   => $addon_packs * 6,
             ];
 
             // 2. Auto-generate invoice if needed
@@ -374,22 +384,32 @@ function auto_generate_invoice($pdo, $company_id, $sub, $plan_cfg, $prices) {
     $amount = $prices[$price_key] ?? 0;
     if ($amount <= 0) return;
 
-    // Period
-    $period_start = $expires;
+    // Add-on costs: ₦25,000/mo per pack, scaled by billing cycle
+    $addon_packs = (int)($sub['addon_client_packs'] ?? 0);
     $cycle_cfg = get_cycle_config();
     $months = $cycle_cfg[$cycle_key]['months'] ?? 1;
+    $addon_cost = $addon_packs * 25000 * $months;
+    $total_amount = $amount + $addon_cost;
+
+    // Period
+    $period_start = $expires;
     $period_end = date('Y-m-d', strtotime($period_start . " +{$months} months"));
     $due_date = $expires; // Due on expiry date
+
+    // Build invoice notes
+    $notes = ucfirst($plan_key) . ' ' . ucfirst($cycle_key) . ' subscription renewal';
+    if ($addon_packs > 0) {
+        $notes .= ' + ' . $addon_packs . ' add-on pack(s) (₦' . number_format($addon_cost) . ')';
+    }
 
     $stmt = $pdo->prepare(
         "INSERT INTO billing_invoices (company_id, invoice_number, plan_name, billing_cycle, amount_naira, status, due_date, period_start, period_end, notes)
          VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)"
     );
     $stmt->execute([
-        $company_id, $invoice_number, $plan_key, $cycle_key, $amount,
-        $due_date, $period_start, $period_end,
-        ucfirst($plan_key) . ' ' . ucfirst($cycle_key) . ' subscription renewal'
+        $company_id, $invoice_number, $plan_key, $cycle_key, $total_amount,
+        $due_date, $period_start, $period_end, $notes
     ]);
-    log_audit($company_id, 0, 'auto_invoice_generated', 'billing', $pdo->lastInsertId(), "Auto-generated invoice $invoice_number for $plan_key ($cycle_key) — ₦" . number_format($amount));
+    log_audit($company_id, 0, 'auto_invoice_generated', 'billing', $pdo->lastInsertId(), "Auto-generated invoice $invoice_number for $plan_key ($cycle_key) — ₦" . number_format($total_amount));
 }
 ?>

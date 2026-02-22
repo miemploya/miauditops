@@ -661,10 +661,40 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                     <input type="number" x-model.number="subForm.max_outlets" min="1" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-red-500">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-400 mb-1">Max Clients</label>
-                    <input type="number" x-model.number="subForm.max_clients" min="1" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-red-500">
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Max Clients <span class="text-slate-500 text-[9px]">(read-only, set by plan + add-ons)</span></label>
+                    <input type="number" :value="getEffectiveClients()" disabled class="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-300 cursor-not-allowed">
                 </div>
             </div>
+
+            <!-- Add-On Packs Section -->
+            <div class="mb-4 p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl">
+                <div class="flex items-center gap-2 mb-3">
+                    <i data-lucide="package-plus" class="w-4 h-4 text-amber-400"></i>
+                    <label class="text-xs font-bold text-amber-400 uppercase tracking-wider">Add-On Packs</label>
+                </div>
+                <p class="text-[11px] text-slate-400 mb-3">Each pack adds <strong class="text-white">+1 Client + 6 Departments</strong> at <strong class="text-amber-400">₦25,000/mo</strong></p>
+                <div class="flex items-center gap-3">
+                    <input type="number" x-model.number="subForm.addon_client_packs" min="0" max="20" class="w-24 px-3 py-2 bg-slate-800 border border-amber-500/50 rounded-lg text-sm text-white text-center font-bold focus:outline-none focus:border-amber-400">
+                    <span class="text-xs text-slate-400">packs</span>
+                </div>
+                <template x-if="subForm.addon_client_packs > 0">
+                    <div class="mt-3 space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-400">Extra clients</span>
+                            <span class="text-white font-bold" x-text="'+' + subForm.addon_client_packs"></span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-400">Extra departments</span>
+                            <span class="text-white font-bold" x-text="'+' + (subForm.addon_client_packs * 6)"></span>
+                        </div>
+                        <div class="flex justify-between text-xs pt-1 border-t border-amber-500/20">
+                            <span class="text-amber-400 font-bold">Add-on cost</span>
+                            <span class="text-amber-400 font-bold" x-text="'₦' + (subForm.addon_client_packs * 25000).toLocaleString() + '/mo'"></span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
             <div class="mb-4">
                 <label class="block text-xs font-semibold text-slate-400 mb-1">Notes</label>
                 <textarea x-model="subForm.notes" rows="2" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-red-500 resize-none"></textarea>
@@ -729,7 +759,7 @@ function ownerApp() {
         userSearch: '',
         userRoleFilter: '',
         subModal: false,
-        subForm: { company_id: 0, company_name: '', plan_name: 'free', status: 'trial', expires_at: '', max_users: 5, max_outlets: 3, max_clients: 1, notes: '' },
+        subForm: { company_id: 0, company_name: '', plan_name: 'free', status: 'trial', expires_at: '', max_users: 5, max_outlets: 3, max_clients: 1, addon_client_packs: 0, notes: '' },
         pricing: { professional_monthly: 25000, professional_quarterly: 67500, professional_annual: 240000, enterprise_monthly: 75000, enterprise_quarterly: 202500, enterprise_annual: 720000 },
         pricingSaving: false,
         broadcasts: [],
@@ -803,6 +833,19 @@ function ownerApp() {
             this.loadStats();
         },
 
+        // Plan base limits for calculating effective values
+        planBaseLimits: {
+            free:         { clients: 1, departments: 1 },
+            starter:      { clients: 1, departments: 1 },
+            professional: { clients: 1, departments: 10 },
+            enterprise:   { clients: 3, departments: 0 } // 0 = unlimited
+        },
+
+        getEffectiveClients() {
+            const base = this.planBaseLimits[this.subForm.plan_name]?.clients || 1;
+            return base + (this.subForm.addon_client_packs || 0);
+        },
+
         openSubModal(c) {
             this.subForm = {
                 company_id: c.id,
@@ -813,6 +856,7 @@ function ownerApp() {
                 max_users: c.max_users || 5,
                 max_outlets: c.max_outlets || 3,
                 max_clients: c.max_clients || 1,
+                addon_client_packs: parseInt(c.addon_client_packs) || 0,
                 notes: c.notes || ''
             };
             this.subModal = true;
