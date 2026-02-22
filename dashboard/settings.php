@@ -37,11 +37,6 @@ $all_clients = get_clients($company_id);
 // All available permissions
 $all_permissions = get_all_permissions();
 
-// Expense categories
-$stmt = $pdo->prepare("SELECT * FROM expense_categories WHERE company_id = ? AND deleted_at IS NULL ORDER BY type, name");
-$stmt->execute([$company_id]);
-$categories = $stmt->fetchAll();
-
 $roles = [
     'business_owner' => 'Business Owner',
     'auditor' => 'Auditor',
@@ -54,7 +49,6 @@ $roles = [
 ];
 
 $js_users      = json_encode($users, JSON_HEX_TAG | JSON_HEX_APOS);
-$js_cats       = json_encode($categories, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_clients    = json_encode($all_clients, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
 ?>
@@ -380,45 +374,129 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
                 </div>
             </div>
 
-            <!-- ========== TAB: Expense Categories ========== -->
-            <div x-show="currentTab === 'categories'" x-transition>
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <!-- Add Category Form -->
-                    <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
-                        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 to-transparent">
+            <!-- ========== TAB: Audit Trail ========== -->
+            <div x-show="currentTab === 'trail'" x-transition x-init="$watch('currentTab', v => { if (v === 'trail' && auditLogs.length === 0) fetchAuditLogs(); })">
+                <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
+                    <!-- Header -->
+                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-500/10 to-transparent">
+                        <div class="flex items-center justify-between">
                             <div class="flex items-center gap-3">
-                                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/30"><i data-lucide="tag" class="w-4 h-4 text-white"></i></div>
-                                <h3 class="font-bold text-slate-900 dark:text-white text-sm">Add Category</h3>
+                                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/30"><i data-lucide="scroll-text" class="w-4 h-4 text-white"></i></div>
+                                <div>
+                                    <h3 class="font-bold text-slate-900 dark:text-white text-sm">Audit Trail</h3>
+                                    <p class="text-[10px] text-slate-400" x-text="'Total: ' + auditTotal + ' entries'"></p>
+                                </div>
                             </div>
+                            <button @click="fetchAuditLogs()" class="p-2 rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all" title="Refresh">
+                                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                            </button>
                         </div>
-                        <form @submit.prevent="addCategory()" class="p-5 space-y-3">
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Category Name *</label><input type="text" x-model="catForm.name" required class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Type *</label>
-                                <select x-model="catForm.type" required class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
-                                    <option value="cost_of_sales">Cost of Sales</option><option value="operating">Operating</option><option value="administrative">Administrative</option><option value="other">Other</option>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="px-6 py-4 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
+                        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold uppercase text-slate-400 mb-1 block">From</label>
+                                <input type="date" x-model="auditFilters.date_from" @change="fetchAuditLogs()" class="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold uppercase text-slate-400 mb-1 block">To</label>
+                                <input type="date" x-model="auditFilters.date_to" @change="fetchAuditLogs()" class="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Module</label>
+                                <select x-model="auditFilters.module" @change="fetchAuditLogs()" class="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+                                    <option value="">All Modules</option>
+                                    <option value="setup">Company Setup</option>
+                                    <option value="audit">Daily Audit</option>
+                                    <option value="stock">Stock Audit</option>
+                                    <option value="finance">Finance</option>
+                                    <option value="requisitions">Requisitions</option>
+                                    <option value="settings">Settings</option>
+                                    <option value="core">Core / System</option>
+                                    <option value="trash">Trash</option>
+                                    <option value="billing">Billing</option>
+                                    <option value="support">Support</option>
                                 </select>
                             </div>
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Description</label><input type="text" x-model="catForm.description" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
-                            <button type="submit" class="w-full py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all text-sm">Add Category</button>
-                        </form>
+                            <div>
+                                <label class="text-[10px] font-bold uppercase text-slate-400 mb-1 block">User</label>
+                                <select x-model="auditFilters.user_id" @change="fetchAuditLogs()" class="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+                                    <option value="">All Users</option>
+                                    <template x-for="u in usersList" :key="u.id">
+                                        <option :value="u.id" x-text="u.first_name + ' ' + u.last_name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Search</label>
+                                <input type="text" x-model="auditFilters.search" @input.debounce.400ms="fetchAuditLogs()" placeholder="Search actions..." class="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+                            </div>
+                            <div class="flex items-end">
+                                <button @click="auditFilters = {date_from:'', date_to:'', module:'', user_id:'', search:''}; fetchAuditLogs()" class="w-full px-2.5 py-1.5 text-xs font-bold text-slate-500 hover:text-red-600 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-red-300 transition-all">
+                                    Clear Filters
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <!-- Categories List -->
-                    <div class="lg:col-span-2 glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
-                        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-slate-900 dark:text-white text-sm">Expense Categories</h3></div>
-                        <div class="overflow-x-auto"><table class="w-full text-sm">
-                            <thead class="bg-slate-50 dark:bg-slate-800/50"><tr><th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Name</th><th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Type</th><th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Description</th><th class="px-4 py-3 text-center text-xs font-bold text-slate-500">Actions</th></tr></thead>
+
+                    <!-- Audit Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-50 dark:bg-slate-800/50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Time</th>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">User</th>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Action</th>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Module</th>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Details</th>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">IP</th>
+                                </tr>
+                            </thead>
                             <tbody>
-                                <template x-for="c in catList" :key="c.id">
-                                    <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                                        <td class="px-4 py-3 font-semibold" x-text="c.name"></td>
-                                        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold capitalize" :class="{'bg-orange-100 text-orange-700':c.type==='cost_of_sales','bg-blue-100 text-blue-700':c.type==='operating','bg-violet-100 text-violet-700':c.type==='administrative','bg-slate-100 text-slate-600':c.type==='other'}" x-text="c.type.replace(/_/g,' ')"></span></td>
-                                        <td class="px-4 py-3 text-xs text-slate-500" x-text="c.description || '—'"></td>
-                                        <td class="px-4 py-3 text-center"><button @click="deleteCategory(c.id)" class="text-red-400 hover:text-red-600 text-xs font-bold">Delete</button></td>
+                                <template x-for="log in auditLogs" :key="log.id">
+                                    <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                        <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap" x-text="formatAuditDate(log.created_at)"></td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center gap-2">
+                                                <div class="w-6 h-6 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-[9px] font-bold" x-text="(log.first_name || '?').charAt(0) + (log.last_name || '').charAt(0)"></div>
+                                                <span class="text-xs font-semibold text-slate-700 dark:text-slate-300" x-text="(log.first_name || 'System') + ' ' + (log.last_name || '')"></span>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold capitalize" :class="getActionBadge(log.action)" x-text="log.action.replace(/_/g, ' ')"></span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <span class="text-xs font-semibold text-slate-500 capitalize" x-text="(log.module || '—').replace(/_/g, ' ')"></span>
+                                        </td>
+                                        <td class="px-4 py-3 text-xs text-slate-500 max-w-xs truncate" x-text="log.details || '—'" :title="log.details"></td>
+                                        <td class="px-4 py-3 text-[10px] font-mono text-slate-400" x-text="log.ip_address || '—'"></td>
                                     </tr>
                                 </template>
-                                <tr x-show="catList.length === 0"><td colspan="4" class="px-4 py-12 text-center text-slate-400">No categories</td></tr>
+                                <tr x-show="auditLogs.length === 0 && !auditLoading">
+                                    <td colspan="6" class="px-4 py-12 text-center">
+                                        <div class="flex flex-col items-center gap-2">
+                                            <div class="w-12 h-12 rounded-xl bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center"><i data-lucide="scroll-text" class="w-6 h-6 text-violet-400"></i></div>
+                                            <p class="text-sm font-bold text-slate-500">No audit entries found</p>
+                                            <p class="text-xs text-slate-400">Try adjusting your filters</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr x-show="auditLoading">
+                                    <td colspan="6" class="px-4 py-8 text-center text-sm text-slate-400">Loading audit entries...</td>
+                                </tr>
                             </tbody>
-                        </table></div>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div x-show="auditTotalPages > 1" class="px-6 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+                        <p class="text-[10px] text-slate-400" x-text="'Page ' + auditPage + ' of ' + auditTotalPages + ' (' + auditTotal + ' entries)'"></p>
+                        <div class="flex gap-1">
+                            <button @click="auditPage = Math.max(1, auditPage - 1); fetchAuditLogs()" :disabled="auditPage <= 1" class="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 disabled:opacity-40 transition-all">← Prev</button>
+                            <button @click="auditPage = Math.min(auditTotalPages, auditPage + 1); fetchAuditLogs()" :disabled="auditPage >= auditTotalPages" class="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 disabled:opacity-40 transition-all">Next →</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -467,17 +545,15 @@ function settingsApp() {
         tabs: [
             { id: 'company', label: 'Company Profile', icon: 'building' },
             { id: 'users', label: 'User Management', icon: 'users' },
-            { id: 'categories', label: 'Expense Categories', icon: 'tag' },
+            { id: 'trail', label: 'Audit Trail', icon: 'scroll-text' },
             { id: 'config', label: 'System Config', icon: 'settings' },
         ],
         usersList: <?php echo $js_users; ?>,
-        catList: <?php echo $js_cats; ?>,
         allClients: <?php echo $js_clients; ?>,
         allPermissions: <?php echo $js_all_perms; ?>,
         companyForm: { name: <?php echo json_encode($company['name']); ?>, email: <?php echo json_encode($company['email']); ?>, phone: <?php echo json_encode($company['phone'] ?? ''); ?>, address: <?php echo json_encode($company['address'] ?? ''); ?> },
         pwForm: { current:'', new_password:'', confirm:'' },
         userForm: { first_name:'', last_name:'', email:'', phone:'', role:'department_head', department:'', password:'', permissions: [], client_ids: [] },
-        catForm: { name:'', type:'operating', description:'' },
 
         // Modal states
         showUserModal: false,
@@ -610,18 +686,52 @@ function settingsApp() {
             if (r.success) { alert('Password reset successfully!'); this.showResetModal = false; } else alert(r.message);
         },
 
-        // === Categories ===
-        async addCategory() {
-            const fd = new FormData(); fd.append('action','add_category');
-            Object.entries(this.catForm).forEach(([k,v]) => fd.append(k,v));
-            const r = await (await fetch('../ajax/settings_api.php',{method:'POST',body:fd})).json();
-            if (r.success) location.reload(); else alert(r.message);
+        // === Audit Trail ===
+        auditLogs: [],
+        auditTotal: 0,
+        auditPage: 1,
+        auditPerPage: 25,
+        auditTotalPages: 1,
+        auditLoading: false,
+        auditFilters: { date_from: '', date_to: '', module: '', user_id: '', search: '' },
+
+        async fetchAuditLogs() {
+            this.auditLoading = true;
+            const params = new URLSearchParams({
+                action: 'get_audit_trail',
+                page: this.auditPage,
+                per_page: this.auditPerPage,
+                ...this.auditFilters
+            });
+            try {
+                const res = await fetch('../ajax/settings_api.php', { method: 'POST', body: params, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+                const data = await res.json();
+                if (data.success) {
+                    this.auditLogs = data.logs;
+                    this.auditTotal = data.total;
+                    this.auditTotalPages = data.total_pages;
+                    this.$nextTick(() => lucide.createIcons());
+                }
+            } catch (e) { console.error('Audit fetch error:', e); }
+            this.auditLoading = false;
         },
-        async deleteCategory(id) {
-            if (!confirm('Delete this category?')) return;
-            const fd = new FormData(); fd.append('action','delete_category'); fd.append('category_id',id);
-            const r = await (await fetch('../ajax/settings_api.php',{method:'POST',body:fd})).json();
-            if (r.success) location.reload(); else alert(r.message);
+
+        formatAuditDate(dt) {
+            if (!dt) return '—';
+            const d = new Date(dt);
+            const day = d.getDate().toString().padStart(2, '0');
+            const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+            const h = d.getHours().toString().padStart(2, '0');
+            const m = d.getMinutes().toString().padStart(2, '0');
+            return `${day} ${mon} ${h}:${m}`;
+        },
+
+        getActionBadge(action) {
+            if (action.includes('created') || action.includes('add') || action.includes('registered')) return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+            if (action.includes('updated') || action.includes('update') || action.includes('change') || action.includes('reset')) return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
+            if (action.includes('deleted') || action.includes('delete')) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+            if (action.includes('toggled') || action.includes('toggle')) return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+            return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
         },
     }
 }

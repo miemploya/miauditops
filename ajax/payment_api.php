@@ -97,6 +97,7 @@ try {
             ]);
 
             if (!empty($result['status']) && $result['status'] === true) {
+                log_audit($company_id, $user_id, 'payment_initialized', 'billing', null, "Payment initialized for $plan_key plan ($cycle_key) — ref: $reference");
                 echo json_encode([
                     'success'           => true,
                     'authorization_url' => $result['data']['authorization_url'],
@@ -314,6 +315,7 @@ try {
             ]);
 
             if (!empty($result['status']) && $result['status'] === true) {
+                log_audit($company_id, $user_id, 'invoice_payment_initialized', 'billing', $invoice_id, "Invoice payment initialized — ref: $reference");
                 echo json_encode([
                     'success'           => true,
                     'authorization_url' => $result['data']['authorization_url'],
@@ -388,5 +390,6 @@ function auto_generate_invoice($pdo, $company_id, $sub, $plan_cfg, $prices) {
         $due_date, $period_start, $period_end,
         ucfirst($plan_key) . ' ' . ucfirst($cycle_key) . ' subscription renewal'
     ]);
+    log_audit($company_id, 0, 'auto_invoice_generated', 'billing', $pdo->lastInsertId(), "Auto-generated invoice $invoice_number for $plan_key ($cycle_key) — ₦" . number_format($amount));
 }
 ?>

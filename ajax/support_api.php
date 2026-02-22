@@ -46,6 +46,8 @@ switch ($action) {
 
         $stmt = $pdo->prepare("INSERT INTO support_tickets (company_id, user_id, category, subject, message) VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([$company_id, $user_id, $category, $subject, $message]);
+        $ticket_id = $pdo->lastInsertId();
+        log_audit($company_id, $user_id, 'submit_ticket', 'support', $ticket_id, "Support ticket submitted: $subject ($category)");
         echo json_encode(['success' => true, 'message' => 'Your support ticket has been submitted. We will respond shortly.']);
         break;
 

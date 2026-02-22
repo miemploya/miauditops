@@ -3,7 +3,7 @@
  * MIAUDITOPS — Settings API Handler
  * Actions: update_company, change_password, add_user, update_user, toggle_user,
  *          delete_user, reset_user_password, update_user_permissions, update_user_clients,
- *          add_category, delete_category
+ *          add_category, delete_category, get_audit_trail
  */
 header('Content-Type: application/json');
 require_once '../includes/functions.php';
@@ -12,7 +12,11 @@ require_login();
 $company_id = $_SESSION['company_id'];
 $user_id    = $_SESSION['user_id'];
 $action     = $_POST['action'] ?? '';
-require_non_viewer(); // Viewer role cannot access settings
+
+// Viewer role cannot write, but can read audit trail
+if ($action !== 'get_audit_trail') {
+    require_non_viewer();
+}
 
 try {
     switch ($action) {
@@ -237,6 +241,70 @@ try {
             $stmt->execute([$cat_id, $company_id]);
             log_audit($company_id, $user_id, 'delete_category', 'settings', $cat_id, "Deleted expense category");
             echo json_encode(['success' => true]);
+            break;
+
+        case 'get_audit_trail':
+            $page     = max(1, intval($_POST['page'] ?? 1));
+            $per_page = min(100, max(10, intval($_POST['per_page'] ?? 25)));
+            $offset   = ($page - 1) * $per_page;
+
+            $where = ['a.company_id = ?'];
+            $params = [$company_id];
+
+            // Date range filter
+            if (!empty($_POST['date_from'])) {
+                $where[] = 'a.created_at >= ?';
+                $params[] = $_POST['date_from'] . ' 00:00:00';
+            }
+            if (!empty($_POST['date_to'])) {
+                $where[] = 'a.created_at <= ?';
+                $params[] = $_POST['date_to'] . ' 23:59:59';
+            }
+            // Module filter
+            if (!empty($_POST['module'])) {
+                $where[] = 'a.module = ?';
+                $params[] = $_POST['module'];
+            }
+            // User filter
+            if (!empty($_POST['user_id'])) {
+                $where[] = 'a.user_id = ?';
+                $params[] = intval($_POST['user_id']);
+            }
+            // Search filter (action or details)
+            if (!empty($_POST['search'])) {
+                $search = '%' . $_POST['search'] . '%';
+                $where[] = '(a.action LIKE ? OR a.details LIKE ?)';
+                $params[] = $search;
+                $params[] = $search;
+            }
+
+            $where_sql = implode(' AND ', $where);
+
+            // Get total count
+            $count_stmt = $pdo->prepare("SELECT COUNT(*) FROM audit_trail a WHERE $where_sql");
+            $count_stmt->execute($params);
+            $total = (int) $count_stmt->fetchColumn();
+
+            // Fetch logs with user names
+            $sql = "SELECT a.id, a.action, a.module, a.record_id, a.details, a.ip_address, a.created_at,
+                           u.first_name, u.last_name
+                    FROM audit_trail a
+                    LEFT JOIN users u ON u.id = a.user_id
+                    WHERE $where_sql
+                    ORDER BY a.created_at DESC
+                    LIMIT $per_page OFFSET $offset";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            echo json_encode([
+                'success'     => true,
+                'logs'        => $logs,
+                'total'       => $total,
+                'page'        => $page,
+                'per_page'    => $per_page,
+                'total_pages' => max(1, ceil($total / $per_page)),
+            ]);
             break;
 
         default:
