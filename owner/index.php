@@ -660,6 +660,10 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                     <label class="block text-xs font-semibold text-slate-400 mb-1">Max Outlets</label>
                     <input type="number" x-model.number="subForm.max_outlets" min="1" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-red-500">
                 </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Max Clients</label>
+                    <input type="number" x-model.number="subForm.max_clients" min="1" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-red-500">
+                </div>
             </div>
             <div class="mb-4">
                 <label class="block text-xs font-semibold text-slate-400 mb-1">Notes</label>
@@ -725,7 +729,7 @@ function ownerApp() {
         userSearch: '',
         userRoleFilter: '',
         subModal: false,
-        subForm: { company_id: 0, company_name: '', plan_name: 'free', status: 'trial', expires_at: '', max_users: 5, max_outlets: 3, notes: '' },
+        subForm: { company_id: 0, company_name: '', plan_name: 'free', status: 'trial', expires_at: '', max_users: 5, max_outlets: 3, max_clients: 1, notes: '' },
         pricing: { professional_monthly: 25000, professional_quarterly: 67500, professional_annual: 240000, enterprise_monthly: 75000, enterprise_quarterly: 202500, enterprise_annual: 720000 },
         pricingSaving: false,
         broadcasts: [],
@@ -808,6 +812,7 @@ function ownerApp() {
                 expires_at: c.expires_at || '',
                 max_users: c.max_users || 5,
                 max_outlets: c.max_outlets || 3,
+                max_clients: c.max_clients || 1,
                 notes: c.notes || ''
             };
             this.subModal = true;

@@ -112,6 +112,8 @@ $SUBSCRIPTION_PLANS = [
             'Department Store',
             'Financial Reports (Limited)',
             'Reports & Analytics (Limited)',
+            'Daily Report',
+            'Monthly P&L Statement',
             'PDF Export',
             '4 Users',
             '3 Clients',
@@ -129,8 +131,8 @@ $SUBSCRIPTION_PLANS = [
 
         // ── Limits ──
         'max_users'       => 0,    // 0 = unlimited
-        'max_clients'     => 0,
-        'max_outlets'     => 0,
+        'max_clients'     => 3,
+        'max_outlets'     => 30,
         'max_products'    => 0,
         'max_departments' => 0,
         'data_retention_days' => 0,    // 0 = unlimited
@@ -173,14 +175,16 @@ $SUBSCRIPTION_PLANS = [
             'Financial Reports (Full P&L)',
             'Requisitions & Procurement',
             'Reports & Analytics (Full)',
+            'Daily Report',
+            'Monthly P&L Statement',
             'Station Audit',
             'Priority Support',
             'PDF Export',
             'Viewer Role',
             'Audit Export',
             'Unlimited Users',
-            'Unlimited Clients',
-            'Unlimited Outlets',
+            '3 Clients',
+            '30 Outlets',
             'Unlimited Products',
             'Unlimited Departments',
         ],

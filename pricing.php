@@ -192,6 +192,12 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Revenue & Expenses Tracking
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Daily Report
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Monthly P&L Statement
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> PDF Export
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
@@ -223,7 +229,7 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Unlimited Users
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Unlimited Clients & Outlets
+                        <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> 3 Clients / 30 Outlets
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Unlimited Products & Departments
@@ -271,8 +277,8 @@ $dynamic_prices = get_dynamic_prices();
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-white/5">
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Users</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">4</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Clients</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">3</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Outlets</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Clients</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">3</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">3</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Outlets</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">30</td></tr>
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Products</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">20</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Departments</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Data Retention</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">90 Days</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1 Year</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
