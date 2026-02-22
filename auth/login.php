@@ -20,38 +20,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = $_POST['password'] ?? '';
     $company_code = strtoupper(trim($_POST['company_code'] ?? ''));
     
-    if (empty($email) || empty($password) || empty($company_code)) {
-        $error = 'All fields are required.';
+    if (empty($email) || empty($password)) {
+        $error = 'Email and password are required.';
     } else {
         try {
-            // Find company by code
-            $stmt = $pdo->prepare("SELECT id FROM companies WHERE code = ? AND is_active = 1 AND deleted_at IS NULL");
-            $stmt->execute([$company_code]);
-            $company = $stmt->fetch();
-            
-            if (!$company) {
-                $error = 'Invalid company code.';
-            } else {
-                // Find user
-                $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? AND company_id = ? AND is_active = 1 AND deleted_at IS NULL");
-                $stmt->execute([$email, $company['id']]);
-                $user = $stmt->fetch();
+            if (!empty($company_code)) {
+                // ── Path A: Company code provided — original flow ──
+                $stmt = $pdo->prepare("SELECT id FROM companies WHERE code = ? AND is_active = 1 AND deleted_at IS NULL");
+                $stmt->execute([$company_code]);
+                $company = $stmt->fetch();
                 
-                if ($user && password_verify($password, $user['password'])) {
-                    // Set session
-                    $_SESSION['user_id'] = $user['id'];
-                    $_SESSION['company_id'] = $user['company_id'];
-                    $_SESSION['user_role'] = $user['role'];
-                    $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
-                    
-                    // Update last login
-                    $stmt = $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?");
-                    $stmt->execute([$user['id']]);
-                    
-                    header('Location: ../dashboard/index.php');
-                    exit;
+                if (!$company) {
+                    $error = 'Invalid company code.';
                 } else {
+                    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? AND company_id = ? AND is_active = 1 AND deleted_at IS NULL");
+                    $stmt->execute([$email, $company['id']]);
+                    $user = $stmt->fetch();
+                    
+                    if ($user && password_verify($password, $user['password'])) {
+                        $_SESSION['user_id'] = $user['id'];
+                        $_SESSION['company_id'] = $user['company_id'];
+                        $_SESSION['user_role'] = $user['role'];
+                        $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
+                        $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
+                        header('Location: ../dashboard/index.php');
+                        exit;
+                    } else {
+                        $error = 'Invalid email or password.';
+                    }
+                }
+            } else {
+                // ── Path B: No company code — auto-detect from email ──
+                $stmt = $pdo->prepare(
+                    "SELECT u.*, c.code as company_code, c.name as company_name
+                     FROM users u
+                     JOIN companies c ON c.id = u.company_id AND c.is_active = 1 AND c.deleted_at IS NULL
+                     WHERE u.email = ? AND u.is_active = 1 AND u.deleted_at IS NULL"
+                );
+                $stmt->execute([$email]);
+                $matches = $stmt->fetchAll();
+
+                if (count($matches) === 0) {
                     $error = 'Invalid email or password.';
+                } elseif (count($matches) === 1) {
+                    $user = $matches[0];
+                    if (password_verify($password, $user['password'])) {
+                        $_SESSION['user_id'] = $user['id'];
+                        $_SESSION['company_id'] = $user['company_id'];
+                        $_SESSION['user_role'] = $user['role'];
+                        $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
+                        $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
+                        header('Location: ../dashboard/index.php');
+                        exit;
+                    } else {
+                        $error = 'Invalid email or password.';
+                    }
+                } else {
+                    // Multiple companies — need the code to disambiguate
+                    $error = 'Your email is linked to multiple companies. Please enter your Company Code to sign in.';
                 }
             }
         } catch (Exception $e) {
@@ -128,8 +154,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <form method="POST" class="space-y-2">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-0.5">Company Code</label>
-                    <input type="text" name="company_code" placeholder="e.g. ACME123" required
+                    <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-0.5">Company Code <span class="font-normal text-slate-400">(optional)</span></label>
+                    <input type="text" name="company_code" placeholder="Leave blank to auto-detect"
                            value="<?php echo htmlspecialchars($_POST['company_code'] ?? ''); ?>"
                            class="w-full px-3 py-1.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/20 transition-all uppercase tracking-wider text-sm font-mono">
                 </div>
