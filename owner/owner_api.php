@@ -182,10 +182,74 @@ switch ($action) {
     // ── Delete Company (soft) ──
     case 'delete_company':
         $id = (int)($_POST['id'] ?? 0);
-        $pdo->prepare("UPDATE companies SET deleted_at = NOW() WHERE id = ?")->execute([$id]);
-        echo json_encode(['success' => true]);
+
+        // Get company name for audit
+        $cname_stmt = $pdo->prepare("SELECT name FROM companies WHERE id = ?");
+        $cname_stmt->execute([$id]);
+        $company_name = $cname_stmt->fetchColumn() ?: 'Unknown';
+
+        // Soft-delete the company
+        $pdo->prepare("UPDATE companies SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL")->execute([$id]);
+
+        // Soft-delete ALL users in this company (frees their emails for re-registration)
+        $user_count_stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE company_id = ? AND deleted_at IS NULL");
+        $user_count_stmt->execute([$id]);
+        $affected_users = (int)$user_count_stmt->fetchColumn();
+        $pdo->prepare("UPDATE users SET deleted_at = NOW() WHERE company_id = ? AND deleted_at IS NULL")->execute([$id]);
+
+        // Audit trail
+        try {
+            require_once '../includes/functions.php';
+            log_audit(0, $_SESSION['user_id'] ?? 0, 'company_deleted', 'owner_portal', $id,
+                "Deleted company '$company_name' (ID: $id) — $affected_users user(s) soft-deleted");
+        } catch (Exception $e) { /* audit table might not exist yet */ }
+
+        echo json_encode(['success' => true, 'message' => "Company '$company_name' deleted ($affected_users users affected)"]);
         break;
 
+
+    // ── List Deleted Companies ──
+    case 'list_deleted_companies':
+        $stmt = $pdo->query("
+            SELECT c.id, c.name, c.code, c.deleted_at,
+                   (SELECT u.email FROM users u WHERE u.company_id = c.id AND u.role = 'business_owner' LIMIT 1) as owner_email,
+                   (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) as user_count,
+                   cs.plan_name
+            FROM companies c
+            LEFT JOIN company_subscriptions cs ON cs.company_id = c.id
+            WHERE c.deleted_at IS NOT NULL
+            ORDER BY c.deleted_at DESC
+        ");
+        echo json_encode(['success' => true, 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        break;
+
+    // ── Restore Deleted Company ──
+    case 'restore_company':
+        $id = (int)($_POST['id'] ?? 0);
+
+        // Get company name for audit
+        $cname_stmt = $pdo->prepare("SELECT name FROM companies WHERE id = ?");
+        $cname_stmt->execute([$id]);
+        $company_name = $cname_stmt->fetchColumn() ?: 'Unknown';
+
+        // Restore company
+        $pdo->prepare("UPDATE companies SET deleted_at = NULL WHERE id = ?")->execute([$id]);
+
+        // Restore all users
+        $user_count_stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE company_id = ? AND deleted_at IS NOT NULL");
+        $user_count_stmt->execute([$id]);
+        $restored_users = (int)$user_count_stmt->fetchColumn();
+        $pdo->prepare("UPDATE users SET deleted_at = NULL WHERE company_id = ?")->execute([$id]);
+
+        // Audit trail
+        try {
+            require_once '../includes/functions.php';
+            log_audit(0, $_SESSION['user_id'] ?? 0, 'company_restored', 'owner_portal', $id,
+                "Restored company '$company_name' (ID: $id) — $restored_users user(s) restored");
+        } catch (Exception $e) { /* audit table might not exist yet */ }
+
+        echo json_encode(['success' => true, 'message' => "Company '$company_name' restored ($restored_users users restored)"]);
+        break;
 
     // ── Get Pricing ──
     case 'get_pricing':

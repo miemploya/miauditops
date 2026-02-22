@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             // Check if email already exists
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL");
             $stmt->execute([$email]);
             if ($stmt->fetch()) {
                 $error = 'An account with this email already exists.';
