@@ -87,13 +87,17 @@ try {
             $stmt->execute([$company_id, $first, $last, $email, $phone, $hash, $role, $dept]);
             $new_user_id = $pdo->lastInsertId();
 
-            // Set permissions
+            // Set permissions — always include dashboard + company_setup
             $permissions = json_decode($_POST['permissions'] ?? '[]', true);
-            if (!empty($permissions)) {
-                $pstmt = $pdo->prepare("INSERT INTO user_permissions (user_id, permission, granted_by) VALUES (?, ?, ?)");
-                foreach ($permissions as $perm) {
-                    $pstmt->execute([$new_user_id, $perm, $user_id]);
+            // Ensure core permissions are always present
+            foreach (['dashboard', 'company_setup'] as $core) {
+                if (!in_array($core, $permissions)) {
+                    $permissions[] = $core;
                 }
+            }
+            $pstmt = $pdo->prepare("INSERT INTO user_permissions (user_id, permission, granted_by) VALUES (?, ?, ?)");
+            foreach ($permissions as $perm) {
+                $pstmt->execute([$new_user_id, $perm, $user_id]);
             }
 
             // Set client assignments
@@ -188,6 +192,13 @@ try {
             $permissions = json_decode($_POST['permissions'] ?? '[]', true);
 
             if (!$target_id) { echo json_encode(['success' => false, 'message' => 'Invalid user']); break; }
+
+            // Ensure core permissions are always present
+            foreach (['dashboard', 'company_setup'] as $core) {
+                if (!in_array($core, $permissions)) {
+                    $permissions[] = $core;
+                }
+            }
 
             set_user_permissions($target_id, $permissions, $user_id);
             log_audit($company_id, $user_id, 'update_permissions', 'settings', $target_id, "Updated permissions: " . implode(', ', $permissions));

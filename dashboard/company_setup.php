@@ -10,6 +10,7 @@ require_permission('company_setup');
 
 $company_id = $_SESSION['company_id'];
 $page_title = 'Company Setup';
+$is_admin = is_admin_role();
 
 // Fetch all clients
 $clients = get_clients($company_id);
@@ -124,6 +125,7 @@ foreach ($clients as $c) {
                 <!-- ========== TAB 1: CLIENTS ========== -->
                 <div x-show="activeTab==='clients'" class="p-6">
                     
+                    <?php if ($is_admin): ?>
                     <!-- Add Client Form -->
                     <div class="mb-6 p-5 rounded-xl bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 border border-indigo-200/50 dark:border-indigo-800/50">
                         <h3 class="text-base font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
@@ -168,6 +170,16 @@ foreach ($clients as $c) {
                             </div>
                         </form>
                     </div>
+                    <?php else: ?>
+                    <!-- Read-only notice for non-admin users -->
+                    <div class="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 flex items-center gap-3">
+                        <i data-lucide="eye" class="w-5 h-5 text-amber-500 shrink-0"></i>
+                        <div>
+                            <p class="text-sm font-bold text-amber-700 dark:text-amber-300">View Only</p>
+                            <p class="text-xs text-amber-600 dark:text-amber-400">You can view client and outlet details but only administrators can add, edit, or delete them.</p>
+                        </div>
+                    </div>
+                    <?php endif; ?>
 
                     <!-- Clients Table -->
                     <div class="overflow-x-auto">
@@ -233,6 +245,7 @@ foreach ($clients as $c) {
                                                class="px-2.5 py-1 rounded-lg text-xs font-bold transition-all <?php echo ($cl['id'] == $active_client_id) ? 'bg-indigo-100 text-indigo-700 cursor-default' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'; ?>">
                                                 <?php echo ($cl['id'] == $active_client_id) ? '✓ Active' : 'Select'; ?>
                                             </a>
+                                            <?php if ($is_admin): ?>
                                             <button onclick="openEditClient(<?php echo htmlspecialchars(json_encode([
                                                 'id' => $cl['id'], 'name' => $cl['name'], 'contact_person' => $cl['contact_person'] ?? '',
                                                 'email' => $cl['email'] ?? '', 'phone' => $cl['phone'] ?? '',
@@ -246,6 +259,7 @@ foreach ($clients as $c) {
                                             <button onclick="deleteClient(<?php echo $cl['id']; ?>, '<?php echo addslashes($cl['name']); ?>')" class="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-all" title="Delete">
                                                 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                                             </button>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>
@@ -283,6 +297,7 @@ foreach ($clients as $c) {
                         </div>
                     </div>
 
+                    <?php if ($is_admin): ?>
                     <!-- Add Outlet Form -->
                     <div class="mb-6 p-5 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/10 dark:to-teal-900/10 border border-emerald-200/50 dark:border-emerald-800/50">
                         <h3 class="text-base font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
@@ -343,6 +358,7 @@ foreach ($clients as $c) {
                             </div>
                         </form>
                     </div>
+                    <?php endif; ?>
 
                     <!-- Outlets Grid -->
                     <?php if (empty($active_outlets)): ?>
@@ -464,6 +480,7 @@ foreach ($clients as $c) {
                             </div>
 
                             <!-- Action Buttons -->
+                            <?php if ($is_admin): ?>
                             <div class="flex items-center gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                                 <button onclick="openEditOutlet(<?php echo htmlspecialchars(json_encode([
                                     'id' => $ol['id'], 'name' => $ol['name'], 'type' => $ol['type'],
@@ -478,6 +495,7 @@ foreach ($clients as $c) {
                                     <i data-lucide="trash-2" class="w-3 h-3"></i>
                                 </button>
                             </div>
+                            <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
                     </div>

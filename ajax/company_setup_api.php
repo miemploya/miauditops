@@ -64,6 +64,13 @@ if ($action !== 'get_outlets') {
     require_non_viewer();
 }
 
+// Only admin roles (super_admin, business_owner) can add/edit/delete clients and outlets
+$admin_only_actions = ['add_client', 'update_client', 'delete_client', 'toggle_client', 'add_outlet', 'update_outlet', 'delete_outlet', 'toggle_outlet'];
+if (in_array($action, $admin_only_actions) && !is_admin_role()) {
+    echo json_encode(['success' => false, 'message' => 'Only administrators can modify clients and outlets.']);
+    exit;
+}
+
 try {
     switch ($action) {
 

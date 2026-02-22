@@ -243,7 +243,7 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <template x-if="userForm.role === 'hod' || userForm.role === 'ceo'">
                                     <div class="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-300">
                                         <i data-lucide="info" class="w-3.5 h-3.5 inline -mt-0.5 mr-1"></i>
-                                        <strong x-text="userForm.role === 'hod' ? 'HOD' : 'CEO'"></strong> role is restricted to <strong>Requisitions</strong> only (approval workflow).
+                                        <strong x-text="userForm.role === 'hod' ? 'HOD' : 'CEO'"></strong> role defaults to <strong>Dashboard</strong>, <strong>Company Setup</strong> &amp; <strong>Requisitions</strong> (approval workflow). You can add more permissions after creating the user.
                                     </div>
                                 </template>
                                 <div x-show="userForm.role !== 'hod' && userForm.role !== 'ceo'" class="grid grid-cols-2 gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -255,6 +255,10 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             </div>
                                         </label>
                                     </template>
+                                </div>
+                                <div class="mt-2 p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 text-[10px] text-blue-600 dark:text-blue-400">
+                                    <i data-lucide="info" class="w-3 h-3 inline -mt-0.5 mr-1"></i>
+                                    <strong>Tip:</strong> <strong>Dashboard</strong> &amp; <strong>Company Setup</strong> are essential for access. After creating the user, click <strong>Permissions</strong> on their card to review and adjust module access.
                                 </div>
                             </div>
                         </template>
@@ -522,7 +526,7 @@ function settingsApp() {
             this.$nextTick(() => lucide.createIcons());
             this.$watch('userForm.role', (val) => {
                 if (val === 'hod' || val === 'ceo') {
-                    this.userForm.permissions = ['requisitions'];
+                    this.userForm.permissions = ['dashboard', 'company_setup', 'requisitions'];
                 }
             });
         },
