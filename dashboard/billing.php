@@ -318,7 +318,7 @@ require_login();
                                                 </div>
 
                                                 <!-- Plan Features -->
-                                                <div class="mb-4 space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                                                <div class="mb-4 space-y-1.5 max-h-64 overflow-y-auto pr-1">
                                                     <template x-for="feat in (plan.features || [])" :key="feat">
                                                         <div class="flex items-center gap-2">
                                                             <i data-lucide="check" class="w-3 h-3 text-emerald-500 shrink-0"></i>

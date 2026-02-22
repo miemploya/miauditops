@@ -175,46 +175,11 @@ try {
             $pay_stmt->execute([$company_id]);
             $payments = $pay_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // 5. Available plans for upgrade — include features for comparison
+            // 5. Available plans for upgrade — use features from plan config
             $all_plans = get_all_plans();
             $plan_options = [];
-            // Build human-readable feature list per plan
-            $module_labels = [
-                'dashboard'=>'Dashboard','company_setup'=>'Company Setup','audit'=>'Sales Audit',
-                'stock'=>'Stock Management','main_store'=>'Main Store','department_store'=>'Department Store',
-                'finance'=>'Financial Reports','requisitions'=>'Requisitions & Procurement',
-                'reports'=>'Reports & Analytics','station_audit'=>'Station Audit','support'=>'Priority Support'
-            ];
             foreach ($all_plans as $key => $p) {
                 if ($key === 'starter') continue;
-                // Build features list
-                $features = [];
-                $features[] = ($p['max_users'] == 0 ? 'Unlimited' : $p['max_users']) . ' Users';
-                $features[] = ($p['max_clients'] == 0 ? 'Unlimited' : $p['max_clients']) . ' Clients';
-                $features[] = ($p['max_outlets'] == 0 ? 'Unlimited' : $p['max_outlets']) . ' Outlets';
-                $features[] = ($p['max_products'] == 0 ? 'Unlimited' : $p['max_products']) . ' Products';
-                $features[] = ($p['max_departments'] == 0 ? 'Unlimited' : $p['max_departments']) . ' Departments';
-                $features[] = ($p['data_retention_days'] == 0 ? 'Unlimited' : $p['data_retention_days'] . ' days') . ' Data Retention';
-                // List specific modules included (skip utility ones like settings, trash, billing)
-                $skip_modules = ['dashboard', 'company_setup', 'settings', 'trash', 'billing'];
-                foreach ($p['modules'] as $mod) {
-                    if (in_array($mod, $skip_modules)) continue;
-                    if (isset($module_labels[$mod])) {
-                        $label = $module_labels[$mod];
-                        // Check if tab-locked
-                        if (!empty($p['tab_locks'][$mod])) {
-                            $label .= ' (Limited)';
-                        }
-                        $features[] = $label;
-                    }
-                }
-                // Feature flags
-                if (!empty($p['pdf_export'])) $features[] = 'PDF Export';
-                if (!empty($p['viewer_role'])) $features[] = 'Viewer Role';
-                if (!empty($p['audit_export'])) $features[] = 'Audit Export';
-                if (!empty($p['station_audit'])) $features[] = 'Station Audit';
-                if (!empty($p['support_services'])) $features[] = 'Priority Support';
-
                 $plan_options[] = [
                     'key'       => $key,
                     'label'     => $p['label'],
@@ -224,7 +189,7 @@ try {
                     'monthly'   => $prices[$key . '_monthly'] ?? 0,
                     'quarterly' => $prices[$key . '_quarterly'] ?? 0,
                     'annual'    => $prices[$key . '_annual'] ?? 0,
-                    'features'  => $features,
+                    'features'  => $p['features'] ?? [],
                     'limits'    => [
                         'max_users'       => $p['max_users'],
                         'max_clients'     => $p['max_clients'],

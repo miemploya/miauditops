@@ -50,6 +50,15 @@ $SUBSCRIPTION_PLANS = [
         'audit_export'   => false,
         'station_audit'  => false,
         'support_services' => false,
+
+        // ── Display features (shown on billing/pricing pages) ──
+        'features' => [
+            '90 days Data Retention',
+            'Sales Audit',
+            'Stock Management',
+            'Main Store',
+            'Department Store',
+        ],
     ],
 
     'professional' => [
@@ -93,6 +102,23 @@ $SUBSCRIPTION_PLANS = [
         'audit_export'   => false,
         'station_audit'  => false,
         'support_services' => false,
+
+        // ── Display features (shown on billing/pricing pages) ──
+        'features' => [
+            '365 days Data Retention',
+            'Sales Audit',
+            'Stock Management',
+            'Main Store',
+            'Department Store',
+            'Financial Reports (Limited)',
+            'Reports & Analytics (Limited)',
+            'PDF Export',
+            '4 Users',
+            '3 Clients',
+            '10 Outlets',
+            'Unlimited Products',
+            '10 Departments',
+        ],
     ],
 
     'enterprise' => [
@@ -136,6 +162,28 @@ $SUBSCRIPTION_PLANS = [
         'audit_export'   => true,
         'station_audit'  => true,
         'support_services' => true,
+
+        // ── Display features (shown on billing/pricing pages) ──
+        'features' => [
+            'Unlimited Data Retention',
+            'Sales Audit',
+            'Stock Management',
+            'Main Store',
+            'Department Store',
+            'Financial Reports (Full P&L)',
+            'Requisitions & Procurement',
+            'Reports & Analytics (Full)',
+            'Station Audit',
+            'Priority Support',
+            'PDF Export',
+            'Viewer Role',
+            'Audit Export',
+            'Unlimited Users',
+            'Unlimited Clients',
+            'Unlimited Outlets',
+            'Unlimited Products',
+            'Unlimited Departments',
+        ],
     ],
 ];
 
