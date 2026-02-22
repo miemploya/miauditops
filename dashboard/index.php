@@ -128,6 +128,64 @@ for ($i = 6; $i >= 0; $i--) {
     }
     if (!$found) $chart_data[] = 0;
 }
+
+// 30-day Revenue Trend Data
+$stmt = $pdo->prepare("SELECT transaction_date, COALESCE(SUM(actual_total), 0) as daily_total FROM sales_transactions WHERE company_id = ? AND client_id = ? AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND deleted_at IS NULL GROUP BY transaction_date ORDER BY transaction_date");
+$stmt->execute([$company_id, $client_id]);
+$monthly_sales = $stmt->fetchAll();
+
+$chart_labels_30 = [];
+$chart_data_30 = [];
+for ($i = 29; $i >= 0; $i--) {
+    $date = date('Y-m-d', strtotime("-$i days"));
+    $chart_labels_30[] = date('M j', strtotime($date));
+    $found = false;
+    foreach ($monthly_sales as $row) {
+        if ($row['transaction_date'] === $date) {
+            $chart_data_30[] = (float)$row['daily_total'];
+            $found = true;
+            break;
+        }
+    }
+    if (!$found) $chart_data_30[] = 0;
+}
+
+// Outlet Performance Comparison (this month)
+$stmt = $pdo->prepare(
+    "SELECT co.name as outlet_name, COALESCE(SUM(st.actual_total), 0) as total_revenue
+     FROM client_outlets co
+     LEFT JOIN sales_transactions st ON st.outlet_id = co.id 
+         AND st.company_id = co.company_id 
+         AND MONTH(st.transaction_date) = MONTH(CURDATE()) 
+         AND YEAR(st.transaction_date) = YEAR(CURDATE())
+         AND st.deleted_at IS NULL
+     WHERE co.company_id = ? AND co.deleted_at IS NULL
+     GROUP BY co.id, co.name
+     ORDER BY total_revenue DESC
+     LIMIT 10"
+);
+$stmt->execute([$company_id]);
+$outlet_data = $stmt->fetchAll();
+$outlet_labels = array_column($outlet_data, 'outlet_name');
+$outlet_values = array_map('floatval', array_column($outlet_data, 'total_revenue'));
+
+// Expense Breakdown by Category (this month)
+$stmt = $pdo->prepare(
+    "SELECT COALESCE(ec.name, 'Uncategorized') as category, SUM(ee.amount) as total
+     FROM expense_entries ee
+     LEFT JOIN expense_categories ec ON ec.id = ee.category_id
+     WHERE ee.company_id = ? AND ee.client_id = ?
+       AND MONTH(ee.entry_date) = MONTH(CURDATE())
+       AND YEAR(ee.entry_date) = YEAR(CURDATE())
+       AND ee.deleted_at IS NULL
+     GROUP BY ec.name
+     ORDER BY total DESC
+     LIMIT 8"
+);
+$stmt->execute([$company_id, $client_id]);
+$expense_data = $stmt->fetchAll();
+$expense_labels = array_column($expense_data, 'category');
+$expense_values = array_map('floatval', array_column($expense_data, 'total'));
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -422,10 +480,16 @@ for ($i = 6; $i >= 0; $i--) {
                     <div class="flex items-center justify-between mb-6">
                         <div>
                             <h3 class="text-lg font-bold text-slate-900 dark:text-white">Revenue Trend</h3>
-                            <p class="text-sm text-slate-400">Last 7 days performance</p>
+                            <p class="text-sm text-slate-400" id="revTrendLabel">Last 7 days performance</p>
                         </div>
-                        <div class="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
-                            <?php echo format_currency($monthly_revenue); ?> this month
+                        <div class="flex items-center gap-2">
+                            <div class="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+                                <button onclick="switchRevRange('7d')" id="btn7d" class="px-3 py-1 text-xs font-bold rounded-md bg-violet-600 text-white shadow transition-all">7D</button>
+                                <button onclick="switchRevRange('30d')" id="btn30d" class="px-3 py-1 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white transition-all">30D</button>
+                            </div>
+                            <div class="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+                                <?php echo format_currency($monthly_revenue); ?> this month
+                            </div>
                         </div>
                     </div>
                     <div class="relative h-48">
@@ -481,6 +545,74 @@ for ($i = 6; $i >= 0; $i--) {
                             <i data-lucide="chevron-right" class="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity"></i>
                         </a>
                     </div>
+                </div>
+            </div>
+
+            <!-- Outlet Performance & Expense Breakdown Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                
+                <!-- Outlet Performance (Span 2) -->
+                <div class="lg:col-span-2 glass-card rounded-2xl p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-lg">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Outlet Performance</h3>
+                            <p class="text-sm text-slate-400"><?php echo date('F Y'); ?> — Revenue by outlet</p>
+                        </div>
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                            <i data-lucide="bar-chart-3" class="w-5 h-5 text-white"></i>
+                        </div>
+                    </div>
+                    <?php if (count($outlet_labels) > 0): ?>
+                    <div class="relative h-56">
+                        <canvas id="outletChart"></canvas>
+                    </div>
+                    <?php else: ?>
+                    <div class="flex flex-col items-center justify-center h-48 text-slate-400">
+                        <i data-lucide="map-pin" class="w-10 h-10 mb-2 opacity-40"></i>
+                        <p class="text-sm font-medium">No outlet data yet</p>
+                        <p class="text-xs">Revenue will appear once sales are recorded per outlet</p>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Expense Breakdown (1/3) -->
+                <div class="glass-card rounded-2xl p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-lg">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Expense Breakdown</h3>
+                            <p class="text-sm text-slate-400"><?php echo date('F Y'); ?></p>
+                        </div>
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center shadow-lg shadow-rose-500/30">
+                            <i data-lucide="pie-chart" class="w-5 h-5 text-white"></i>
+                        </div>
+                    </div>
+                    <?php if (count($expense_labels) > 0): ?>
+                    <div class="relative h-48 flex items-center justify-center">
+                        <canvas id="expenseChart"></canvas>
+                    </div>
+                    <div class="mt-4 space-y-2">
+                        <?php 
+                        $exp_colors = ['#f43f5e','#f97316','#eab308','#22c55e','#06b6d4','#8b5cf6','#ec4899','#64748b'];
+                        foreach ($expense_labels as $idx => $label): 
+                            $color = $exp_colors[$idx % count($exp_colors)];
+                            $val = $expense_values[$idx];
+                        ?>
+                        <div class="flex items-center justify-between text-xs">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full" style="background:<?php echo $color; ?>"></span>
+                                <span class="text-slate-600 dark:text-slate-300 font-medium"><?php echo htmlspecialchars($label); ?></span>
+                            </div>
+                            <span class="font-bold text-slate-700 dark:text-white"><?php echo format_currency($val); ?></span>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php else: ?>
+                    <div class="flex flex-col items-center justify-center h-48 text-slate-400">
+                        <i data-lucide="receipt" class="w-10 h-10 mb-2 opacity-40"></i>
+                        <p class="text-sm font-medium">No expenses this month</p>
+                        <p class="text-xs">Categories will appear after expenses are recorded</p>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -547,38 +679,146 @@ for ($i = 6; $i >= 0; $i--) {
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+// ========== Revenue Trend Chart with 7D / 30D Toggle ==========
+const revData7d  = { labels: <?php echo json_encode($chart_labels); ?>, data: <?php echo json_encode($chart_data); ?> };
+const revData30d = { labels: <?php echo json_encode($chart_labels_30); ?>, data: <?php echo json_encode($chart_data_30); ?> };
+
+let revenueChart = null;
+function renderRevenueChart(range) {
     const ctx = document.getElementById('revenueChart');
-    if (ctx) {
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: <?php echo json_encode($chart_labels); ?>,
-                datasets: [{
-                    label: 'Revenue',
-                    data: <?php echo json_encode($chart_data); ?>,
-                    borderColor: '#8b5cf6',
-                    backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                    borderWidth: 3,
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 5,
-                    pointBackgroundColor: '#8b5cf6',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    pointHoverRadius: 7
-                }]
+    if (!ctx) return;
+    if (revenueChart) revenueChart.destroy();
+    const src = range === '30d' ? revData30d : revData7d;
+    revenueChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: src.labels,
+            datasets: [{
+                label: 'Revenue',
+                data: src.data,
+                borderColor: '#8b5cf6',
+                backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4,
+                pointRadius: range === '30d' ? 2 : 5,
+                pointBackgroundColor: '#8b5cf6',
+                pointBorderColor: '#fff',
+                pointBorderWidth: range === '30d' ? 1 : 2,
+                pointHoverRadius: 7
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,0.1)' }, ticks: { font: { size: 11 } } },
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: range === '30d' ? 45 : 0, autoSkip: true, maxTicksLimit: range === '30d' ? 10 : 7 } }
+            }
+        }
+    });
+}
+
+function switchRevRange(range) {
+    const btn7  = document.getElementById('btn7d');
+    const btn30 = document.getElementById('btn30d');
+    const label = document.getElementById('revTrendLabel');
+    if (range === '30d') {
+        btn30.className = 'px-3 py-1 text-xs font-bold rounded-md bg-violet-600 text-white shadow transition-all';
+        btn7.className  = 'px-3 py-1 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white transition-all';
+        label.textContent = 'Last 30 days performance';
+    } else {
+        btn7.className  = 'px-3 py-1 text-xs font-bold rounded-md bg-violet-600 text-white shadow transition-all';
+        btn30.className = 'px-3 py-1 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white transition-all';
+        label.textContent = 'Last 7 days performance';
+    }
+    renderRevenueChart(range);
+}
+
+// Init revenue chart
+renderRevenueChart('7d');
+
+// ========== Outlet Performance Bar Chart ==========
+<?php if (count($outlet_labels) > 0): ?>
+(function() {
+    const ctx = document.getElementById('outletChart');
+    if (!ctx) return;
+    const labels = <?php echo json_encode($outlet_labels); ?>;
+    const data   = <?php echo json_encode($outlet_values); ?>;
+    const barColors = [
+        'rgba(59,130,246,0.85)', 'rgba(99,102,241,0.85)', 'rgba(139,92,246,0.85)',
+        'rgba(16,185,129,0.85)', 'rgba(236,72,153,0.85)', 'rgba(245,158,11,0.85)',
+        'rgba(6,182,212,0.85)',  'rgba(244,63,94,0.85)',   'rgba(34,197,94,0.85)',
+        'rgba(249,115,22,0.85)'
+    ];
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Revenue',
+                data: data,
+                backgroundColor: barColors.slice(0, labels.length),
+                borderRadius: 8,
+                borderSkipped: false,
+                barThickness: labels.length > 5 ? 'flex' : 40,
+                maxBarThickness: 50
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) { return '₦' + ctx.parsed.y.toLocaleString(); }
+                    }
+                }
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,0.1)' }, ticks: { font: { size: 11 } } },
-                    x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,0.1)' }, ticks: { font: { size: 11 } } },
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } }
+            }
+        }
+    });
+})();
+<?php endif; ?>
+
+// ========== Expense Breakdown Doughnut Chart ==========
+<?php if (count($expense_labels) > 0): ?>
+(function() {
+    const ctx = document.getElementById('expenseChart');
+    if (!ctx) return;
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: <?php echo json_encode($expense_labels); ?>,
+            datasets: [{
+                data: <?php echo json_encode($expense_values); ?>,
+                backgroundColor: ['#f43f5e','#f97316','#eab308','#22c55e','#06b6d4','#8b5cf6','#ec4899','#64748b'],
+                borderWidth: 2,
+                borderColor: document.documentElement.classList.contains('dark') ? '#0f172a' : '#ffffff',
+                hoverOffset: 8
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '65%',
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) { return ctx.label + ': ₦' + ctx.parsed.toLocaleString(); }
+                    }
                 }
             }
-        });
-    }
+        }
+    });
+})();
+<?php endif; ?>
 </script>
 
 <?php include '../includes/dashboard_scripts.php'; ?>

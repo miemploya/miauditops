@@ -120,3 +120,81 @@ function send_password_reset_email($email, $name, $reset_link) {
     
     return send_mail($email, $name, $subject, $html, $text);
 }
+
+/**
+ * Send an email verification link
+ * 
+ * @param string $email      User's email
+ * @param string $name       User's name
+ * @param string $verify_link Full URL to verify email
+ * @param string $company_code Company code for reference
+ * @return array ['success' => bool, 'message' => string]
+ */
+function send_verification_email($email, $name, $verify_link, $company_code = '') {
+    $subject = 'Verify Your Email — MIAUDITOPS';
+    
+    $code_block = $company_code ? '
+                <div style="margin-top:20px; padding:16px; background:#f0fdf4; border-radius:12px; border:1px solid #bbf7d0; text-align:center;">
+                    <p style="color:#16a34a; font-size:11px; font-weight:600; margin:0 0 6px;">Your Company Code</p>
+                    <p style="color:#15803d; font-size:22px; font-weight:800; letter-spacing:2px; margin:0;">' . htmlspecialchars($company_code) . '</p>
+                    <p style="color:#86efac; font-size:10px; margin:4px 0 0;">Save this — you\'ll need it to sign in</p>
+                </div>' : '';
+
+    $html = '
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin:0; padding:0; background-color:#f8fafc; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">
+        <div style="max-width:520px; margin:40px auto; padding:0;">
+            <!-- Header -->
+            <div style="background: linear-gradient(135deg, #7c3aed, #6d28d9); border-radius:16px 16px 0 0; padding:32px; text-align:center;">
+                <div style="width:48px; height:48px; background:rgba(255,255,255,0.2); border-radius:12px; display:inline-flex; align-items:center; justify-content:center; margin-bottom:12px;">
+                    <span style="font-size:24px; color:#fff;">✉️</span>
+                </div>
+                <h1 style="color:#fff; font-size:22px; font-weight:800; margin:0; letter-spacing:-0.5px;">MIAUDITOPS</h1>
+            </div>
+            
+            <!-- Body -->
+            <div style="background:#fff; padding:32px; border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0;">
+                <h2 style="color:#1e293b; font-size:20px; font-weight:700; margin:0 0 8px;">Verify Your Email</h2>
+                <p style="color:#64748b; font-size:14px; line-height:1.6; margin:0 0 24px;">
+                    Hi <strong style="color:#334155;">' . htmlspecialchars($name) . '</strong>, welcome to MIAUDITOPS! Please verify your email address by clicking the button below.
+                </p>
+                
+                <!-- Button -->
+                <div style="text-align:center; margin:24px 0;">
+                    <a href="' . htmlspecialchars($verify_link) . '" style="display:inline-block; padding:14px 32px; background:linear-gradient(135deg, #10b981, #059669); color:#fff; font-size:14px; font-weight:700; text-decoration:none; border-radius:12px; box-shadow:0 4px 14px rgba(16,185,129,0.3);">
+                        Verify My Email
+                    </a>
+                </div>
+                
+                ' . $code_block . '
+                
+                <p style="color:#94a3b8; font-size:12px; line-height:1.6; margin:24px 0 0;">
+                    This link expires in <strong>24 hours</strong>. If you didn\'t create this account, you can safely ignore this email.
+                </p>
+                
+                <!-- Link fallback -->
+                <div style="margin-top:20px; padding:12px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
+                    <p style="color:#94a3b8; font-size:11px; margin:0 0 4px;">If the button doesn\'t work, copy this link:</p>
+                    <p style="color:#6d28d9; font-size:11px; word-break:break-all; margin:0;">' . htmlspecialchars($verify_link) . '</p>
+                </div>
+            </div>
+            
+            <!-- Footer -->
+            <div style="background:#f8fafc; padding:20px 32px; border-radius:0 0 16px 16px; border:1px solid #e2e8f0; border-top:none; text-align:center;">
+                <p style="color:#94a3b8; font-size:11px; margin:0;">
+                    &copy; ' . date('Y') . ' MIAUDITOPS by Miemploya. All rights reserved.
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>';
+    
+    $text = "Hi $name,\n\nWelcome to MIAUDITOPS! Please verify your email by visiting this link:\n\n$verify_link\n\n" . ($company_code ? "Your Company Code: $company_code\nSave this — you'll need it to sign in.\n\n" : "") . "This link expires in 24 hours.\n\n— MIAUDITOPS by Miemploya";
+    
+    return send_mail($email, $name, $subject, $html, $text);
+}

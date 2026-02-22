@@ -111,8 +111,15 @@ try {
 
     // Mark linked billing invoice as paid (if any)
     try {
+        // First try: match by payment_reference (set in pay_invoice flow)
         $inv_stmt = $pdo->prepare("UPDATE billing_invoices SET status = 'paid', paid_at = NOW(), payment_reference = ? WHERE company_id = ? AND payment_reference = ? AND status != 'paid'");
         $inv_stmt->execute([$reference, $company_id, $reference]);
+        
+        // Fallback: if no invoice was matched by reference, find any unpaid invoice for same plan+cycle
+        if ($inv_stmt->rowCount() === 0) {
+            $pdo->prepare("UPDATE billing_invoices SET status = 'paid', paid_at = NOW(), payment_reference = ? WHERE company_id = ? AND plan_name = ? AND billing_cycle = ? AND status IN ('draft','sent','overdue') ORDER BY id DESC LIMIT 1")
+                ->execute([$reference, $company_id, $plan_key, $cycle_key]);
+        }
     } catch (Exception $e) {
         // billing_invoices table might not exist yet — ignore
     }

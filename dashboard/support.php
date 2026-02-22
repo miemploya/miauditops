@@ -224,27 +224,49 @@ $is_enterprise = ($_current_plan_key === 'enterprise');
                                         </div>
                                     </div>
 
-                                    <!-- Expanded Reply Area -->
+                                    <!-- Expanded Reply Thread -->
                                     <div x-show="expandedTicket === ticket.id" x-transition @click.stop class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                        <!-- Original Message -->
                                         <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 mb-3">
-                                            <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Your Message:</p>
+                                            <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Your Original Message:</p>
                                             <p class="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line" x-text="ticket.message"></p>
                                         </div>
-                                        <template x-if="ticket.admin_reply">
-                                            <div class="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 rounded-xl p-4 border border-amber-200 dark:border-amber-800/30">
-                                                <p class="text-xs font-bold text-amber-600 dark:text-amber-400 mb-1 flex items-center gap-1">
-                                                    <i data-lucide="message-circle" class="w-3 h-3"></i> Admin Response
-                                                </p>
-                                                <p class="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line" x-text="ticket.admin_reply"></p>
-                                                <p class="text-[10px] text-amber-500/70 mt-2" x-text="ticket.replied_at ? formatDate(ticket.replied_at) : ''"></p>
-                                            </div>
-                                        </template>
-                                        <template x-if="!ticket.admin_reply">
-                                            <div class="text-center py-4">
+
+                                        <!-- Reply Thread -->
+                                        <div x-show="ticket._replies && ticket._replies.length > 0" class="space-y-2 mb-3 max-h-72 overflow-y-auto px-1">
+                                            <template x-for="reply in (ticket._replies || [])" :key="reply.id">
+                                                <div class="flex" :class="reply.is_admin == 1 ? 'justify-start' : 'justify-end'">
+                                                    <div class="max-w-[80%] rounded-xl px-4 py-2.5"
+                                                         :class="reply.is_admin == 1 
+                                                            ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 border border-amber-200 dark:border-amber-800/30'
+                                                            : 'bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-200 dark:border-indigo-800/30'">
+                                                        <p class="text-[10px] font-bold mb-0.5"
+                                                           :class="reply.is_admin == 1 ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-600 dark:text-indigo-400'"
+                                                           x-text="reply.is_admin == 1 ? '⚡ Support Team' : (reply.first_name + ' ' + reply.last_name)"></p>
+                                                        <p class="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line" x-text="reply.message"></p>
+                                                        <p class="text-[10px] text-slate-400 mt-1" x-text="formatDate(reply.created_at)"></p>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+
+                                        <!-- Awaiting State (no replies) -->
+                                        <template x-if="!ticket._replies || ticket._replies.length === 0">
+                                            <div class="text-center py-4 mb-3">
                                                 <i data-lucide="clock" class="w-6 h-6 text-slate-300 dark:text-slate-600 mx-auto mb-1"></i>
-                                                <p class="text-xs text-slate-400">Awaiting response from support team</p>
+                                                <p class="text-xs text-slate-400">No replies yet</p>
                                             </div>
                                         </template>
+
+                                        <!-- Reply Input -->
+                                        <div class="flex gap-2">
+                                            <input type="text" x-model="ticket._replyText" @keydown.enter="sendReply(ticket)"
+                                                   placeholder="Type your reply..."
+                                                   class="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-all">
+                                            <button @click="sendReply(ticket)" :disabled="!ticket._replyText?.trim()" class="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white text-sm font-bold rounded-xl hover:from-amber-400 hover:to-orange-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5">
+                                                <i data-lucide="send" class="w-3.5 h-3.5"></i> Send
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </template>
@@ -276,7 +298,11 @@ $is_enterprise = ($_current_plan_key === 'enterprise');
                             fd.append('action', 'list_tickets');
                             const res = await fetch('../ajax/support_api.php', { method: 'POST', body: fd });
                             const data = await res.json();
-                            if (data.success) this.tickets = data.data || [];
+                            if (data.success) {
+                                this.tickets = (data.data || []).map(t => ({
+                                    ...t, _replies: [], _replyText: '', _loaded: false
+                                }));
+                            }
                         } catch (e) { console.error(e); }
                         this.loading = false;
                         this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
@@ -287,8 +313,54 @@ $is_enterprise = ($_current_plan_key === 'enterprise');
                         return this.tickets.filter(t => t.status === this.filter);
                     },
 
-                    toggleTicket(id) {
-                        this.expandedTicket = this.expandedTicket === id ? null : id;
+                    async toggleTicket(id) {
+                        if (this.expandedTicket === id) {
+                            this.expandedTicket = null;
+                            return;
+                        }
+                        this.expandedTicket = id;
+                        const ticket = this.tickets.find(t => t.id == id);
+                        if (ticket && !ticket._loaded) {
+                            await this.loadReplies(ticket);
+                        }
+                        this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+                    },
+
+                    async loadReplies(ticket) {
+                        try {
+                            const fd = new FormData();
+                            fd.append('action', 'list_replies');
+                            fd.append('ticket_id', ticket.id);
+                            const res = await fetch('../ajax/support_api.php', { method: 'POST', body: fd });
+                            const data = await res.json();
+                            if (data.success) {
+                                ticket._replies = data.data || [];
+                                ticket._loaded = true;
+                            }
+                        } catch (e) { console.error(e); }
+                    },
+
+                    async sendReply(ticket) {
+                        const msg = (ticket._replyText || '').trim();
+                        if (!msg) return;
+                        try {
+                            const fd = new FormData();
+                            fd.append('action', 'reply_ticket');
+                            fd.append('ticket_id', ticket.id);
+                            fd.append('message', msg);
+                            const res = await fetch('../ajax/support_api.php', { method: 'POST', body: fd });
+                            const data = await res.json();
+                            if (data.success) {
+                                ticket._replyText = '';
+                                await this.loadReplies(ticket);
+                                // Re-open ticket status in UI if it was resolved
+                                if (ticket.status === 'resolved' || ticket.status === 'closed') {
+                                    ticket.status = 'open';
+                                }
+                            } else {
+                                alert('✗ ' + (data.message || 'Failed to send reply.'));
+                            }
+                        } catch (e) { alert('Network error. Please try again.'); }
                         this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
                     },
 

@@ -14,8 +14,47 @@ require_once '../config/db.php';
 require_once '../config/google_config.php';
 
 $error = '';
+$show_resend = false;
+$resend_email = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Handle resend verification email request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'resend_verification') {
+    $resend_email = trim($_POST['resend_email'] ?? '');
+    if (!empty($resend_email)) {
+        try {
+            require_once '../includes/functions.php';
+            require_once '../includes/mail_helper.php';
+            
+            $stmt = $pdo->prepare("
+                SELECT u.id, u.first_name, c.code as company_code
+                FROM users u
+                JOIN companies c ON c.id = u.company_id
+                WHERE u.email = ? AND u.deleted_at IS NULL AND u.email_verified_at IS NULL
+                ORDER BY u.created_at DESC LIMIT 1
+            ");
+            $stmt->execute([$resend_email]);
+            $unverified = $stmt->fetch();
+            
+            if ($unverified) {
+                $new_token = bin2hex(random_bytes(32));
+                $pdo->prepare("UPDATE users SET verification_token = ? WHERE id = ?")->execute([$new_token, $unverified['id']]);
+                
+                $base_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+                $verify_link = $base_url . dirname($_SERVER['SCRIPT_NAME']) . '/verify_email.php?token=' . $new_token;
+                $verify_link = preg_replace('#(?<!:)//+#', '/', $verify_link);
+                $verify_link = str_replace(':/', '://', $verify_link);
+                
+                send_verification_email($resend_email, $unverified['first_name'], $verify_link, $unverified['company_code']);
+            }
+            // Always show success (don't reveal if email exists)
+            $error = '<span class="text-emerald-400">✓ Verification email sent! Check your inbox (and spam folder).</span>';
+        } catch (Exception $e) {
+            $error = 'Failed to resend verification email. Please try again.';
+        }
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST['action'] !== 'resend_verification')) {
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
     $company_code = strtoupper(trim($_POST['company_code'] ?? ''));
@@ -38,13 +77,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $user = $stmt->fetch();
                     
                     if ($user && password_verify($password, $user['password'])) {
-                        $_SESSION['user_id'] = $user['id'];
-                        $_SESSION['company_id'] = $user['company_id'];
-                        $_SESSION['user_role'] = $user['role'];
-                        $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
-                        $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
-                        header('Location: ../dashboard/index.php');
-                        exit;
+                        // Check email verification
+                        if (empty($user['google_id']) && empty($user['email_verified_at'])) {
+                            $error = 'Please verify your email before signing in.';
+                            $show_resend = true;
+                            $resend_email = $email;
+                        } else {
+                            $_SESSION['user_id'] = $user['id'];
+                            $_SESSION['company_id'] = $user['company_id'];
+                            $_SESSION['user_role'] = $user['role'];
+                            $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
+                            $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
+                            header('Location: ../dashboard/index.php');
+                            exit;
+                        }
                     } else {
                         $error = 'Invalid email or password.';
                     }
@@ -65,13 +111,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } elseif (count($matches) === 1) {
                     $user = $matches[0];
                     if (password_verify($password, $user['password'])) {
-                        $_SESSION['user_id'] = $user['id'];
-                        $_SESSION['company_id'] = $user['company_id'];
-                        $_SESSION['user_role'] = $user['role'];
-                        $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
-                        $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
-                        header('Location: ../dashboard/index.php');
-                        exit;
+                        // Check email verification
+                        if (empty($user['google_id']) && empty($user['email_verified_at'])) {
+                            $error = 'Please verify your email before signing in.';
+                            $show_resend = true;
+                            $resend_email = $email;
+                        } else {
+                            $_SESSION['user_id'] = $user['id'];
+                            $_SESSION['company_id'] = $user['company_id'];
+                            $_SESSION['user_role'] = $user['role'];
+                            $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
+                            $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
+                            header('Location: ../dashboard/index.php');
+                            exit;
+                        }
                     } else {
                         $error = 'Invalid email or password.';
                     }
@@ -117,6 +170,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .float-anim { animation: float 6s ease-in-out infinite; }
         .float-anim-delay { animation: float 8s ease-in-out 2s infinite; }
         .pulse-glow { animation: pulse-glow 4s ease-in-out infinite; }
+
+        /* Diagonal floating Miemploya text */
+        @keyframes floatDiag {
+            0%   { transform: translate(0, -100%) rotate(-25deg); opacity: 0; }
+            10%  { opacity: 1; }
+            90%  { opacity: 1; }
+            100% { transform: translate(-30vw, 120vh) rotate(-25deg); opacity: 0; }
+        }
+        .float-text-container {
+            position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0;
+        }
+        .float-text {
+            position: absolute;
+            font-family: 'Inter', sans-serif;
+            font-weight: 900;
+            font-size: clamp(1.2rem, 3vw, 2.5rem);
+            color: rgba(139, 92, 246, 0.06);
+            white-space: nowrap;
+            animation: floatDiag linear infinite;
+            transform: rotate(-25deg);
+            user-select: none;
+        }
+        .dark .float-text { color: rgba(139, 92, 246, 0.08); }
     </style>
 </head>
 <body class="font-sans bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white min-h-screen flex items-center justify-center relative overflow-hidden transition-colors duration-300">
@@ -132,23 +208,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="absolute bottom-20 right-20 w-96 h-96 bg-blue-300/15 dark:bg-blue-600/15 rounded-full blur-3xl float-anim-delay"></div>
     <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-300/10 dark:bg-purple-600/10 rounded-full blur-3xl pulse-glow"></div>
 
+    <!-- Floating Miemploya Background Text -->
+    <div class="float-text-container" id="floatingTextBg"></div>
+
     <!-- Login Card -->
     <div class="relative z-10 w-full max-w-md mx-4">
-        <!-- Brand -->
-        <div class="text-center mb-3">
-            <img src="../assets/images/logo.png" alt="MiAuditOps" class="h-12 mx-auto mb-1" style="mix-blend-mode:screen">
-            <p class="text-xs text-slate-500 dark:text-slate-400">Operational Intelligence & Financial Control</p>
-        </div>
-
         <!-- Form Card -->
-        <div class="bg-white/80 dark:bg-white/5 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl p-5">
+        <div class="bg-white/80 dark:bg-white/5 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl p-5 relative">
+            <!-- Logo top-right -->
+            <a href="/MIIAUDITOPS/" class="absolute top-3 right-3 h-[52px] w-[187px] overflow-hidden block">
+                <img src="../assets/images/logo.png" alt="MiAuditOps" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[180%] object-contain dark:hidden">
+                <img src="../assets/images/logo-dark.png" alt="MiAuditOps Dark" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[180%] object-contain hidden dark:block">
+            </a>
             <h2 class="text-base font-bold text-slate-800 dark:text-white mb-0.5">Welcome Back</h2>
             <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Sign in to your operations hub</p>
 
             <?php if ($error): ?>
-                <div class="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
-                    <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    <?php echo htmlspecialchars($error); ?>
+                <div class="mb-4 p-3 rounded-xl <?= $show_resend ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20' ?> border text-sm">
+                    <div class="flex items-center gap-2 <?= $show_resend ? 'text-amber-400' : 'text-red-400' ?>">
+                        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span><?php echo $error; ?></span>
+                    </div>
+                    <?php if ($show_resend && $resend_email): ?>
+                        <form method="POST" class="mt-2">
+                            <input type="hidden" name="action" value="resend_verification">
+                            <input type="hidden" name="resend_email" value="<?= htmlspecialchars($resend_email) ?>">
+                            <button type="submit" class="w-full px-3 py-2 text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 rounded-lg text-amber-300 transition-all flex items-center justify-center gap-2">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                Resend Verification Email
+                            </button>
+                        </form>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 
@@ -274,5 +364,28 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }, 100);
 });
+</script>
+<script>
+// Generate floating "Miemploya" background text
+(function() {
+    const container = document.getElementById('floatingTextBg');
+    if (!container) return;
+    const COUNT = 18;
+    function spawnText(delay) {
+        const el = document.createElement('span');
+        el.className = 'float-text';
+        el.textContent = 'Miemploya';
+        const left = Math.random() * 120 + 10; // 10% to 130% so they start off-screen right
+        const dur = 12 + Math.random() * 16;   // 12s to 28s
+        const size = 0.7 + Math.random() * 1.8; // font scale
+        el.style.left = left + '%';
+        el.style.top = '-5%';
+        el.style.fontSize = size + 'rem';
+        el.style.animationDuration = dur + 's';
+        el.style.animationDelay = delay + 's';
+        container.appendChild(el);
+    }
+    for (let i = 0; i < COUNT; i++) { spawnText(i * 1.8); }
+})();
 </script>
 </html>

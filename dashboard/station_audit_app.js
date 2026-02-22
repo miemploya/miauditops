@@ -1187,6 +1187,36 @@ function stationAudit() {
                 this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
             } else { this.toast(r.message, false); }
         },
+        printDebtors() {
+            const rows = this.debtorAccounts.map(acct => {
+                const dr = (acct.ledger || []).reduce((s, e) => s + (parseFloat(e.debit) || 0), 0);
+                const cr = (acct.ledger || []).reduce((s, e) => s + (parseFloat(e.credit) || 0), 0);
+                return {
+                    name: acct.customer_name,
+                    entries: (acct.ledger || []).length,
+                    debit: dr,
+                    credit: cr,
+                    balance: dr - cr,
+                };
+            });
+            const totDR = rows.reduce((s, r) => s + r.debit, 0);
+            const totCR = rows.reduce((s, r) => s + r.credit, 0);
+            printReport({
+                title: 'Debtor Accounts Summary',
+                subtitle: rows.length + ' accounts · Outstanding: ' + _pFmt(totDR - totCR),
+                orientation: 'landscape',
+                columns: [
+                    { label: '#', key: '_idx', align: 'center' },
+                    { label: 'Customer Name', key: 'name', bold: true },
+                    { label: 'Entries', key: 'entries', align: 'center' },
+                    { label: 'Total DR (₦)', key: 'debit', align: 'right', fmt: v => _pFmt(v) },
+                    { label: 'Total CR (₦)', key: 'credit', align: 'right', fmt: v => _pFmt(v) },
+                    { label: 'Balance (₦)', key: 'balance', align: 'right', fmt: v => _pFmt(v) },
+                ],
+                rows: rows.map((r, i) => ({ ...r, _idx: i + 1 })),
+                footer: `<td colspan="3" style="text-align:right;font-weight:800;">Totals:</td><td style="text-align:right;font-weight:900;">${_pFmt(totDR)}</td><td style="text-align:right;font-weight:900;">${_pFmt(totCR)}</td><td style="text-align:right;font-weight:900;">${_pFmt(totDR - totCR)}</td>`,
+            });
+        },
 
         // ── Lubricant Store methods ──
         addLubeStoreItem() {

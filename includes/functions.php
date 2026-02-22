@@ -142,6 +142,57 @@ function log_audit($company_id, $user_id, $action, $module = null, $record_id = 
 }
 
 /**
+ * Create an in-app notification for a specific user
+ * @param int    $company_id  Company scope
+ * @param int    $target_user Target user who will see this
+ * @param string $title       Short title (e.g. "Requisition Approved")
+ * @param string $message     Detailed message
+ * @param string $type        info|warning|success|alert
+ * @param string|null $link   Optional page link (e.g. "requisitions.php")
+ */
+function app_notify($company_id, $target_user, $title, $message, $type = 'info', $link = null) {
+    global $pdo;
+    try {
+        $stmt = $pdo->prepare("INSERT INTO app_notifications (company_id, user_id, title, message, type, link) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$company_id, $target_user, $title, $message, $type, $link]);
+    } catch (Exception $e) {
+        // Table may not exist yet — fail silently
+    }
+}
+
+/**
+ * Notify all users with a specific role in a company
+ */
+function notify_role($company_id, $role, $title, $message, $type = 'info', $link = null, $exclude_user_id = null) {
+    global $pdo;
+    try {
+        $sql = "SELECT id FROM users WHERE company_id = ? AND role = ? AND is_active = 1 AND deleted_at IS NULL";
+        $params = [$company_id, $role];
+        if ($exclude_user_id) {
+            $sql .= " AND id != ?";
+            $params[] = $exclude_user_id;
+        }
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $users = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($users as $uid) {
+            app_notify($company_id, $uid, $title, $message, $type, $link);
+        }
+    } catch (Exception $e) {
+        // Fail silently
+    }
+}
+
+/**
+ * Notify all users with approver roles (HOD, CEO, business_owner) in a company
+ */
+function notify_approvers($company_id, $title, $message, $type = 'info', $link = null, $exclude_user_id = null) {
+    foreach (['hod', 'ceo', 'business_owner', 'department_head'] as $role) {
+        notify_role($company_id, $role, $title, $message, $type, $link, $exclude_user_id);
+    }
+}
+
+/**
  * Format currency amount
  */
 function format_currency($amount, $symbol = '₦') {
@@ -195,8 +246,26 @@ function get_user($user_id) {
 /**
  * Register new company and admin user
  */
-function register_company_and_user($company_name, $email, $password, $first_name, $last_name) {
+function register_company_and_user($company_name, $email, $password, $first_name, $last_name, $plan = 'starter', $cycle = 'monthly') {
     global $pdo;
+    require_once __DIR__ . '/../config/subscription_plans.php';
+    require_once __DIR__ . '/mail_helper.php';
+    
+    // Auto-migrate: add email verification columns if missing
+    try {
+        $pdo->exec("ALTER TABLE users ADD COLUMN email_verified_at DATETIME DEFAULT NULL");
+    } catch (Exception $ignore) {}
+    try {
+        $pdo->exec("ALTER TABLE users ADD COLUMN verification_token VARCHAR(64) DEFAULT NULL");
+    } catch (Exception $ignore) {}
+    
+    // Validate plan
+    $valid_plans = ['starter', 'professional', 'enterprise'];
+    if (!in_array($plan, $valid_plans)) $plan = 'starter';
+    $valid_cycles = ['monthly', 'quarterly', 'annual'];
+    if (!in_array($cycle, $valid_cycles)) $cycle = 'monthly';
+    
+    $plan_cfg = get_plan_config($plan);
     
     try {
         $pdo->beginTransaction();
@@ -210,10 +279,13 @@ function register_company_and_user($company_name, $email, $password, $first_name
         $stmt->execute([$company_name, $code, $email]);
         $company_id = $pdo->lastInsertId();
         
-        // Create admin user
+        // Generate verification token
+        $verification_token = bin2hex(random_bytes(32));
+        
+        // Create admin user (unverified)
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare("INSERT INTO users (company_id, first_name, last_name, email, password, role) VALUES (?, ?, ?, ?, ?, 'business_owner')");
-        $stmt->execute([$company_id, $first_name, $last_name, $email, $hashed_password]);
+        $stmt = $pdo->prepare("INSERT INTO users (company_id, first_name, last_name, email, password, role, verification_token) VALUES (?, ?, ?, ?, ?, 'business_owner', ?)");
+        $stmt->execute([$company_id, $first_name, $last_name, $email, $hashed_password, $verification_token]);
         $user_id = $pdo->lastInsertId();
         
         // Create default expense categories
@@ -232,12 +304,39 @@ function register_company_and_user($company_name, $email, $password, $first_name
             $stmt->execute([$company_id, $cat[0], $cat[1]]);
         }
         
+        // Create subscription with chosen plan
+        // Starter = free forever, paid plans = 7-day trial
+        $trial_days = ($plan === 'starter') ? 365 : 7;
+        $trial_expires = date('Y-m-d', strtotime("+{$trial_days} days"));
+        $pdo->prepare("
+            INSERT INTO company_subscriptions 
+            (company_id, plan_name, status, billing_cycle, started_at, expires_at,
+             max_users, max_clients, max_outlets, max_products, max_departments, 
+             data_retention_days, addon_client_packs)
+            VALUES (?, ?, 'trial', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, 0)
+        ")->execute([
+            $company_id, $plan, $cycle, $trial_expires,
+            (int)$plan_cfg['max_users'], (int)$plan_cfg['max_clients'],
+            (int)$plan_cfg['max_outlets'], (int)$plan_cfg['max_products'],
+            (int)$plan_cfg['max_departments'], (int)$plan_cfg['data_retention_days']
+        ]);
+        
         // Log the registration
-        log_audit($company_id, $user_id, 'company_registered', 'core', $company_id, "Company '$company_name' registered");
+        $plan_label = ucfirst($plan);
+        log_audit($company_id, $user_id, 'company_registered', 'core', $company_id, "Company '$company_name' registered with $plan_label trial ($cycle)");
         
         $pdo->commit();
         
-        return ['company_id' => $company_id, 'user_id' => $user_id, 'code' => $code];
+        // Send verification email (outside transaction — non-critical)
+        $base_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+        $verify_link = $base_url . dirname(dirname($_SERVER['SCRIPT_NAME'])) . '/auth/verify_email.php?token=' . $verification_token;
+        // Normalize double-slashes
+        $verify_link = preg_replace('#(?<!:)//+#', '/', $verify_link);
+        $verify_link = str_replace(':/', '://', $verify_link);
+        
+        send_verification_email($email, $first_name, $verify_link, $code);
+        
+        return ['company_id' => $company_id, 'user_id' => $user_id, 'code' => $code, 'plan' => $plan];
         
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -248,8 +347,17 @@ function register_company_and_user($company_name, $email, $password, $first_name
 /**
  * Register new company and admin user via Google OAuth
  */
-function register_company_and_user_google($company_name, $email, $google_id, $first_name, $last_name, $avatar_url = '') {
+function register_company_and_user_google($company_name, $email, $google_id, $first_name, $last_name, $avatar_url = '', $plan = 'starter', $cycle = 'monthly') {
     global $pdo;
+    require_once __DIR__ . '/../config/subscription_plans.php';
+    
+    // Validate plan
+    $valid_plans = ['starter', 'professional', 'enterprise'];
+    if (!in_array($plan, $valid_plans)) $plan = 'starter';
+    $valid_cycles = ['monthly', 'quarterly', 'annual'];
+    if (!in_array($cycle, $valid_cycles)) $cycle = 'monthly';
+    
+    $plan_cfg = get_plan_config($plan);
     
     try {
         $pdo->beginTransaction();
@@ -263,8 +371,8 @@ function register_company_and_user_google($company_name, $email, $google_id, $fi
         $stmt->execute([$company_name, $code, $email]);
         $company_id = $pdo->lastInsertId();
         
-        // Create admin user (no password — Google-authenticated)
-        $stmt = $pdo->prepare("INSERT INTO users (company_id, first_name, last_name, email, google_id, avatar_url, role) VALUES (?, ?, ?, ?, ?, ?, 'business_owner')");
+        // Create admin user (Google-verified — email already confirmed)
+        $stmt = $pdo->prepare("INSERT INTO users (company_id, first_name, last_name, email, google_id, avatar_url, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, 'business_owner', NOW())");
         $stmt->execute([$company_id, $first_name, $last_name, $email, $google_id, $avatar_url ?: null]);
         $user_id = $pdo->lastInsertId();
         
@@ -284,11 +392,29 @@ function register_company_and_user_google($company_name, $email, $google_id, $fi
             $stmt->execute([$company_id, $cat[0], $cat[1]]);
         }
         
-        log_audit($company_id, $user_id, 'company_registered_google', 'core', $company_id, "Company '$company_name' registered via Google OAuth");
+        // Create subscription with chosen plan
+        // Starter = free forever, paid plans = 7-day trial
+        $trial_days = ($plan === 'starter') ? 365 : 7;
+        $trial_expires = date('Y-m-d', strtotime("+{$trial_days} days"));
+        $pdo->prepare("
+            INSERT INTO company_subscriptions 
+            (company_id, plan_name, status, billing_cycle, started_at, expires_at,
+             max_users, max_clients, max_outlets, max_products, max_departments, 
+             data_retention_days, addon_client_packs)
+            VALUES (?, ?, 'trial', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, 0)
+        ")->execute([
+            $company_id, $plan, $cycle, $trial_expires,
+            (int)$plan_cfg['max_users'], (int)$plan_cfg['max_clients'],
+            (int)$plan_cfg['max_outlets'], (int)$plan_cfg['max_products'],
+            (int)$plan_cfg['max_departments'], (int)$plan_cfg['data_retention_days']
+        ]);
+        
+        $plan_label = ucfirst($plan);
+        log_audit($company_id, $user_id, 'company_registered_google', 'core', $company_id, "Company '$company_name' registered via Google OAuth with $plan_label trial ($cycle)");
         
         $pdo->commit();
         
-        return ['company_id' => $company_id, 'user_id' => $user_id, 'code' => $code];
+        return ['company_id' => $company_id, 'user_id' => $user_id, 'code' => $code, 'plan' => $plan];
         
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -618,18 +744,42 @@ function require_subscription($module) {
     $plan = $sub['plan'] ?? get_plan_config('starter');
 
     // Auto-expire if past expiry date
-    if (($sub['status'] ?? '') === 'active' && !empty($sub['expires_at'])) {
+    $current_status = $sub['status'] ?? '';
+    if (in_array($current_status, ['active', 'trial']) && !empty($sub['expires_at'])) {
         if (strtotime($sub['expires_at']) < time()) {
             global $pdo;
-            $pdo->prepare("UPDATE company_subscriptions SET status = 'expired' WHERE company_id = ?")
-                ->execute([$_SESSION['company_id'] ?? 0]);
+            $company_id = $_SESSION['company_id'] ?? 0;
+            
+            if ($current_status === 'trial') {
+                // Trial expired → downgrade to starter (free plan)
+                require_once __DIR__ . '/../config/subscription_plans.php';
+                $starter = get_plan_config('starter');
+                $pdo->prepare("
+                    UPDATE company_subscriptions SET 
+                        status = 'expired', plan_name = 'starter',
+                        max_users = ?, max_clients = ?, max_outlets = ?,
+                        max_products = ?, max_departments = ?, data_retention_days = ?
+                    WHERE company_id = ?
+                ")->execute([
+                    (int)$starter['max_users'], (int)$starter['max_clients'],
+                    (int)$starter['max_outlets'], (int)$starter['max_products'],
+                    (int)$starter['max_departments'], (int)$starter['data_retention_days'],
+                    $company_id
+                ]);
+                log_audit($company_id, 0, 'trial_expired', 'billing', 0, 'Trial period expired — downgraded to Starter');
+            } else {
+                // Active subscription expired
+                $pdo->prepare("UPDATE company_subscriptions SET status = 'expired' WHERE company_id = ?")
+                    ->execute([$company_id]);
+            }
             $sub['status'] = 'expired';
         }
     }
 
     // Check subscription status
     if (in_array($sub['status'] ?? '', ['expired', 'suspended'])) {
-        show_subscription_expired_page($plan);
+        $was_trial = ($current_status === 'trial');
+        show_subscription_expired_page($plan, $was_trial);
         exit;
     }
 
@@ -781,22 +931,28 @@ function show_upgrade_required_page($module, $plan) {
     exit;
 }
 
-function show_subscription_expired_page($plan) {
+function show_subscription_expired_page($plan, $was_trial = false) {
     http_response_code(403);
-    echo '<!DOCTYPE html><html><head><title>Subscription Expired — MIAUDITOPS</title>';
+    $title = $was_trial ? 'Trial Period Ended' : 'Subscription Expired';
+    $message = $was_trial 
+        ? 'Your free trial has ended. Upgrade to a paid plan to continue using all features, or stay on the free Starter plan with limited access.'
+        : 'Your subscription has expired or been suspended. Please settle your outstanding invoice to continue using MIAUDITOPS.';
+    $cta_text = $was_trial ? 'Upgrade Now' : 'Go to Billing';
+    
+    echo '<!DOCTYPE html><html><head><title>' . $title . ' — MIAUDITOPS</title>';
     echo '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">';
     echo '<script src="https://cdn.tailwindcss.com"></script>';
     echo '<script src="https://unpkg.com/lucide@latest"></script>';
     echo '</head><body class="font-[Inter] bg-slate-950 text-white min-h-screen flex items-center justify-center p-6">';
     echo '<div class="max-w-md text-center">';
-    echo '<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-red-500/20 flex items-center justify-center">';
-    echo '<i data-lucide="alert-triangle" class="w-10 h-10 text-red-400"></i></div>';
-    echo '<h1 class="text-3xl font-black mb-2">Subscription Expired</h1>';
-    echo '<p class="text-slate-400 mb-4">Your subscription has expired or been suspended. Please settle your outstanding invoice to continue using MIAUDITOPS.</p>';
+    echo '<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-' . ($was_trial ? 'amber' : 'red') . '-500/20 flex items-center justify-center">';
+    echo '<i data-lucide="' . ($was_trial ? 'clock' : 'alert-triangle') . '" class="w-10 h-10 text-' . ($was_trial ? 'amber' : 'red') . '-400"></i></div>';
+    echo '<h1 class="text-3xl font-black mb-2">' . $title . '</h1>';
+    echo '<p class="text-slate-400 mb-4">' . $message . '</p>';
     echo '<p class="text-sm text-slate-500 mb-8">You can still access the <strong class="text-white">Dashboard</strong>, <strong class="text-white">Billing</strong>, <strong class="text-white">Support</strong>, and <strong class="text-white">Company Setup</strong>.</p>';
     echo '<div class="flex gap-3 justify-center">';
     echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">← Dashboard</a>';
-    echo '<a href="billing.php" class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold rounded-xl transition-all">Go to Billing</a>';
+    echo '<a href="billing.php" class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold rounded-xl transition-all">' . $cta_text . '</a>';
     echo '</div>';
     echo '</div>';
     echo '<script>lucide.createIcons();</script>';

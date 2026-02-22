@@ -48,6 +48,12 @@ $js_transactions = json_encode($transactions, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_lodgments = json_encode($lodgments, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_variances = json_encode($variances, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
+
+// ── Tab-lock enforcement ──
+$audit_tabs = ['sales', 'lodgments', 'variance'];
+$js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($t) {
+    return subscription_allows_tab('audit', $t);
+})));
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -77,11 +83,15 @@ $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
             <div class="mb-6">
                 <div class="flex flex-wrap gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                     <template x-for="t in tabs" :key="t.id">
-                        <button @click="currentTab = t.id"
-                                :class="currentTab === t.id ? t.activeClass : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:bg-white/50 border-transparent'"
-                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 border">
-                            <i :data-lucide="t.icon" class="w-3.5 h-3.5"></i>
+                        <button @click="!t.locked && (currentTab = t.id)"
+                                :class="t.locked ? 'opacity-50 cursor-not-allowed text-slate-400 dark:text-slate-600 border-transparent' : (currentTab === t.id ? t.activeClass : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:bg-white/50 border-transparent')"
+                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 border"
+                                :title="t.locked ? 'Upgrade your plan to access ' + t.label : ''">
+                            <i :data-lucide="t.locked ? 'lock' : t.icon" class="w-3.5 h-3.5"></i>
                             <span x-text="t.label"></span>
+                            <template x-if="t.locked">
+                                <span class="ml-1 px-1 py-0.5 rounded text-[7px] font-black tracking-wider bg-gradient-to-r from-violet-500 to-amber-500 text-white">PRO</span>
+                            </template>
                         </button>
                     </template>
                 </div>
@@ -630,13 +640,14 @@ $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
 <script>
 function auditApp() {
     return {
-        currentTab: (location.hash.slice(1) || 'sales'),
+        currentTab: (() => { const allowed = <?php echo $js_allowed_tabs; ?>; const hash = location.hash.slice(1); return (hash && allowed.includes(hash)) ? hash : allowed[0] || 'sales'; })(),
         saving: false,
+        _allowedTabs: <?php echo $js_allowed_tabs; ?>,
         tabs: [
             { id: 'sales', label: 'Sales Entry', icon: 'receipt', activeClass: 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm border-blue-200' },
             { id: 'lodgments', label: 'Bank Lodgments', icon: 'landmark', activeClass: 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm border-emerald-200' },
             { id: 'variance', label: 'Variance', icon: 'alert-triangle', activeClass: 'bg-white dark:bg-slate-900 text-amber-600 shadow-sm border-amber-200' },
-        ],
+        ].map(t => ({ ...t, locked: !<?php echo $js_allowed_tabs; ?>.includes(t.id) })),
         transactions: <?php echo $js_transactions; ?>,
         lodgments: <?php echo $js_lodgments; ?>,
         variances: <?php echo $js_variances; ?>,

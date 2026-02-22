@@ -15,6 +15,11 @@ require_once '../includes/functions.php';
 
 $error = '';
 $success = '';
+$selected_plan = $_GET['plan'] ?? $_POST['selected_plan'] ?? 'starter';
+$selected_cycle = $_GET['cycle'] ?? $_POST['selected_cycle'] ?? 'monthly';
+// Sanitize
+if (!in_array($selected_plan, ['starter', 'professional', 'enterprise'])) $selected_plan = 'starter';
+if (!in_array($selected_cycle, ['monthly', 'quarterly', 'annual'])) $selected_cycle = 'monthly';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $company_name = trim($_POST['company_name'] ?? '');
@@ -38,8 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($stmt->fetch()) {
                 $error = 'An account with this email already exists.';
             } else {
-                $result = register_company_and_user($company_name, $email, $password, $first_name, $last_name);
-                $success = 'Company registered successfully! Your company code is: <strong>' . $result['code'] . '</strong>. Please save this code — you will need it to login.';
+                $result = register_company_and_user($company_name, $email, $password, $first_name, $last_name, $selected_plan, $selected_cycle);
+                $plan_label = ucfirst($result['plan']);
+                $success = "We've sent a verification email to <strong>" . htmlspecialchars($email) . "</strong>. Please click the link in the email to verify your account. Your company code is: <strong>" . $result['code'] . "</strong>.";
             }
         } catch (Exception $e) {
             $error = 'Registration failed. Please try again.';
@@ -71,6 +77,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .float-anim { animation: float 6s ease-in-out infinite; }
         .float-anim-delay { animation: float 8s ease-in-out 2s infinite; }
         .pulse-glow { animation: pulse-glow 4s ease-in-out infinite; }
+
+        /* Diagonal floating Miemploya text */
+        @keyframes floatDiag {
+            0%   { transform: translate(0, -100%) rotate(-25deg); opacity: 0; }
+            10%  { opacity: 1; }
+            90%  { opacity: 1; }
+            100% { transform: translate(-30vw, 120vh) rotate(-25deg); opacity: 0; }
+        }
+        .float-text-container {
+            position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0;
+        }
+        .float-text {
+            position: absolute;
+            font-family: 'Inter', sans-serif;
+            font-weight: 900;
+            font-size: clamp(1.2rem, 3vw, 2.5rem);
+            color: rgba(139, 92, 246, 0.06);
+            white-space: nowrap;
+            animation: floatDiag linear infinite;
+            transform: rotate(-25deg);
+            user-select: none;
+        }
+        .dark .float-text { color: rgba(139, 92, 246, 0.08); }
     </style>
 </head>
 <body class="font-sans bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white min-h-screen flex items-center justify-center relative overflow-hidden transition-colors duration-300">
@@ -85,15 +114,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="absolute bottom-20 right-20 w-96 h-96 bg-violet-300/15 dark:bg-violet-600/15 rounded-full blur-3xl float-anim-delay"></div>
     <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-300/10 dark:bg-blue-600/10 rounded-full blur-3xl pulse-glow"></div>
 
-    <div class="relative z-10 w-full max-w-md mx-4">
-        <div class="text-center mb-3">
-            <img src="../assets/images/logo.png" alt="MiAuditOps" class="h-12 mx-auto mb-1" style="mix-blend-mode:screen">
-            <p class="text-xs text-slate-500 dark:text-slate-400">Register Your Business</p>
-        </div>
+    <!-- Floating Miemploya Background Text -->
+    <div class="float-text-container" id="floatingTextBg"></div>
 
-        <div class="bg-white/80 dark:bg-white/5 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl p-5">
+    <div class="relative z-10 w-full max-w-md mx-4">
+        <div class="bg-white/80 dark:bg-white/5 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl p-5 relative">
+            <!-- Logo top-right -->
+            <a href="/MIIAUDITOPS/" class="absolute top-3 right-3 h-[52px] w-[187px] overflow-hidden block">
+                <img src="../assets/images/logo.png" alt="MiAuditOps" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[180%] object-contain dark:hidden">
+                <img src="../assets/images/logo-dark.png" alt="MiAuditOps Dark" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[180%] object-contain hidden dark:block">
+            </a>
             <h2 class="text-base font-bold text-slate-800 dark:text-white mb-0.5">Create Account</h2>
             <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Set up your operational control system</p>
+
+            <?php if ($selected_plan !== 'starter'): ?>
+                <div class="mb-3 p-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-lg bg-gradient-to-br <?= $selected_plan === 'enterprise' ? 'from-amber-500 to-orange-600' : 'from-violet-600 to-purple-600' ?> flex items-center justify-center">
+                        <svg class="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold text-violet-700 dark:text-violet-300"><?= ucfirst($selected_plan) ?> Plan — 7-Day Free Trial</p>
+                        <p class="text-[10px] text-slate-500 dark:text-slate-400">No payment required now. Full access for 7 days.</p>
+                    </div>
+                </div>
+            <?php endif; ?>
 
             <?php if ($error): ?>
                 <div class="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
@@ -105,16 +149,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if ($success): ?>
                 <div class="mb-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
                     <div class="flex items-center gap-2 mb-2">
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span class="font-bold">Registration Successful!</span>
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        <span class="font-bold">Check Your Email!</span>
                     </div>
                     <p><?php echo $success; ?></p>
+                    <div class="mt-3 p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                        <p class="text-[11px] text-slate-400">Didn't receive the email? Check your <strong class="text-slate-300">spam/junk folder</strong>, or wait a minute and try logging in to resend it.</p>
+                    </div>
                     <a href="login.php" class="inline-block mt-3 px-4 py-2 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-emerald-300 text-sm font-semibold hover:bg-emerald-500/30 transition-all">
                         Go to Login →
                     </a>
                 </div>
             <?php else: ?>
                 <form method="POST" class="space-y-2">
+                    <input type="hidden" name="selected_plan" value="<?= htmlspecialchars($selected_plan) ?>">
+                    <input type="hidden" name="selected_cycle" value="<?= htmlspecialchars($selected_cycle) ?>">
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-0.5">Company / Business Name</label>
                         <input type="text" name="company_name" placeholder="Your Business Name" required
@@ -281,6 +330,8 @@ document.addEventListener('DOMContentLoaded', function() {
             fd.append('id_token', pendingGoogleToken);
             fd.append('mode', 'signup');
             fd.append('company_name', companyName);
+            fd.append('selected_plan', '<?= $selected_plan ?>');
+            fd.append('selected_cycle', '<?= $selected_cycle ?>');
             
             const res = await fetch('google_callback.php', { method: 'POST', body: fd });
             const data = await res.json();
@@ -311,4 +362,28 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+<script>
+// Generate floating "Miemploya" background text
+(function() {
+    const container = document.getElementById('floatingTextBg');
+    if (!container) return;
+    const COUNT = 18;
+    function spawnText(delay) {
+        const el = document.createElement('span');
+        el.className = 'float-text';
+        el.textContent = 'Miemploya';
+        const left = Math.random() * 120 + 10;
+        const dur = 12 + Math.random() * 16;
+        const size = 0.7 + Math.random() * 1.8;
+        el.style.left = left + '%';
+        el.style.top = '-5%';
+        el.style.fontSize = size + 'rem';
+        el.style.animationDuration = dur + 's';
+        el.style.animationDelay = delay + 's';
+        container.appendChild(el);
+    }
+    for (let i = 0; i < COUNT; i++) { spawnText(i * 1.8); }
+})();
+</script>
 </html>
+

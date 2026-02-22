@@ -60,6 +60,11 @@ try {
 
             $pdo->commit();
             log_audit($company_id, $user_id, 'create_requisition', 'requisitions', $req_id, "Created $req_number - ₦" . number_format($total, 2));
+
+            // Notify approvers
+            $requester_name = ($_SESSION['user_name'] ?? 'A team member');
+            notify_approvers($company_id, '📝 New Requisition', "$requester_name submitted $req_number (₦" . number_format($total, 2) . ") for approval.", 'info', 'requisitions.php', $user_id);
+
             echo json_encode(['success' => true, 'requisition_number' => $req_number]);
             break;
 
@@ -102,10 +107,37 @@ try {
 
             if (!$new_status) { echo json_encode(['success' => false, 'message' => 'Not authorized to approve at this stage']); break; }
 
+            $pdo->beginTransaction();
+
             $stmt = $pdo->prepare("UPDATE requisitions SET status = ?, approved_by = ?, approved_at = NOW() WHERE id = ?");
             $stmt->execute([$new_status, $user_id, $req_id]);
             log_audit($company_id, $user_id, 'approve_requisition', 'requisitions', $req_id, $req['requisition_number'] . " → $new_status");
-            echo json_encode(['success' => true, 'new_status' => $new_status]);
+
+            // ── Auto-create Purchase Order when CEO/MD approves ──
+            $po_number = null;
+            if ($new_status === 'ceo_approved') {
+                $stmt = $pdo->prepare("SELECT COUNT(*)+1 as num FROM purchase_orders WHERE company_id = ?");
+                $stmt->execute([$company_id]);
+                $num = $stmt->fetch()['num'];
+                $po_number = 'PO-' . str_pad($num, 5, '0', STR_PAD_LEFT);
+
+                $stmt = $pdo->prepare("INSERT INTO purchase_orders (company_id, requisition_id, po_number, total_amount, status, created_by) VALUES (?,?,?,?,'issued',?)");
+                $stmt->execute([$company_id, $req_id, $po_number, $req['total_amount'], $user_id]);
+
+                $stmt = $pdo->prepare("UPDATE requisitions SET status = 'po_created' WHERE id = ?");
+                $stmt->execute([$req_id]);
+
+                log_audit($company_id, $user_id, 'auto_create_po', 'requisitions', $req_id, "Auto-converted " . $req['requisition_number'] . " to $po_number");
+                $new_status = 'po_created';
+            }
+
+            $pdo->commit();
+
+            // Notify the requester about approval
+            $approver_name = ($_SESSION['user_name'] ?? 'An approver');
+            app_notify($company_id, $req['requested_by'], '✅ Requisition Approved', "$approver_name approved your requisition {$req['requisition_number']} (→ $new_status)." . ($po_number ? " Purchase Order $po_number created." : ''), 'success', 'requisitions.php');
+
+            echo json_encode(['success' => true, 'new_status' => $new_status, 'po_number' => $po_number]);
             break;
 
         case 'reject':
@@ -114,21 +146,31 @@ try {
 
             $stmt = $pdo->prepare("UPDATE requisitions SET status = 'rejected', rejection_reason = ?, approved_by = ? WHERE id = ? AND company_id = ?");
             $stmt->execute([$reason, $user_id, $req_id, $company_id]);
+
+            // Fetch requester to notify
+            $rStmt = $pdo->prepare("SELECT requested_by, requisition_number FROM requisitions WHERE id = ?");
+            $rStmt->execute([$req_id]);
+            $rData = $rStmt->fetch();
+            if ($rData) {
+                $rejector_name = ($_SESSION['user_name'] ?? 'An approver');
+                app_notify($company_id, $rData['requested_by'], '❌ Requisition Rejected', "$rejector_name rejected your requisition {$rData['requisition_number']}. Reason: $reason", 'alert', 'requisitions.php');
+            }
+
             log_audit($company_id, $user_id, 'reject_requisition', 'requisitions', $req_id, "Rejected: $reason");
             echo json_encode(['success' => true]);
             break;
 
         case 'update_purchase_prices':
-            // Only allowed on CEO-approved requisitions
+            // Only allowed on requisitions that have a PO created
             $req_id = intval($_POST['requisition_id'] ?? 0);
             $prices_json = $_POST['prices'] ?? '[]';
             $prices = json_decode($prices_json, true) ?: [];
 
-            $stmt = $pdo->prepare("SELECT * FROM requisitions WHERE id = ? AND company_id = ? AND status = 'ceo_approved'");
+            $stmt = $pdo->prepare("SELECT * FROM requisitions WHERE id = ? AND company_id = ? AND status = 'po_created'");
             $stmt->execute([$req_id, $company_id]);
             $req = $stmt->fetch();
 
-            if (!$req) { echo json_encode(['success' => false, 'message' => 'Requisition not found or not yet CEO-approved']); break; }
+            if (!$req) { echo json_encode(['success' => false, 'message' => 'Requisition not found or PO not yet created']); break; }
             if (empty($prices)) { echo json_encode(['success' => false, 'message' => 'No prices provided']); break; }
 
             $pdo->beginTransaction();

@@ -289,11 +289,8 @@ $js_client_depts = json_encode($client_departments, JSON_HEX_TAG | JSON_HEX_APOS
                                     <td class="px-3 py-2.5 font-mono text-xs text-slate-500" x-text="r.created_at?.substring(0,10)"></td>
                                     <td class="px-3 py-2.5 text-center" @click.stop>
                                         <div class="flex items-center justify-center gap-1">
-                                            <template x-if="r.status === 'ceo_approved'">
-                                                <button @click="openPriceModal(r)" class="px-2 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all" title="Fill Actual Prices & Create PO">₦ Price</button>
-                                            </template>
-                                            <template x-if="r.status === 'ceo_approved'">
-                                                <button @click="convertToPO(r.id)" class="px-2 py-1 bg-gradient-to-r from-blue-500 to-cyan-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all">→ PO</button>
+                                            <template x-if="r.status === 'po_created'">
+                                                <button @click="openPriceModal(r)" class="px-2 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all" title="Fill Actual Purchase Prices">₦ Price</button>
                                             </template>
                                             <template x-if="r.status === 'submitted' && r.requested_by == userId">
                                                 <button @click="deleteReq(r.id)" class="p-1 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 rounded-lg transition-all"><i data-lucide="trash-2" class="w-3 h-3 text-red-500"></i></button>
@@ -398,7 +395,12 @@ $js_client_depts = json_encode($client_departments, JSON_HEX_TAG | JSON_HEX_APOS
                             <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center shadow-lg shadow-blue-500/30"><i data-lucide="file-check" class="w-4 h-4 text-white"></i></div>
                             <h3 class="font-bold text-slate-900 dark:text-white text-sm">Purchase Orders</h3>
                         </div>
-                        <span class="text-xs text-slate-500" x-text="purchaseOrders.length + ' orders'"></span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-slate-500" x-text="purchaseOrders.length + ' orders'"></span>
+                            <button @click="printPOs()" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-lg transition-all" title="Print / Save as PDF">
+                                <i data-lucide="printer" class="w-3.5 h-3.5"></i> Print
+                            </button>
+                        </div>
                     </div>
                     <div class="overflow-x-auto"><table class="w-full text-sm">
                         <thead class="bg-slate-50 dark:bg-slate-800/50"><tr><th class="px-4 py-3 text-left text-xs font-bold text-slate-500">PO #</th><th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Requisition</th><th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Dept</th><th class="px-4 py-3 text-right text-xs font-bold text-slate-500">Amount</th><th class="px-4 py-3 text-center text-xs font-bold text-slate-500">Status</th><th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Created By</th><th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Date</th></tr></thead>
@@ -538,7 +540,10 @@ function reqApp() {
             if (!confirm('Approve this requisition?')) return;
             const fd = new FormData(); fd.append('action','approve'); fd.append('requisition_id',id);
             const r = await (await fetch('../ajax/requisition_api.php',{method:'POST',body:fd})).json();
-            if (r.success) location.reload(); else alert(r.message);
+            if (r.success) {
+                if (r.po_number) alert('Approved! Purchase Order ' + r.po_number + ' has been auto-created.');
+                location.reload();
+            } else alert(r.message);
         },
         async rejectReq(id) {
             const reason = prompt('Rejection reason:');
@@ -570,21 +575,41 @@ function reqApp() {
                 this.$nextTick(() => lucide.createIcons());
             }
         },
+        printPOs() {
+            printReport({
+                title: 'Purchase Orders',
+                subtitle: this.purchaseOrders.length + ' orders',
+                orientation: 'landscape',
+                columns: [
+                    { label: 'PO #', key: 'po_number', bold: true },
+                    { label: 'Requisition', key: 'requisition_number' },
+                    { label: 'Dept', key: 'department' },
+                    { label: 'Amount', key: 'total_amount', align: 'right', fmt: v => _pFmt(v) },
+                    { label: 'Status', key: 'status' },
+                    { label: 'Created By', key: '_created_by' },
+                    { label: 'Date', key: '_date' },
+                ],
+                rows: this.purchaseOrders.map(po => ({
+                    ...po,
+                    department: po.department || '—',
+                    _created_by: po.first_name + ' ' + po.last_name,
+                    _date: (po.created_at || '').substring(0, 10),
+                })),
+                footer: `<td colspan="3" style="text-align:right;font-weight:800;">Total:</td><td style="text-align:right;font-weight:900;">${_pFmt(this.purchaseOrders.reduce((s,po) => s + parseFloat(po.total_amount||0), 0))}</td><td colspan="3"></td>`,
+            });
+        },
         async savePricesAndPO() {
             if (!this.priceReq) return;
             if (this.priceItems.some(i => !i.actual_unit_price || i.actual_unit_price <= 0)) { alert('Please fill all actual prices'); return; }
             const prices = this.priceItems.map(i => ({ item_id: i.id, actual_unit_price: i.actual_unit_price }));
-            // Save prices
+            // Save prices only — PO was already auto-created on CEO approval
             let fd = new FormData(); fd.append('action','update_purchase_prices'); fd.append('requisition_id', this.priceReq.id); fd.append('prices', JSON.stringify(prices));
             let r = await (await fetch('../ajax/requisition_api.php',{method:'POST',body:fd})).json();
-            if (!r.success) { alert(r.message); return; }
-            // Convert to PO
-            fd = new FormData(); fd.append('action','convert_to_po'); fd.append('requisition_id', this.priceReq.id);
-            r = await (await fetch('../ajax/requisition_api.php',{method:'POST',body:fd})).json();
-            if (r.success) { alert('Purchase Order ' + r.po_number + ' created!'); location.reload(); } else alert(r.message);
+            if (r.success) { alert('Purchase prices updated!'); location.reload(); } else alert(r.message);
         },
     }
 }
 </script>
+<script src="../assets/js/print-utils.js"></script>
 <?php include '../includes/dashboard_scripts.php'; ?>
 </body></html>

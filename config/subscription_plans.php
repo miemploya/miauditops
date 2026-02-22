@@ -38,10 +38,10 @@ $SUBSCRIPTION_PLANS = [
 
         // ── Tab-level restrictions inside allowed modules ──
         'tab_locks' => [
-            'audit'      => ['sales_entry'],                         // only this tab allowed
+            'audit'      => ['sales'],                               // matches tab id 'sales' in audit.php
             'stock'      => ['departments'],                         // only departments tab allowed
-            'main_store' => ['products', 'stock_in'],                // only these tabs allowed
-            'settings'   => ['company'],                             // only this tab allowed
+            'main_store' => ['catalog', 'products', 'stock_in'],     // matches tab ids in main_store.php
+            'settings'   => ['company'],                             // matches tab id 'company' in settings.php
         ],
 
         // ── Feature flags ──
@@ -92,8 +92,8 @@ $SUBSCRIPTION_PLANS = [
 
         // ── Tab-level restrictions ──
         'tab_locks' => [
-            'finance' => ['revenue', 'expenses'],              // P&L + Cost Centers locked
-            'reports' => ['sales', 'stock'],                   // Only sales + stock reports
+            'finance' => ['revenue', 'expenses'],              // P&L + Cost Centers + Valuation locked
+            'reports' => ['recon', 'stock'],                   // matches tab ids in reports.php
         ],
 
         // ── Feature flags ──

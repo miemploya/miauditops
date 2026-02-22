@@ -375,6 +375,12 @@ $total_outlet_actual = array_sum(array_column($outlet_metrics, 'actual'));
 $js_today   = json_encode($today_sales, JSON_HEX_TAG|JSON_HEX_APOS);
 $js_history = json_encode($history_sales, JSON_HEX_TAG|JSON_HEX_APOS);
 $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
+
+// ── Tab-lock enforcement ──
+$report_tabs = ['recon', 'stock', 'valuation', 'financial', 'expenses', 'requisitions'];
+$js_allowed_tabs = json_encode(array_values(array_filter($report_tabs, function($t) {
+    return subscription_allows_tab('reports', $t);
+})));
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -469,11 +475,13 @@ $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
     <!-- Tab Navigation -->
     <div class="flex flex-wrap gap-1 mb-6 no-print">
         <template x-for="tab in tabs" :key="tab.id">
-            <button @click="currentTab = tab.id"
-                :class="currentTab === tab.id ? 'bg-white dark:bg-slate-800 shadow-lg text-violet-600 border-violet-200' : 'text-slate-500 hover:bg-white/50'"
-                class="px-4 py-2 rounded-xl text-xs font-bold transition-all border border-transparent flex items-center gap-1.5">
-                <i :data-lucide="tab.icon" class="w-3.5 h-3.5"></i>
+            <button @click="!tab.locked && (currentTab = tab.id)"
+                :class="tab.locked ? 'opacity-50 cursor-not-allowed text-slate-400 dark:text-slate-600' : (currentTab === tab.id ? 'bg-white dark:bg-slate-800 shadow-lg text-violet-600 border-violet-200' : 'text-slate-500 hover:bg-white/50')"
+                class="px-4 py-2 rounded-xl text-xs font-bold transition-all border border-transparent flex items-center gap-1.5"
+                :title="tab.locked ? 'Upgrade your plan to access ' + tab.label : ''">
+                <i :data-lucide="tab.locked ? 'lock' : tab.icon" class="w-3.5 h-3.5"></i>
                 <span x-text="tab.label"></span>
+                <template x-if="tab.locked"><span class="ml-1 px-1 py-0.5 rounded text-[7px] font-black tracking-wider bg-gradient-to-r from-violet-500 to-amber-500 text-white">PRO</span></template>
             </button>
         </template>
     </div>
@@ -1567,7 +1575,7 @@ $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
     function fmt(n) { return '\u20A6' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function reportApp() {
         return {
-            currentTab: 'recon',
+            currentTab: (() => { const allowed = <?php echo $js_allowed_tabs; ?>; return allowed[0] || 'recon'; })(),
             showStockRecon: true,
             tabs: [
                 { id: 'recon', label: 'Sales Reconciliation', icon: 'scale' },
@@ -1576,7 +1584,7 @@ $js_sales   = json_encode($sales_recon_grouped, JSON_HEX_TAG|JSON_HEX_APOS);
                 { id: 'financial', label: 'Financial', icon: 'bar-chart-3' },
                 { id: 'expenses', label: 'Expenses', icon: 'receipt' },
                 { id: 'requisitions', label: 'Requisitions', icon: 'file-text' },
-            ],
+            ].map(t => ({ ...t, locked: !<?php echo $js_allowed_tabs; ?>.includes(t.id) })),
             init() { this.$nextTick(() => lucide.createIcons()); this.$watch('currentTab', () => this.$nextTick(() => lucide.createIcons())); }
         };
     }

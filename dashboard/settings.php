@@ -37,6 +37,11 @@ $all_clients = get_clients($company_id);
 // All available permissions
 $all_permissions = get_all_permissions();
 
+// Expense categories
+$cat_stmt = $pdo->prepare("SELECT * FROM expense_categories WHERE company_id = ? AND deleted_at IS NULL ORDER BY name");
+$cat_stmt->execute([$company_id]);
+$categories = $cat_stmt->fetchAll(PDO::FETCH_ASSOC);
+
 $roles = [
     'business_owner' => 'Business Owner',
     'auditor' => 'Auditor',
@@ -51,6 +56,12 @@ $roles = [
 $js_users      = json_encode($users, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_clients    = json_encode($all_clients, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
+
+// ── Tab-lock enforcement ──
+$settings_tabs = ['company', 'users', 'trail', 'config'];
+$js_allowed_tabs = json_encode(array_values(array_filter($settings_tabs, function($t) {
+    return subscription_allows_tab('settings', $t);
+})));
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -74,8 +85,9 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
             <!-- Tabs -->
             <div class="mb-6 flex flex-wrap gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                 <template x-for="t in tabs" :key="t.id">
-                    <button @click="currentTab = t.id" :class="currentTab === t.id ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-sm border-slate-300' : 'text-slate-500 hover:bg-white/50 border-transparent'" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border">
-                        <i :data-lucide="t.icon" class="w-3.5 h-3.5"></i><span x-text="t.label"></span>
+                    <button @click="!t.locked && (currentTab = t.id)" :class="t.locked ? 'opacity-50 cursor-not-allowed text-slate-400 dark:text-slate-600 border-transparent' : (currentTab === t.id ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-sm border-slate-300' : 'text-slate-500 hover:bg-white/50 border-transparent')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border" :title="t.locked ? 'Upgrade your plan to access ' + t.label : ''">
+                        <i :data-lucide="t.locked ? 'lock' : t.icon" class="w-3.5 h-3.5"></i><span x-text="t.label"></span>
+                        <template x-if="t.locked"><span class="ml-1 px-1 py-0.5 rounded text-[7px] font-black tracking-wider bg-gradient-to-r from-violet-500 to-amber-500 text-white">PRO</span></template>
                     </button>
                 </template>
             </div>
@@ -87,7 +99,7 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
                         <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-blue-500/10 to-transparent">
                             <div class="flex items-center gap-3">
                                 <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30"><i data-lucide="building" class="w-4 h-4 text-white"></i></div>
-                                <div><h3 class="font-bold text-slate-900 dark:text-white text-sm">Company Details</h3><p class="text-xs text-slate-500">Code: <span class="font-mono font-bold text-indigo-600"><?php echo htmlspecialchars($company['code']); ?></span></p></div>
+                                <div><h3 class="font-bold text-slate-900 dark:text-white text-sm">Company Details</h3><p class="text-xs text-slate-500">Code: <span class="font-mono font-bold text-indigo-600"><?php echo htmlspecialchars($company['code'] ?? 'N/A'); ?></span></p></div>
                             </div>
                         </div>
                         <form @submit.prevent="updateCompany()" class="p-6 space-y-4">
@@ -127,19 +139,46 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
                         <h2 class="text-lg font-bold text-slate-800 dark:text-white">Team Members</h2>
                         <p class="text-xs text-slate-500" x-text="usersList.length + ' users registered'"></p>
                     </div>
-                    <button @click="openAddUser()" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 hover:scale-[1.02] transition-all text-sm">
-                        <i data-lucide="user-plus" class="w-4 h-4"></i> Add User
-                    </button>
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-2 text-xs font-semibold text-slate-500 cursor-pointer select-none">
+                            <input type="checkbox" @change="toggleSelectAll($event.target.checked)" :checked="selectedUsers.length === usersList.filter(u => u.id != <?php echo $user_id; ?>).length && selectedUsers.length > 0" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                            Select All
+                        </label>
+                        <button @click="openAddUser()" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 hover:scale-[1.02] transition-all text-sm">
+                            <i data-lucide="user-plus" class="w-4 h-4"></i> Add User
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bulk Actions Toolbar -->
+                <div x-show="selectedUsers.length > 0" x-transition class="mb-4 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/40 rounded-xl flex items-center justify-between gap-3 flex-wrap">
+                    <p class="text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                        <span x-text="selectedUsers.length"></span> user(s) selected
+                    </p>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button @click="bulkToggle(0)" class="px-3 py-1.5 bg-amber-500 text-white text-[11px] font-bold rounded-lg hover:bg-amber-600 transition-colors">⏸ Deactivate</button>
+                        <button @click="bulkToggle(1)" class="px-3 py-1.5 bg-emerald-500 text-white text-[11px] font-bold rounded-lg hover:bg-emerald-600 transition-colors">▶ Activate</button>
+                        <select x-model="bulkRole" class="px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-bold">
+                            <option value="">Change Role…</option>
+                            <?php foreach ($roles as $val => $label): ?><option value="<?php echo $val; ?>"><?php echo $label; ?></option><?php endforeach; ?>
+                        </select>
+                        <button @click="bulkChangeRole()" :disabled="!bulkRole" class="px-3 py-1.5 bg-violet-500 text-white text-[11px] font-bold rounded-lg hover:bg-violet-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Apply Role</button>
+                        <button @click="bulkDelete()" class="px-3 py-1.5 bg-red-500 text-white text-[11px] font-bold rounded-lg hover:bg-red-600 transition-colors">🗑 Delete</button>
+                    </div>
                 </div>
 
                 <!-- Users Grid -->
                 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     <template x-for="u in usersList" :key="u.id">
-                        <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+                        <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden hover:shadow-xl transition-shadow" :class="selectedUsers.includes(u.id) ? 'ring-2 ring-indigo-500' : ''">
                             <!-- User Card Header -->
                             <div class="p-5">
                                 <div class="flex items-start justify-between mb-3">
                                     <div class="flex items-center gap-3">
+                                        <!-- Bulk Select Checkbox -->
+                                        <template x-if="u.id != <?php echo $user_id; ?>">
+                                            <input type="checkbox" :checked="selectedUsers.includes(u.id)" @change="toggleSelect(u.id)" @click.stop class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0">
+                                        </template>
                                         <div class="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-lg" :class="getRoleGradient(u.role)" x-text="u.first_name?.charAt(0) + u.last_name?.charAt(0)"></div>
                                         <div>
                                             <p class="font-bold text-sm text-slate-800 dark:text-white" x-text="u.first_name + ' ' + u.last_name"></p>
@@ -156,18 +195,22 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
 
                                 <!-- Stats Row -->
-                                <div class="flex gap-3 mb-4">
-                                    <div class="flex-1 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg text-center">
+                                <div class="grid grid-cols-2 gap-2 mb-4">
+                                    <div class="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg text-center">
                                         <p class="text-[10px] font-bold text-slate-400 uppercase">Clients</p>
                                         <p class="text-sm font-black text-indigo-600" x-text="u.client_ids?.length || 0"></p>
                                     </div>
-                                    <div class="flex-1 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg text-center">
+                                    <div class="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg text-center">
                                         <p class="text-[10px] font-bold text-slate-400 uppercase">Permissions</p>
                                         <p class="text-sm font-black text-violet-600" x-text="u.permissions?.length || 0"></p>
                                     </div>
-                                    <div class="flex-1 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg text-center">
+                                    <div class="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg text-center">
                                         <p class="text-[10px] font-bold text-slate-400 uppercase">Phone</p>
                                         <p class="text-[11px] font-semibold text-slate-600 dark:text-slate-400 truncate" x-text="u.phone || '—'"></p>
+                                    </div>
+                                    <div class="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg text-center">
+                                        <p class="text-[10px] font-bold text-slate-400 uppercase">Last Login</p>
+                                        <p class="text-[11px] font-semibold truncate" :class="u.last_login ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'" x-text="u.last_login ? formatLastLogin(u.last_login) : 'Never'"></p>
                                     </div>
                                 </div>
 
@@ -508,7 +551,7 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
                         <h3 class="font-bold text-slate-900 dark:text-white text-sm mb-4">System Information</h3>
                         <div class="grid grid-cols-2 gap-4">
                             <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Platform</p><p class="text-sm font-bold text-slate-800 dark:text-white">MIAUDITOPS v1.0</p></div>
-                            <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Company Code</p><p class="text-sm font-mono font-bold text-indigo-600"><?php echo htmlspecialchars($company['code']); ?></p></div>
+                            <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Company Code</p><p class="text-sm font-mono font-bold text-indigo-600"><?php echo htmlspecialchars($company['code'] ?? 'N/A'); ?></p></div>
                             <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Your Role</p><p class="text-sm font-bold capitalize text-slate-800 dark:text-white"><?php echo str_replace('_',' ',$user_role); ?></p></div>
                             <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Users</p><p class="text-sm font-bold text-slate-800 dark:text-white"><?php echo count($users); ?></p></div>
                             <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Expense Categories</p><p class="text-sm font-bold text-slate-800 dark:text-white"><?php echo count($categories); ?></p></div>
@@ -541,19 +584,23 @@ $js_all_perms  = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_APOS);
 <script>
 function settingsApp() {
     return {
-        currentTab: (location.hash.slice(1) || 'company'),
+        currentTab: (() => { const allowed = <?php echo $js_allowed_tabs; ?>; const hash = location.hash.slice(1); return (hash && allowed.includes(hash)) ? hash : allowed[0] || 'company'; })(),
         tabs: [
             { id: 'company', label: 'Company Profile', icon: 'building' },
             { id: 'users', label: 'User Management', icon: 'users' },
             { id: 'trail', label: 'Audit Trail', icon: 'scroll-text' },
             { id: 'config', label: 'System Config', icon: 'settings' },
-        ],
+        ].map(t => ({ ...t, locked: !<?php echo $js_allowed_tabs; ?>.includes(t.id) })),
         usersList: <?php echo $js_users; ?>,
         allClients: <?php echo $js_clients; ?>,
         allPermissions: <?php echo $js_all_perms; ?>,
         companyForm: { name: <?php echo json_encode($company['name']); ?>, email: <?php echo json_encode($company['email']); ?>, phone: <?php echo json_encode($company['phone'] ?? ''); ?>, address: <?php echo json_encode($company['address'] ?? ''); ?> },
         pwForm: { current:'', new_password:'', confirm:'' },
         userForm: { first_name:'', last_name:'', email:'', phone:'', role:'department_head', department:'', password:'', permissions: [], client_ids: [] },
+
+        // Bulk operations
+        selectedUsers: [],
+        bulkRole: '',
 
         // Modal states
         showUserModal: false,
@@ -637,6 +684,61 @@ function settingsApp() {
             const fd = new FormData(); fd.append('action','delete_user'); fd.append('user_id',uid);
             const r = await (await fetch('../ajax/settings_api.php',{method:'POST',body:fd})).json();
             if (r.success) location.reload(); else alert(r.message);
+        },
+
+        // === Bulk Operations ===
+        toggleSelect(uid) {
+            const idx = this.selectedUsers.indexOf(uid);
+            if (idx > -1) this.selectedUsers.splice(idx, 1);
+            else this.selectedUsers.push(uid);
+        },
+        toggleSelectAll(checked) {
+            if (checked) {
+                this.selectedUsers = this.usersList.filter(u => u.id != <?php echo $user_id; ?>).map(u => u.id);
+            } else {
+                this.selectedUsers = [];
+            }
+        },
+        async bulkToggle(activate) {
+            const label = activate ? 'activate' : 'deactivate';
+            if (!confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} ${this.selectedUsers.length} user(s)?`)) return;
+            const fd = new FormData();
+            fd.append('action', 'bulk_toggle_users');
+            fd.append('user_ids', JSON.stringify(this.selectedUsers));
+            fd.append('activate', activate);
+            const r = await (await fetch('../ajax/settings_api.php', { method: 'POST', body: fd })).json();
+            if (r.success) location.reload(); else alert(r.message);
+        },
+        async bulkChangeRole() {
+            if (!this.bulkRole) return;
+            if (!confirm(`Change role to "${this.bulkRole.replace(/_/g, ' ')}" for ${this.selectedUsers.length} user(s)?`)) return;
+            const fd = new FormData();
+            fd.append('action', 'bulk_change_role');
+            fd.append('user_ids', JSON.stringify(this.selectedUsers));
+            fd.append('role', this.bulkRole);
+            const r = await (await fetch('../ajax/settings_api.php', { method: 'POST', body: fd })).json();
+            if (r.success) location.reload(); else alert(r.message);
+        },
+        async bulkDelete() {
+            if (!confirm(`Permanently delete ${this.selectedUsers.length} user(s)? This cannot be undone.`)) return;
+            const fd = new FormData();
+            fd.append('action', 'bulk_delete_users');
+            fd.append('user_ids', JSON.stringify(this.selectedUsers));
+            const r = await (await fetch('../ajax/settings_api.php', { method: 'POST', body: fd })).json();
+            if (r.success) location.reload(); else alert(r.message);
+        },
+
+        // === Date Formatting ===
+        formatLastLogin(dt) {
+            if (!dt) return 'Never';
+            const d = new Date(dt);
+            const now = new Date();
+            const diff = Math.floor((now - d) / 1000);
+            if (diff < 60) return 'Just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         },
 
         // === Permissions ===

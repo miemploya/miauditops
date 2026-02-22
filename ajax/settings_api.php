@@ -307,6 +307,61 @@ try {
             ]);
             break;
 
+        case 'bulk_toggle_users':
+            if (!is_admin_role()) { echo json_encode(['success' => false, 'message' => 'Unauthorized']); break; }
+
+            $user_ids = json_decode($_POST['user_ids'] ?? '[]', true);
+            $activate = intval($_POST['activate'] ?? 0);
+            $user_ids = array_filter(array_map('intval', $user_ids), fn($id) => $id > 0 && $id !== $user_id);
+
+            if (empty($user_ids)) { echo json_encode(['success' => false, 'message' => 'No valid users selected']); break; }
+
+            $placeholders = implode(',', array_fill(0, count($user_ids), '?'));
+            $stmt = $pdo->prepare("UPDATE users SET is_active = ? WHERE id IN ($placeholders) AND company_id = ?");
+            $stmt->execute(array_merge([$activate], $user_ids, [$company_id]));
+
+            $label = $activate ? 'activated' : 'deactivated';
+            log_audit($company_id, $user_id, 'bulk_toggle_users', 'settings', 0, "Bulk $label " . count($user_ids) . " user(s)");
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'bulk_change_role':
+            if (!is_admin_role()) { echo json_encode(['success' => false, 'message' => 'Unauthorized']); break; }
+
+            $user_ids = json_decode($_POST['user_ids'] ?? '[]', true);
+            $role = clean_input($_POST['role'] ?? '');
+            $valid_roles = ['business_owner','auditor','finance_officer','store_officer','department_head','hod','ceo','viewer'];
+            $user_ids = array_filter(array_map('intval', $user_ids), fn($id) => $id > 0 && $id !== $user_id);
+
+            if (empty($user_ids) || !in_array($role, $valid_roles)) {
+                echo json_encode(['success' => false, 'message' => 'Invalid selection']); break;
+            }
+
+            $placeholders = implode(',', array_fill(0, count($user_ids), '?'));
+            $stmt = $pdo->prepare("UPDATE users SET role = ? WHERE id IN ($placeholders) AND company_id = ?");
+            $stmt->execute(array_merge([$role], $user_ids, [$company_id]));
+
+            log_audit($company_id, $user_id, 'bulk_change_role', 'settings', 0, "Bulk changed " . count($user_ids) . " user(s) to role: $role");
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'bulk_delete_users':
+            if (!is_admin_role()) { echo json_encode(['success' => false, 'message' => 'Unauthorized']); break; }
+
+            $user_ids = json_decode($_POST['user_ids'] ?? '[]', true);
+            $user_ids = array_filter(array_map('intval', $user_ids), fn($id) => $id > 0 && $id !== $user_id);
+
+            if (empty($user_ids)) { echo json_encode(['success' => false, 'message' => 'No valid users selected']); break; }
+
+            $placeholders = implode(',', array_fill(0, count($user_ids), '?'));
+            $pdo->prepare("UPDATE users SET deleted_at = NOW() WHERE id IN ($placeholders) AND company_id = ?")->execute(array_merge($user_ids, [$company_id]));
+            $pdo->prepare("DELETE FROM user_permissions WHERE user_id IN ($placeholders)")->execute($user_ids);
+            $pdo->prepare("DELETE FROM user_clients WHERE user_id IN ($placeholders)")->execute($user_ids);
+
+            log_audit($company_id, $user_id, 'bulk_delete_users', 'settings', 0, "Bulk deleted " . count($user_ids) . " user(s)");
+            echo json_encode(['success' => true]);
+            break;
+
         default:
             echo json_encode(['success' => false, 'message' => 'Unknown action']);
     }

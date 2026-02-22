@@ -2776,9 +2776,14 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <div class="lg:col-span-4">
                                     <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                         <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 to-transparent">
-                                            <div class="flex items-center gap-3">
-                                                <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow"><i data-lucide="book-open" class="w-4 h-4 text-white"></i></div>
-                                                <h3 class="font-bold text-slate-900 dark:text-white text-sm">Debtor Accounts</h3>
+                                            <div class="flex items-center justify-between">
+                                                <div class="flex items-center gap-3">
+                                                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow"><i data-lucide="book-open" class="w-4 h-4 text-white"></i></div>
+                                                    <h3 class="font-bold text-slate-900 dark:text-white text-sm">Debtor Accounts</h3>
+                                                </div>
+                                                <button @click="printDebtors()" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-lg transition-all" title="Print / Save as PDF">
+                                                    <i data-lucide="printer" class="w-3.5 h-3.5"></i> Print
+                                                </button>
                                             </div>
                                         </div>
 
@@ -3952,6 +3957,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
     </div>
 </div>
 
+<script src="../assets/js/print-utils.js"></script>
 <?php include '../includes/dashboard_scripts.php'; ?>
 <script>
     window.__SA_OUTLETS = <?php echo $js_outlets; ?>;

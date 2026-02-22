@@ -87,4 +87,57 @@ switch ($action) {
 
     default:
         echo json_encode(['success' => false, 'message' => 'Unknown action']);
+
+    // ── List Replies for a Ticket ──
+    case 'list_replies':
+        $id = (int)($_POST['ticket_id'] ?? $_GET['ticket_id'] ?? 0);
+        // Verify ticket belongs to this company
+        $check = $pdo->prepare("SELECT id FROM support_tickets WHERE id = ? AND company_id = ?");
+        $check->execute([$id, $company_id]);
+        if (!$check->fetch()) {
+            echo json_encode(['success' => false, 'message' => 'Ticket not found.']);
+            break;
+        }
+        $stmt = $pdo->prepare("
+            SELECT r.*, u.first_name, u.last_name
+            FROM ticket_replies r
+            JOIN users u ON u.id = r.user_id
+            WHERE r.ticket_id = ?
+            ORDER BY r.created_at ASC
+        ");
+        $stmt->execute([$id]);
+        echo json_encode(['success' => true, 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        break;
+
+    // ── Client Reply to Ticket ──
+    case 'reply_ticket':
+        $ticket_id = (int)($_POST['ticket_id'] ?? 0);
+        $message   = trim($_POST['message'] ?? '');
+
+        if (!$ticket_id || empty($message)) {
+            echo json_encode(['success' => false, 'message' => 'Ticket ID and message are required.']);
+            break;
+        }
+
+        // Verify ticket belongs to this company
+        $check = $pdo->prepare("SELECT id, status FROM support_tickets WHERE id = ? AND company_id = ?");
+        $check->execute([$ticket_id, $company_id]);
+        $ticket = $check->fetch(PDO::FETCH_ASSOC);
+        if (!$ticket) {
+            echo json_encode(['success' => false, 'message' => 'Ticket not found.']);
+            break;
+        }
+
+        $stmt = $pdo->prepare("INSERT INTO ticket_replies (ticket_id, user_id, is_admin, message) VALUES (?, ?, 0, ?)");
+        $stmt->execute([$ticket_id, $user_id, $message]);
+        $reply_id = $pdo->lastInsertId();
+
+        // Re-open ticket if it was resolved/closed
+        if (in_array($ticket['status'], ['resolved', 'closed'])) {
+            $pdo->prepare("UPDATE support_tickets SET status = 'open' WHERE id = ?")->execute([$ticket_id]);
+        }
+
+        log_audit($company_id, $user_id, 'reply_ticket', 'support', $ticket_id, "Client replied to ticket #$ticket_id");
+        echo json_encode(['success' => true, 'reply_id' => $reply_id]);
+        break;
 }

@@ -87,7 +87,9 @@ if ($mode === 'signup') {
     }
     
     try {
-        $result = register_company_and_user_google($company_name, $email, $google_id, $first_name, $last_name, $avatar);
+        $signup_plan = $_POST['selected_plan'] ?? 'starter';
+        $signup_cycle = $_POST['selected_cycle'] ?? 'monthly';
+        $result = register_company_and_user_google($company_name, $email, $google_id, $first_name, $last_name, $avatar, $signup_plan, $signup_cycle);
         
         // Auto-login after signup
         $_SESSION['user_id'] = $result['user_id'];

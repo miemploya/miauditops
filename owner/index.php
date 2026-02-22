@@ -651,17 +651,40 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
     <div x-show="replyModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="replyModal=false">
         <div class="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-lg p-6 mx-4" @click.stop>
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-bold">Reply to Ticket</h3>
+                <h3 class="text-lg font-bold">Ticket Conversation</h3>
                 <button @click="replyModal=false" class="p-1 text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <p class="text-xs text-slate-500 mb-1">Company: <strong class="text-white" x-text="replyForm.company_name"></strong></p>
             <p class="text-sm font-bold text-white mb-2" x-text="replyForm.subject"></p>
-            <div class="bg-slate-800 rounded-lg p-3 mb-4 max-h-32 overflow-y-auto">
+            <!-- Original message -->
+            <div class="bg-slate-800 rounded-lg p-3 mb-3 max-h-24 overflow-y-auto">
+                <p class="text-[10px] font-bold text-indigo-400 mb-0.5">Original Message</p>
                 <p class="text-xs text-slate-300 whitespace-pre-line" x-text="replyForm.message"></p>
             </div>
+            <!-- Reply Thread -->
+            <div x-show="replyForm._replies && replyForm._replies.length > 0" class="space-y-2 mb-3 max-h-48 overflow-y-auto">
+                <template x-for="reply in (replyForm._replies || [])" :key="reply.id">
+                    <div class="flex" :class="reply.is_admin == 1 ? 'justify-end' : 'justify-start'">
+                        <div class="max-w-[80%] rounded-xl px-3 py-2"
+                             :class="reply.is_admin == 1 
+                                ? 'bg-amber-500/10 border border-amber-800/30'
+                                : 'bg-indigo-500/10 border border-indigo-800/30'">
+                            <p class="text-[10px] font-bold mb-0.5"
+                               :class="reply.is_admin == 1 ? 'text-amber-400' : 'text-indigo-400'"
+                               x-text="reply.is_admin == 1 ? 'You (Admin)' : (reply.first_name + ' ' + reply.last_name)"></p>
+                            <p class="text-xs text-slate-300 whitespace-pre-line" x-text="reply.message"></p>
+                            <p class="text-[10px] text-slate-500 mt-0.5" x-text="reply.created_at"></p>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <template x-if="!replyForm._replies || replyForm._replies.length === 0">
+                <p class="text-xs text-slate-500 text-center py-2 mb-3">No replies yet</p>
+            </template>
+            <!-- Reply Input -->
             <div class="mb-4">
                 <label class="block text-xs font-semibold text-slate-400 mb-1">Your Reply</label>
-                <textarea x-model="replyForm.reply" rows="4" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500 resize-none" placeholder="Type your response..."></textarea>
+                <textarea x-model="replyForm.reply" rows="3" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500 resize-none" placeholder="Type your response..."></textarea>
             </div>
             <div class="grid grid-cols-2 gap-3 mb-4">
                 <div>
@@ -674,7 +697,7 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                     </select>
                 </div>
             </div>
-            <button @click="submitReply()" class="w-full px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl text-sm font-bold hover:from-amber-400 hover:to-orange-500 transition-all cursor-pointer">
+            <button @click="submitReply()" :disabled="!replyForm.reply?.trim()" class="w-full px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl text-sm font-bold hover:from-amber-400 hover:to-orange-500 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
                 Send Reply
             </button>
         </div>
@@ -720,38 +743,46 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                     <input type="number" x-model.number="subForm.max_outlets" min="1" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-red-500">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-400 mb-1">Max Clients <span class="text-slate-500 text-[9px]">(read-only, set by plan + add-ons)</span></label>
-                    <input type="number" :value="getEffectiveClients()" disabled class="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-300 cursor-not-allowed">
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Max Clients <span class="text-slate-500 text-[9px]">(override for special arrangements)</span></label>
+                    <input type="number" x-model.number="subForm.max_clients" min="1" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-red-500">
                 </div>
             </div>
 
-            <!-- Add-On Packs Section -->
+            <!-- Add-On Packs — Admin Override -->
             <div class="mb-4 p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl">
-                <div class="flex items-center gap-2 mb-3">
-                    <i data-lucide="package-plus" class="w-4 h-4 text-amber-400"></i>
-                    <label class="text-xs font-bold text-amber-400 uppercase tracking-wider">Add-On Packs</label>
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="package-plus" class="w-4 h-4 text-amber-400"></i>
+                        <label class="text-xs font-bold text-amber-400 uppercase tracking-wider">Add-On Packs (Admin Override)</label>
+                    </div>
                 </div>
-                <p class="text-[11px] text-slate-400 mb-3">Each pack adds <strong class="text-white">+1 Client + 6 Departments</strong> at <strong class="text-amber-400">₦25,000/mo</strong></p>
-                <div class="flex items-center gap-3">
-                    <input type="number" x-model.number="subForm.addon_client_packs" min="0" max="20" class="w-24 px-3 py-2 bg-slate-800 border border-amber-500/50 rounded-lg text-sm text-white text-center font-bold focus:outline-none focus:border-amber-400">
-                    <span class="text-xs text-slate-400">packs</span>
-                </div>
-                <template x-if="subForm.addon_client_packs > 0">
-                    <div class="mt-3 space-y-1">
-                        <div class="flex justify-between text-xs">
-                            <span class="text-slate-400">Extra clients</span>
-                            <span class="text-white font-bold" x-text="'+' + subForm.addon_client_packs"></span>
+                <p class="text-[10px] text-slate-500 mb-3">Use this to reset a company's add-on packs if they were added by mistake. This will recalculate limits and update any unpaid invoice.</p>
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-3">
+                        <button @click="subForm.addon_client_packs = Math.max(0, (subForm.addon_client_packs || 0) - 1)"
+                                class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-bold text-slate-300 hover:bg-red-500/20 hover:border-red-500/40 transition-all cursor-pointer">&minus;</button>
+                        <span class="text-2xl font-black text-amber-400 min-w-[30px] text-center" x-text="subForm.addon_client_packs || 0"></span>
+                        <button @click="subForm.addon_client_packs = Math.min(20, (subForm.addon_client_packs || 0) + 1)"
+                                class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-bold text-slate-300 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all cursor-pointer">+</button>
+                    </div>
+                    <div class="flex-1 grid grid-cols-3 gap-2 text-xs text-center">
+                        <div class="bg-slate-800/50 rounded-lg py-1.5">
+                            <span class="font-bold text-white" x-text="'+' + (subForm.addon_client_packs || 0)"></span>
+                            <span class="text-slate-500 block text-[9px]">Clients</span>
                         </div>
-                        <div class="flex justify-between text-xs">
-                            <span class="text-slate-400">Extra departments</span>
-                            <span class="text-white font-bold" x-text="'+' + (subForm.addon_client_packs * 6)"></span>
+                        <div class="bg-slate-800/50 rounded-lg py-1.5">
+                            <span class="font-bold text-white" x-text="'+' + ((subForm.addon_client_packs || 0) * 6)"></span>
+                            <span class="text-slate-500 block text-[9px]">Departments</span>
                         </div>
-                        <div class="flex justify-between text-xs pt-1 border-t border-amber-500/20">
-                            <span class="text-amber-400 font-bold">Add-on cost</span>
-                            <span class="text-amber-400 font-bold" x-text="'₦' + (subForm.addon_client_packs * 25000).toLocaleString() + '/mo'"></span>
+                        <div class="bg-slate-800/50 rounded-lg py-1.5">
+                            <span class="font-bold text-amber-400" x-text="'₦' + ((subForm.addon_client_packs || 0) * 25000).toLocaleString()"></span>
+                            <span class="text-slate-500 block text-[9px]">/month</span>
                         </div>
                     </div>
-                </template>
+                    <button @click="resetAddonPacks()" class="px-3 py-2 bg-red-600/80 hover:bg-red-600 text-white font-bold rounded-lg text-[10px] transition-all whitespace-nowrap cursor-pointer">
+                        <i data-lucide="refresh-ccw" class="w-3 h-3 inline-block mr-1"></i>Apply Override
+                    </button>
+                </div>
             </div>
 
             <div class="mb-4">
@@ -958,6 +989,20 @@ function ownerApp() {
             this.loadStats();
         },
 
+        async resetAddonPacks() {
+            const packs = this.subForm.addon_client_packs || 0;
+            const name = this.subForm.company_name;
+            if (!confirm(`Override add-on packs for "${name}" to ${packs} pack(s)?\n\nThis will:\n• Recalculate client & department limits\n• Update any unpaid invoice amount\n• Log this as an admin override`)) return;
+            const res = await this.api('reset_addon_packs', {
+                company_id: this.subForm.company_id,
+                addon_client_packs: packs
+            });
+            if (res && res.success) {
+                alert('✓ ' + (res.message || 'Add-on packs reset successfully'));
+                this.loadCompanies();
+            }
+        },
+
         openPwdModal(c) {
             this.pwdForm = { company_id: c.id, company_name: c.name, new_password: '', confirm_password: '' };
             this.pwdError = '';
@@ -1083,16 +1128,20 @@ function ownerApp() {
             return list;
         },
 
-        openReply(ticket) {
+        async openReply(ticket) {
             this.replyForm = {
                 ticket_id: ticket.id,
                 subject: ticket.subject,
                 company_name: ticket.company_name || 'Unknown',
                 message: ticket.message,
-                reply: ticket.admin_reply || '',
-                status: ticket.status
+                reply: '',
+                status: ticket.status,
+                _replies: []
             };
             this.replyModal = true;
+            // Load threaded replies
+            const r = await this.api('list_ticket_replies', { ticket_id: ticket.id });
+            if (r.success) this.replyForm._replies = r.data || [];
             this.$nextTick(() => lucide.createIcons());
         },
 
@@ -1107,8 +1156,10 @@ function ownerApp() {
                 status: this.replyForm.status
             });
             if (r.success) {
-                this.replyModal = false;
-                alert('✓ Reply sent!');
+                this.replyForm.reply = '';
+                // Reload replies in modal
+                const r2 = await this.api('list_ticket_replies', { ticket_id: this.replyForm.ticket_id });
+                if (r2.success) this.replyForm._replies = r2.data || [];
                 this.loadSupportTickets();
             } else {
                 alert('✗ ' + (r.message || 'Failed to send reply.'));

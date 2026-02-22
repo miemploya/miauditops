@@ -189,6 +189,12 @@ $stmt = $pdo->prepare("SELECT * FROM suppliers WHERE company_id = ? AND client_i
 $stmt->execute([$company_id, $client_id]);
 $suppliers = $stmt->fetchAll();
 $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
+
+// ── Tab-lock enforcement ──
+$store_tabs = ['catalog', 'products', 'stock_in', 'stock_out', 'count', 'wastage', 'suppliers', 'ledger'];
+$js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($t) {
+    return subscription_allows_tab('main_store', $t);
+})));
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -269,9 +275,10 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
             <!-- Tabs -->
             <div class="mb-6 flex flex-wrap gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                 <template x-for="t in tabs" :key="t.id">
-                    <button @click="currentTab = t.id; showForm = false" :class="currentTab === t.id ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm border-emerald-200' : 'text-slate-500 hover:bg-white/50 border-transparent'" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border">
-                        <i :data-lucide="t.icon" class="w-3.5 h-3.5"></i><span x-text="t.label"></span>
-                        <template x-if="t.id === 'products' && lowStockCount > 0"><span class="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-black" x-text="lowStockCount"></span></template>
+                    <button @click="!t.locked && (currentTab = t.id, showForm = false)" :class="t.locked ? 'opacity-50 cursor-not-allowed text-slate-400 dark:text-slate-600 border-transparent' : (currentTab === t.id ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm border-emerald-200' : 'text-slate-500 hover:bg-white/50 border-transparent')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border" :title="t.locked ? 'Upgrade your plan to access ' + t.label : ''">
+                        <i :data-lucide="t.locked ? 'lock' : t.icon" class="w-3.5 h-3.5"></i><span x-text="t.label"></span>
+                        <template x-if="t.id === 'products' && !t.locked && lowStockCount > 0"><span class="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-black" x-text="lowStockCount"></span></template>
+                        <template x-if="t.locked"><span class="ml-1 px-1 py-0.5 rounded text-[7px] font-black tracking-wider bg-gradient-to-r from-violet-500 to-amber-500 text-white">PRO</span></template>
                     </button>
                 </template>
             </div>
@@ -299,6 +306,9 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
                                 <input type="text" x-model="productSearch" placeholder="Search products..." class="pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs w-48 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
                             </div>
+                            <button @click="printCatalog()" class="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl transition-all" title="Print / Save as PDF">
+                                <i data-lucide="printer" class="w-3.5 h-3.5"></i> Print
+                            </button>
                             <button @click="showCategoryModal = true; $nextTick(() => lucide.createIcons())" class="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 text-amber-600 text-xs font-bold rounded-xl border border-amber-200 dark:border-amber-800 transition-all">
                                 <i data-lucide="tag" class="w-3.5 h-3.5"></i> Categories
                             </button>
@@ -1703,7 +1713,7 @@ $js_suppliers = json_encode($suppliers, JSON_HEX_TAG | JSON_HEX_APOS);
 <script>
 function mainStoreApp() {
     return {
-        currentTab: (location.hash.slice(1) || new URLSearchParams(window.location.search).get('tab') || 'catalog'), search: '', categoryFilter: '', showForm: false,
+        currentTab: (() => { const allowed = <?php echo $js_allowed_tabs; ?>; const hash = location.hash.slice(1) || new URLSearchParams(window.location.search).get('tab'); return (hash && allowed.includes(hash)) ? hash : allowed[0] || 'catalog'; })(), search: '', categoryFilter: '', showForm: false,
         editModal: false, editCatalogModal: false, showReturnIn: false, showDeptReq: false,
         stockDate: '<?php echo $stock_date; ?>',
         todayStr: new Date().toISOString().split('T')[0],
@@ -1718,7 +1728,7 @@ function mainStoreApp() {
             { id: 'wastage', label: 'Wastage & Damage', icon: 'trash-2' },
             { id: 'suppliers', label: 'Suppliers', icon: 'building-2' },
             { id: 'ledger', label: 'Supplier Ledger', icon: 'receipt' },
-        ],
+        ].map(t => ({ ...t, locked: !<?php echo $js_allowed_tabs; ?>.includes(t.id) })),
         products: <?php echo $js_products; ?>,
         movements: <?php echo $js_movements; ?>,
         deliveries: <?php echo $js_deliveries; ?>,
@@ -2450,8 +2460,36 @@ function mainStoreApp() {
             this.editingSupplier = null;
             this.supplierForm = { name:'', contact_person:'', phone:'', email:'', address:'', category:[], notes:'' };
         },
+        printCatalog() {
+            const rows = this.products.map(p => ({
+                name: p.name,
+                sku: p.sku || '—',
+                category: p.category || '—',
+                unit: p.unit || '—',
+                unit_cost: p.unit_cost,
+                selling_price: p.selling_price,
+                reorder_level: p.reorder_level || '—',
+            }));
+            printReport({
+                title: 'Product Catalog',
+                subtitle: rows.length + ' products',
+                orientation: 'landscape',
+                columns: [
+                    { label: '#', key: '_idx', align: 'center' },
+                    { label: 'Product Name', key: 'name', bold: true },
+                    { label: 'SKU', key: 'sku' },
+                    { label: 'Category', key: 'category' },
+                    { label: 'Unit', key: 'unit', align: 'center' },
+                    { label: 'Unit Cost (₦)', key: 'unit_cost', align: 'right', fmt: v => _pFmt(v) },
+                    { label: 'Selling Price (₦)', key: 'selling_price', align: 'right', fmt: v => _pFmt(v) },
+                    { label: 'Reorder', key: 'reorder_level', align: 'center' },
+                ],
+                rows: rows.map((r, i) => ({ ...r, _idx: i + 1 })),
+            });
+        },
     }
 }
 </script>
+<script src="../assets/js/print-utils.js"></script>
 <?php include '../includes/dashboard_scripts.php'; ?>
 </body></html>

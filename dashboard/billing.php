@@ -174,34 +174,162 @@ require_login();
                             </div>
                         </template>
 
-                        <!-- ═══════════ Active Add-Ons ═══════════ -->
-                        <template x-if="sub.addon_client_packs > 0">
-                            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-amber-200 dark:border-amber-500/30 shadow-xl overflow-hidden">
-                                <div class="px-6 py-4 border-b border-amber-100 dark:border-amber-500/20 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/5 dark:to-orange-500/5">
+                        <!-- ═══════════ Self-Service Add-On Packs ═══════════ -->
+                        <template x-if="sub.plan_name === 'starter' || sub.plan_name === 'free'">
+                            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden">
+                                <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-800/50 dark:to-slate-900/50">
                                     <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                        <i data-lucide="package-plus" class="w-4 h-4 text-amber-500"></i> Active Add-Ons
+                                        <i data-lucide="package-plus" class="w-4 h-4 text-slate-400"></i> Add-On Packs
                                     </h3>
                                 </div>
-                                <div class="p-6">
-                                    <div class="flex items-center justify-between mb-4">
-                                        <div>
-                                            <div class="flex items-center gap-2 mb-1">
-                                                <span class="text-2xl font-black text-amber-600 dark:text-amber-400" x-text="sub.addon_client_packs"></span>
-                                                <span class="text-sm font-semibold text-slate-600 dark:text-slate-400" x-text="sub.addon_client_packs === 1 ? 'Add-On Pack' : 'Add-On Packs'"></span>
-                                            </div>
-                                            <p class="text-xs text-slate-500 dark:text-slate-400">
-                                                Includes <strong class="text-slate-700 dark:text-slate-300" x-text="'+' + sub.addon_extra_clients + ' client(s)'"></strong> and
-                                                <strong class="text-slate-700 dark:text-slate-300" x-text="'+' + sub.addon_extra_depts + ' department(s)'"></strong>
-                                            </p>
+                                <div class="p-6 text-center">
+                                    <i data-lucide="lock" class="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-3"></i>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400 mb-1">Add-on packs are not available on the <strong class="text-slate-700 dark:text-white">Starter</strong> plan.</p>
+                                    <p class="text-xs text-slate-400">Upgrade to <strong>Professional</strong> or <strong>Enterprise</strong> to add extra clients and departments.</p>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="sub.plan_name !== 'starter' && sub.plan_name !== 'free'">
+                        <div class="bg-white dark:bg-slate-900 rounded-2xl border border-amber-200 dark:border-amber-500/30 shadow-xl overflow-hidden">
+                            <div class="px-6 py-4 border-b border-amber-100 dark:border-amber-500/20 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/5 dark:to-orange-500/5">
+                                <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                    <i data-lucide="package-plus" class="w-4 h-4 text-amber-500"></i> Add-On Packs
+                                    <span class="text-[10px] font-normal text-slate-400 ml-1">Each pack: +1 Client + 6 Departments at ₦25,000/mo</span>
+                                </h3>
+                            </div>
+                            <div class="p-6">
+                                <div class="flex items-center justify-between gap-6">
+                                    <!-- Stepper control -->
+                                    <div class="flex items-center gap-4">
+                                        <button @click="addonPacks = Math.max(0, addonPacks - 1)" :disabled="addonPacks <= 0 || (addonLock && addonLock.locked)"
+                                                class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-lg font-bold text-slate-600 dark:text-slate-300 hover:bg-red-50 hover:border-red-300 dark:hover:bg-red-500/10 dark:hover:border-red-500/30 disabled:opacity-30 transition-all cursor-pointer">
+                                            &minus;
+                                        </button>
+                                        <div class="text-center min-w-[60px]">
+                                            <span class="text-3xl font-black text-amber-600 dark:text-amber-400" x-text="addonPacks"></span>
+                                            <p class="text-[10px] text-slate-400 font-semibold">PACKS</p>
                                         </div>
-                                        <div class="text-right">
-                                            <span class="text-lg font-black text-amber-600 dark:text-amber-400" x-text="'₦' + sub.addon_monthly_cost.toLocaleString()"></span>
+                                        <button @click="addonPacks = Math.min(20, addonPacks + 1)"
+                                                class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-lg font-bold text-slate-600 dark:text-slate-300 hover:bg-emerald-50 hover:border-emerald-300 dark:hover:bg-emerald-500/10 dark:hover:border-emerald-500/30 transition-all cursor-pointer">
+                                            +
+                                        </button>
+                                    </div>
+
+                                    <!-- What it includes -->
+                                    <div class="flex-1 grid grid-cols-3 gap-4 text-center">
+                                        <div>
+                                            <p class="text-lg font-black text-slate-800 dark:text-white" x-text="'+' + addonPacks"></p>
+                                            <p class="text-[10px] text-slate-400 font-semibold">Extra Clients</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-lg font-black text-slate-800 dark:text-white" x-text="'+' + (addonPacks * 6)"></p>
+                                            <p class="text-[10px] text-slate-400 font-semibold">Extra Depts</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-lg font-black text-amber-600 dark:text-amber-400" x-text="'₦' + (addonPacks * 25000).toLocaleString()"></p>
                                             <p class="text-[10px] text-slate-400 font-semibold">/month</p>
                                         </div>
                                     </div>
-                                    <div class="flex items-center gap-2 text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-lg px-3 py-2">
-                                        <i data-lucide="info" class="w-3 h-3 shrink-0"></i>
-                                        <span>Add-on packs are managed by the platform administrator. Contact support to adjust.</span>
+                                </div>
+
+                                <!-- Effective limits -->
+                                <div class="mt-4 px-4 py-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl flex items-center justify-between text-xs">
+                                    <div class="flex items-center gap-4">
+                                        <span class="text-slate-500">Effective limits:</span>
+                                        <span class="font-bold text-slate-700 dark:text-slate-300">
+                                            <span x-text="sub.base_clients + addonPacks"></span> clients
+                                        </span>
+                                        <span class="text-slate-300 dark:text-slate-600">&bull;</span>
+                                        <span class="font-bold text-slate-700 dark:text-slate-300">
+                                            <template x-if="sub.base_departments === 0"><span>&infin; departments</span></template>
+                                            <template x-if="sub.base_departments > 0"><span x-text="sub.base_departments + (addonPacks * 6) + ' departments'"></span></template>
+                                        </span>
+                                    </div>
+                                    <template x-if="addonPacks !== sub.addon_client_packs">
+                                        <div class="flex items-center gap-2">
+                                            <button @click="addonPacks = sub.addon_client_packs"
+                                                    class="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold rounded-lg text-xs border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer">
+                                                Cancel
+                                            </button>
+                                            <button @click="updateAddonPacks()" :disabled="addonSaving"
+                                                    class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold rounded-lg text-xs shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-[1.02] transition-all disabled:opacity-50 cursor-pointer">
+                                                <span x-text="addonSaving ? 'Saving...' : 'Save Changes'"></span>
+                                            </button>
+                                        </div>
+                                    </template>
+                                    <template x-if="addonPacks === sub.addon_client_packs">
+                                        <span class="text-emerald-500 font-semibold flex items-center gap-1">
+                                            <i data-lucide="check-circle" class="w-3 h-3"></i> Saved
+                                        </span>
+                                    </template>
+                                </div>
+
+                                <!-- Lock-in status alert -->
+                                <template x-if="addonLock && addonLock.locked">
+                                    <div class="mt-3 px-4 py-2.5 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-xl flex items-center gap-2">
+                                        <i data-lucide="lock" class="w-3.5 h-3.5 text-red-500 flex-shrink-0"></i>
+                                        <span class="text-[11px] text-red-600 dark:text-red-400 font-medium" x-text="addonLock.reason"></span>
+                                    </div>
+                                </template>
+                                <template x-if="addonLock && !addonLock.locked && addonLock.adjustment_days_left !== null && addonLock.adjustment_days_left > 0 && addonPacks > 0">
+                                    <div class="mt-3 px-4 py-2.5 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl flex items-center gap-2">
+                                        <i data-lucide="clock" class="w-3.5 h-3.5 text-blue-500 flex-shrink-0"></i>
+                                        <span class="text-[11px] text-blue-600 dark:text-blue-400 font-medium" x-text="addonLock.adjustment_days_left + ' day(s) left to adjust add-on packs before they are locked for this cycle'"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                        </template>
+
+                        <!-- ═══════════ Upcoming Invoice ═══════════ -->
+                        <template x-if="upcomingInvoice">
+                            <div class="bg-white dark:bg-slate-900 rounded-2xl border shadow-xl overflow-hidden"
+                                 :class="upcomingInvoice.invoice_status === 'overdue'
+                                    ? 'border-red-300 dark:border-red-500/40'
+                                    : 'border-blue-200 dark:border-blue-500/30'">
+                                <div class="px-6 py-4 border-b flex items-center justify-between"
+                                     :class="upcomingInvoice.invoice_status === 'overdue'
+                                        ? 'border-red-100 dark:border-red-500/20 bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-500/5 dark:to-orange-500/5'
+                                        : 'border-blue-100 dark:border-blue-500/20 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/5 dark:to-indigo-500/5'">
+                                    <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                        <i data-lucide="file-clock" class="w-4 h-4" :class="upcomingInvoice.invoice_status === 'overdue' ? 'text-red-500' : 'text-blue-500'"></i>
+                                        <span x-text="upcomingInvoice.invoice_status === 'overdue' ? 'Overdue Invoice' : 'Upcoming Invoice'"></span>
+                                        <template x-if="upcomingInvoice.invoice_number">
+                                            <span class="font-mono text-xs text-slate-400" x-text="upcomingInvoice.invoice_number"></span>
+                                        </template>
+                                    </h3>
+                                    <span class="text-xs text-slate-500">
+                                        Due <span class="font-semibold" :class="upcomingInvoice.invoice_status === 'overdue' ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'"
+                                                   x-text="formatDate(upcomingInvoice.due_date)"></span>
+                                    </span>
+                                </div>
+                                <div class="p-6">
+                                    <div class="flex items-center justify-between">
+                                        <div class="space-y-1.5">
+                                            <div class="flex items-center gap-3 text-sm">
+                                                <span class="text-slate-500">Plan:</span>
+                                                <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="sub.plan_label + ' (' + upcomingInvoice.billing_cycle + ')'"></span>
+                                                <span class="font-bold text-slate-800 dark:text-white" x-text="'₦' + Number(upcomingInvoice.plan_cost).toLocaleString()"></span>
+                                            </div>
+                                            <template x-if="upcomingInvoice.addon_packs > 0">
+                                                <div class="flex items-center gap-3 text-sm">
+                                                    <span class="text-slate-500">Add-ons:</span>
+                                                    <span class="font-semibold text-amber-600 dark:text-amber-400" x-text="upcomingInvoice.addon_packs + ' pack(s)'"></span>
+                                                    <span class="font-bold text-amber-600 dark:text-amber-400" x-text="'₦' + Number(upcomingInvoice.addon_cost).toLocaleString()"></span>
+                                                </div>
+                                            </template>
+                                            <div class="flex items-center gap-3 text-sm pt-1 border-t border-slate-100 dark:border-slate-800">
+                                                <span class="text-slate-500 font-bold">Total:</span>
+                                                <span class="text-xl font-black text-slate-800 dark:text-white" x-text="'₦' + Number(upcomingInvoice.invoice_amount).toLocaleString()"></span>
+                                            </div>
+                                        </div>
+                                        <template x-if="upcomingInvoice.has_invoice && upcomingInvoice.invoice_status !== 'paid'">
+                                            <button @click="payInvoice({id: upcomingInvoice.invoice_id, invoice_number: upcomingInvoice.invoice_number, amount_naira: upcomingInvoice.invoice_amount})" :disabled="paying"
+                                                    class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl text-sm shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.02] transition-all disabled:opacity-50 cursor-pointer">
+                                                <i data-lucide="credit-card" class="w-4 h-4"></i>
+                                                <span x-text="paying ? 'Processing...' : 'Pay Now'"></span>
+                                            </button>
+                                        </template>
                                     </div>
                                 </div>
                             </div>
@@ -440,11 +568,15 @@ require_login();
                     selectedCycle: 'monthly',
 
                     // Data from API
-                    sub: { plan_name: 'starter', plan_label: 'Starter', status: 'active', plan_icon: 'rocket', billing_cycle: 'monthly', expires_at: null, days_remaining: null },
+                    sub: { plan_name: 'starter', plan_label: 'Starter', status: 'active', plan_icon: 'rocket', billing_cycle: 'monthly', expires_at: null, days_remaining: null, addon_client_packs: 0, base_clients: 0, base_departments: 0 },
                     invoices: [],
                     payments: [],
                     planOptions: [],
                     usage: null,
+                    upcomingInvoice: null,
+                    addonPacks: 0,
+                    addonSaving: false,
+                    addonLock: { locked: false, reason: '', adjustment_days_left: null },
 
                     async init() {
                         await this.loadBillingData();
@@ -464,6 +596,9 @@ require_login();
                                 this.payments = data.payments || [];
                                 this.planOptions = data.plan_options || [];
                                 this.usage = data.usage || null;
+                                this.upcomingInvoice = data.upcoming_invoice || null;
+                                this.addonPacks = data.subscription.addon_client_packs || 0;
+                                this.addonLock = data.addon_lock || { locked: false, reason: '', adjustment_days_left: null };
                                 // Default cycle to current subscription cycle
                                 if (this.sub.billing_cycle) this.selectedCycle = this.sub.billing_cycle;
                             }
@@ -526,6 +661,40 @@ require_login();
                         if (!dateStr) return '—';
                         const d = new Date(dateStr);
                         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    },
+
+                    async updateAddonPacks() {
+                        if (this.addonPacks === this.sub.addon_client_packs) return;
+                        const diff = this.addonPacks - this.sub.addon_client_packs;
+                        const cost = this.addonPacks * 25000;
+                        let msg = diff > 0
+                            ? `Add ${diff} add-on pack(s)?\n\nNew total: ${this.addonPacks} pack(s) at ₦${cost.toLocaleString()}/mo\nYour invoice will be updated immediately.`
+                            : `Remove ${Math.abs(diff)} add-on pack(s)?\n\nNew total: ${this.addonPacks} pack(s) at ₦${cost.toLocaleString()}/mo`;
+                        if (!confirm(msg)) return;
+
+                        this.addonSaving = true;
+                        try {
+                            const fd = new FormData();
+                            fd.append('action', 'update_addon_packs');
+                            fd.append('addon_client_packs', this.addonPacks);
+                            const res = await fetch('../ajax/payment_api.php', { method: 'POST', body: fd });
+                            const data = await res.json();
+                            if (data.success) {
+                                this.sub.addon_client_packs = data.addon_client_packs;
+                                this.sub.effective_clients = data.effective_clients;
+                                this.sub.effective_departments = data.effective_departments;
+                                this.sub.addon_monthly_cost = data.addon_monthly_cost;
+                                await this.loadBillingData(); // refresh everything
+                                alert('✓ ' + data.message);
+                            } else {
+                                alert('✗ ' + (data.message || 'Failed to update'));
+                                this.addonPacks = this.sub.addon_client_packs; // revert
+                            }
+                        } catch (e) {
+                            alert('Network error. Please try again.');
+                            this.addonPacks = this.sub.addon_client_packs;
+                        }
+                        this.addonSaving = false;
                     }
                 };
             }

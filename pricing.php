@@ -253,7 +253,7 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Priority Support Services
                     </li>
                 </ul>
-                <button @click="startPayment('enterprise')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold text-sm shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Subscribe Now'">
+                <button @click="startPayment('enterprise')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold text-sm shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Start 7-Day Trial'">
                 </button>
             </div>
 

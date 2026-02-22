@@ -379,6 +379,12 @@ foreach ($all_departments as $dept) {
 }
 
 $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
+
+// ── Tab-lock enforcement ──
+$finance_tabs = ['revenue', 'expenses', 'cost_centers', 'pnl', 'valuation'];
+$js_allowed_tabs = json_encode(array_values(array_filter($finance_tabs, function($t) {
+    return subscription_allows_tab('finance', $t);
+})));
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -464,11 +470,11 @@ $js_valuation = json_encode($valuation_data, JSON_HEX_TAG | JSON_HEX_APOS);
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60"><p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Net Profit</p><p class="text-xl font-black <?php echo $net_profit>=0?'text-emerald-600':'text-red-600'; ?>"><?php echo format_currency($net_profit); ?></p><p class="text-[10px] text-slate-400"><?php echo number_format($margin,1); ?>% margin</p></div>
             </div>
 
-            <!-- Tabs -->
             <div class="mb-6 flex flex-wrap gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                 <template x-for="t in tabs" :key="t.id">
-                    <button @click="currentTab = t.id" :class="currentTab === t.id ? 'bg-white dark:bg-slate-900 text-amber-600 shadow-sm border-amber-200' : 'text-slate-500 hover:bg-white/50 border-transparent'" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border">
-                        <i :data-lucide="t.icon" class="w-3.5 h-3.5"></i><span x-text="t.label"></span>
+                    <button @click="!t.locked && (currentTab = t.id)" :class="t.locked ? 'opacity-50 cursor-not-allowed text-slate-400 dark:text-slate-600 border-transparent' : (currentTab === t.id ? 'bg-white dark:bg-slate-900 text-amber-600 shadow-sm border-amber-200' : 'text-slate-500 hover:bg-white/50 border-transparent')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border" :title="t.locked ? 'Upgrade your plan to access ' + t.label : ''">
+                        <i :data-lucide="t.locked ? 'lock' : t.icon" class="w-3.5 h-3.5"></i><span x-text="t.label"></span>
+                        <template x-if="t.locked"><span class="ml-1 px-1 py-0.5 rounded text-[7px] font-black tracking-wider bg-gradient-to-r from-violet-500 to-amber-500 text-white">PRO</span></template>
                     </button>
                 </template>
             </div>
@@ -1948,14 +1954,14 @@ function saveManualOpening() {
 
 function financeApp() {
     return {
-        currentTab: (location.hash.slice(1) || 'revenue'),
+        currentTab: (() => { const allowed = <?php echo $js_allowed_tabs; ?>; const hash = location.hash.slice(1); return (hash && allowed.includes(hash)) ? hash : allowed[0] || 'revenue'; })(),
         tabs: [
             { id: 'revenue', label: 'Revenue', icon: 'trending-up' },
             { id: 'expenses', label: 'Expenses', icon: 'receipt' },
             { id: 'cost_centers', label: 'Cost Centers', icon: 'pie-chart' },
             { id: 'pnl', label: 'P&L Statement', icon: 'file-bar-chart' },
             { id: 'valuation', label: 'Stock Valuation', icon: 'warehouse' },
-        ],
+        ].map(t => ({ ...t, locked: !<?php echo $js_allowed_tabs; ?>.includes(t.id) })),
         categories: <?php echo $js_categories; ?>,
         expenses: <?php echo $js_expenses; ?>,
         valuationData: <?php echo $js_valuation; ?>,

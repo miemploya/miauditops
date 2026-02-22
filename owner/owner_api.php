@@ -111,7 +111,11 @@ switch ($action) {
         // Calculate effective limits from plan base + add-ons
         $base_clients    = (int)$plan_cfg['max_clients'];
         $base_departments = (int)$plan_cfg['max_departments'];
-        $max_clients     = $base_clients + $addon_packs;
+        // Owner override: if explicitly provided, use it; otherwise calculate from plan+addons
+        $calculated_clients = $base_clients + $addon_packs;
+        $max_clients = isset($_POST['max_clients']) && (int)$_POST['max_clients'] > 0
+            ? max((int)$_POST['max_clients'], $calculated_clients) // Owner can only increase, not decrease below add-on calculation
+            : $calculated_clients;
         // If plan has unlimited departments (0), keep unlimited; otherwise add 6 per pack
         $max_departments = ($base_departments === 0) ? 0 : $base_departments + ($addon_packs * 6);
 
@@ -148,6 +152,82 @@ switch ($action) {
                 ->execute(array_values($fields));
         }
         echo json_encode(['success' => true, 'plan_applied' => $plan, 'addon_packs' => $addon_packs, 'limits' => $fields]);
+        break;
+
+    // ── Admin Override: Reset Add-On Packs ──
+    case 'reset_addon_packs':
+        require_once '../config/subscription_plans.php';
+        $company_id = (int)($_POST['company_id'] ?? 0);
+        $new_packs  = max(0, min(20, (int)($_POST['addon_client_packs'] ?? 0)));
+
+        if (!$company_id) {
+            echo json_encode(['success' => false, 'message' => 'Company ID required']);
+            break;
+        }
+
+        // Get current subscription
+        $sub_stmt = $pdo->prepare("SELECT * FROM company_subscriptions WHERE company_id = ? ORDER BY id DESC LIMIT 1");
+        $sub_stmt->execute([$company_id]);
+        $current_sub = $sub_stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$current_sub) {
+            echo json_encode(['success' => false, 'message' => 'No subscription found']);
+            break;
+        }
+
+        $old_packs  = (int)($current_sub['addon_client_packs'] ?? 0);
+        $plan_key_r = $current_sub['plan_name'] ?? 'starter';
+        $plan_cfg_r = get_plan_config($plan_key_r);
+
+        // Recalculate limits
+        $base_clients_r = (int)$plan_cfg_r['max_clients'];
+        $base_depts_r   = (int)$plan_cfg_r['max_departments'];
+        $eff_clients_r  = $base_clients_r + $new_packs;
+        $eff_depts_r    = ($base_depts_r === 0) ? 0 : $base_depts_r + ($new_packs * 6);
+
+        // Update subscription
+        $pdo->prepare("
+            UPDATE company_subscriptions SET addon_client_packs = ?, max_clients = ?, max_departments = ?
+            WHERE company_id = ? ORDER BY id DESC LIMIT 1
+        ")->execute([$new_packs, $eff_clients_r, $eff_depts_r, $company_id]);
+
+        // Update unpaid invoice if exists
+        try {
+            $cycle_key_r = $current_sub['billing_cycle'] ?? 'monthly';
+            $prices_r = get_dynamic_prices();
+            $plan_cost_r = $prices_r[$plan_key_r . '_' . $cycle_key_r] ?? 0;
+            // Fallback prices
+            if ($plan_cost_r <= 0) {
+                $fallback_r = ['professional_monthly'=>25000,'professional_quarterly'=>67500,'professional_annual'=>240000,'enterprise_monthly'=>75000,'enterprise_quarterly'=>202500,'enterprise_annual'=>720000];
+                $plan_cost_r = $fallback_r[$plan_key_r . '_' . $cycle_key_r] ?? 0;
+            }
+            $cycle_cfg_r = get_cycle_config();
+            $months_r = $cycle_cfg_r[$cycle_key_r]['months'] ?? 1;
+            $addon_cost_r = $new_packs * 25000 * $months_r;
+            $new_total_r = $plan_cost_r + $addon_cost_r;
+
+            $notes_r = ucfirst($plan_key_r) . ' ' . ucfirst($cycle_key_r) . ' subscription';
+            if ($new_packs > 0) {
+                $notes_r .= ' + ' . $new_packs . ' add-on pack(s) (₦' . number_format($addon_cost_r) . ')';
+            }
+            $notes_r .= ' [Admin override]';
+
+            $pdo->prepare("
+                UPDATE billing_invoices SET amount_naira = ?, notes = ?
+                WHERE company_id = ? AND status IN ('draft','sent','overdue') ORDER BY id DESC LIMIT 1
+            ")->execute([$new_total_r, $notes_r, $company_id]);
+        } catch (Exception $e) { /* table might not exist yet */ }
+
+        // Audit log
+        log_audit($company_id, $_SESSION['user_id'] ?? 0, 'admin_addon_override', 'billing', null,
+            "Admin overrode add-on packs from $old_packs to $new_packs (clients: $eff_clients_r, depts: $eff_depts_r)");
+
+        echo json_encode([
+            'success' => true,
+            'message' => "Add-on packs set to $new_packs. Limits: $eff_clients_r clients, " . ($eff_depts_r === 0 ? '∞' : $eff_depts_r) . " departments. Invoice updated.",
+            'addon_client_packs' => $new_packs,
+            'effective_clients' => $eff_clients_r,
+            'effective_departments' => $eff_depts_r,
+        ]);
         break;
 
 
@@ -366,9 +446,45 @@ switch ($action) {
             break;
         }
 
+        // Update ticket's admin_reply column (backward compat) + status
         $stmt = $pdo->prepare("UPDATE support_tickets SET admin_reply = ?, replied_at = NOW(), status = ? WHERE id = ?");
         $stmt->execute([$reply, $status, $ticket_id]);
-        echo json_encode(['success' => true]);
+
+        // Also insert into threaded replies table
+        $admin_user_id = $_SESSION['user_id'] ?? 0;
+        $stmt2 = $pdo->prepare("INSERT INTO ticket_replies (ticket_id, user_id, is_admin, message) VALUES (?, ?, 1, ?)");
+        $stmt2->execute([$ticket_id, $admin_user_id, $reply]);
+
+        // Notify ticket submitter that admin replied
+        try {
+            $tStmt = $pdo->prepare("SELECT user_id, subject FROM support_tickets WHERE id = ?");
+            $tStmt->execute([$ticket_id]);
+            $tData = $tStmt->fetch(PDO::FETCH_ASSOC);
+            if ($tData && $tData['user_id']) {
+                $cStmt = $pdo->prepare("SELECT company_id FROM support_tickets WHERE id = ?");
+                $cStmt->execute([$ticket_id]);
+                $cData = $cStmt->fetch(PDO::FETCH_ASSOC);
+                $cid = $cData['company_id'] ?? 0;
+                $pdo->prepare("INSERT INTO app_notifications (company_id, user_id, title, message, type, link) VALUES (?, ?, ?, ?, ?, ?)")
+                    ->execute([$cid, $tData['user_id'], '💬 Support Reply', "Admin replied to your ticket: \"{$tData['subject']}\"", 'info', 'support.php']);
+            }
+        } catch (Exception $e) {}
+
+        echo json_encode(['success' => true, 'reply_id' => $pdo->lastInsertId()]);
+        break;
+
+    // ── List Ticket Replies (threaded) ──
+    case 'list_ticket_replies':
+        $ticket_id = (int)($_POST['ticket_id'] ?? $_GET['ticket_id'] ?? 0);
+        $stmt = $pdo->prepare("
+            SELECT r.*, u.first_name, u.last_name
+            FROM ticket_replies r
+            JOIN users u ON u.id = r.user_id
+            WHERE r.ticket_id = ?
+            ORDER BY r.created_at ASC
+        ");
+        $stmt->execute([$ticket_id]);
+        echo json_encode(['success' => true, 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
         break;
 
     // ── Update Ticket Status ──

@@ -1,0 +1,4 @@
+[Fri Feb 20 12:08:20.212091 2026] [php:error] [pid 18352:tid 1872] [client ::1:53929] script 'C:/xampp/htdocs/pricing.php' not found or unable to stat, referer: http://localhost/MIIAUDITOPS/dashboard/company_setup.php
+[Fri Feb 20 12:08:49.159561 2026] [php:error] [pid 18352:tid 1888] [client ::1:53955] script 'C:/xampp/htdocs/pricing.php' not found or unable to stat, referer: http://localhost/MIIAUDITOPS/dashboard/company_setup.php
+[Fri Feb 20 12:43:58.814442 2026] [php:error] [pid 18352:tid 1872] [client ::1:54861] script 'C:/xampp/htdocs/pricing.php' not found or unable to stat, referer: http://localhost/MIIAUDITOPS/dashboard/finance.php
+[Fri Feb 20 19:59:37.146049 2026] [php:error] [pid 8404:tid 1884] [client ::1:59608] script 'C:/xampp/htdocs/pricing.php' not found or unable to stat, referer: http://localhost/miiauditops/dashboard/stock.php

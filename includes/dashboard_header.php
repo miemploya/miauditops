@@ -22,23 +22,43 @@ $role_label = $role_labels[$current_user['role']] ?? 'User';
 $_notif_count = 0;
 $_notif_items = [];
 try {
+    // Platform notifications (owner broadcasts)
     $__nStmt = $pdo->prepare("
-        SELECT n.id, n.title, n.message, n.type, n.created_at
+        SELECT n.id, n.title, n.message, n.type, n.created_at, NULL as link, 'platform' as source
         FROM platform_notifications n
         WHERE n.is_active = 1
           AND (n.expires_at IS NULL OR n.expires_at > NOW())
           AND (n.target = 'all' OR (n.target = 'plan' AND n.target_plan = ?))
           AND n.id NOT IN (SELECT notification_id FROM notification_reads WHERE user_id = ?)
         ORDER BY n.created_at DESC
-        LIMIT 10
+        LIMIT 5
     ");
     $_plan = $_current_plan_key ?? 'starter';
     $__nStmt->execute([$_plan, $_SESSION['user_id']]);
     $_notif_items = $__nStmt->fetchAll(PDO::FETCH_ASSOC);
-    $_notif_count = count($_notif_items);
 } catch (Exception $e) {
     // Table may not exist yet
 }
+
+// App notifications (internal events)
+try {
+    $__aStmt = $pdo->prepare("
+        SELECT id, title, message, type, created_at, link, 'app' as source
+        FROM app_notifications
+        WHERE user_id = ? AND is_read = 0
+        ORDER BY created_at DESC
+        LIMIT 10
+    ");
+    $__aStmt->execute([$_SESSION['user_id']]);
+    $_app_notifs = $__aStmt->fetchAll(PDO::FETCH_ASSOC);
+    $_notif_items = array_merge($_notif_items, $_app_notifs);
+    // Sort merged by created_at DESC
+    usort($_notif_items, fn($a, $b) => strtotime($b['created_at']) - strtotime($a['created_at']));
+    $_notif_items = array_slice($_notif_items, 0, 10);
+} catch (Exception $e) {
+    // Table may not exist yet
+}
+$_notif_count = count($_notif_items);
 ?>
 
 <style>
@@ -90,15 +110,18 @@ try {
                                 <p class="text-xs text-slate-400">No new notifications</p>
                             </div>
                         </template>
-                        <template x-for="n in items" :key="n.id">
-                            <div class="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer" @click="markRead(n.id)">
+                        <template x-for="n in items" :key="n.source + '-' + n.id">
+                            <div class="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer" @click="markRead(n.id, n.source, n.link)">
                                 <div class="flex items-start gap-2">
                                     <span class="mt-0.5 w-2 h-2 rounded-full shrink-0"
                                           :class="{'bg-blue-500': n.type==='info', 'bg-amber-500': n.type==='warning', 'bg-emerald-500': n.type==='success', 'bg-red-500': n.type==='alert'}"></span>
                                     <div class="flex-1 min-w-0">
                                         <p class="text-xs font-bold text-slate-800 dark:text-white truncate" x-text="n.title"></p>
                                         <p class="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5" x-text="n.message"></p>
-                                        <p class="text-[10px] text-slate-400 mt-1" x-text="n.ago"></p>
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <p class="text-[10px] text-slate-400" x-text="n.ago"></p>
+                                            <span x-show="n.link" class="text-[10px] font-bold text-violet-500">View →</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -150,18 +173,24 @@ function notificationBell() {
             elseif ($diff < 3600) $ago = floor($diff/60) . 'm ago';
             elseif ($diff < 86400) $ago = floor($diff/3600) . 'h ago';
             else $ago = floor($diff/86400) . 'd ago';
-            return ['id' => $n['id'], 'title' => $n['title'], 'message' => $n['message'], 'type' => $n['type'], 'ago' => $ago];
+            return ['id' => $n['id'], 'title' => $n['title'], 'message' => $n['message'], 'type' => $n['type'], 'ago' => $ago, 'link' => $n['link'] ?? null, 'source' => $n['source'] ?? 'platform'];
         }, $_notif_items)) ?>,
         init() {
             if (typeof lucide !== 'undefined') this.$nextTick(() => lucide.createIcons());
         },
-        async markRead(id) {
+        async markRead(id, source, link) {
             const fd = new FormData();
-            fd.append('action', 'mark_notification_read');
-            fd.append('notification_id', id);
+            if (source === 'app') {
+                fd.append('action', 'mark_app_notification_read');
+                fd.append('notification_id', id);
+            } else {
+                fd.append('action', 'mark_notification_read');
+                fd.append('notification_id', id);
+            }
             await fetch('../ajax/notification_api.php', { method: 'POST', body: fd });
-            this.items = this.items.filter(n => n.id !== id);
+            this.items = this.items.filter(n => !(n.id === id && n.source === source));
             this.unread = this.items.length;
+            if (link) window.location.href = link;
         },
         async markAllRead() {
             const fd = new FormData();
