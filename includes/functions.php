@@ -1,6 +1,6 @@
-﻿<?php
+<?php
 /**
- * MIAUDITOPS â€” Core Helper Functions
+ * MIAUDITOPS  Core Helper Functions
  */
 
 require_once dirname(__DIR__) . '/config/db.php';
@@ -37,7 +37,7 @@ function is_logged_in() {
 }
 
 /**
- * Require login â€” redirect to login page if not authenticated
+ * Require login  redirect to login page if not authenticated
  */
 function require_login() {
     if (!is_logged_in()) {
@@ -72,7 +72,7 @@ function check_permission($required_roles) {
 }
 
 /**
- * Require specific role â€” redirect with error if unauthorized
+ * Require specific role  redirect with error if unauthorized
  */
 function require_role($roles) {
     if (!check_permission($roles)) {
@@ -156,7 +156,7 @@ function app_notify($company_id, $target_user, $title, $message, $type = 'info',
         $stmt = $pdo->prepare("INSERT INTO app_notifications (company_id, user_id, title, message, type, link) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$company_id, $target_user, $title, $message, $type, $link]);
     } catch (Exception $e) {
-        // Table may not exist yet â€” fail silently
+        // Table may not exist yet  fail silently
     }
 }
 
@@ -195,7 +195,7 @@ function notify_approvers($company_id, $title, $message, $type = 'info', $link =
 /**
  * Format currency amount
  */
-function format_currency($amount, $symbol = 'â‚¦') {
+function format_currency($amount, $symbol = '') {
     return $symbol . number_format((float)$amount, 2);
 }
 
@@ -327,7 +327,7 @@ function register_company_and_user($company_name, $email, $password, $first_name
         
         $pdo->commit();
         
-        // Send verification email (outside transaction â€” non-critical)
+        // Send verification email (outside transaction  non-critical)
         $base_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
         $verify_link = $base_url . dirname(dirname($_SERVER['SCRIPT_NAME'])) . '/auth/verify_email.php?token=' . $verification_token;
         // Normalize double-slashes
@@ -371,7 +371,7 @@ function register_company_and_user_google($company_name, $email, $google_id, $fi
         $stmt->execute([$company_name, $code, $email]);
         $company_id = $pdo->lastInsertId();
         
-        // Create admin user (Google-verified â€” email already confirmed)
+        // Create admin user (Google-verified  email already confirmed)
         $stmt = $pdo->prepare("INSERT INTO users (company_id, first_name, last_name, email, google_id, avatar_url, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, 'business_owner', NOW())");
         $stmt->execute([$company_id, $first_name, $last_name, $email, $google_id, $avatar_url ?: null]);
         $user_id = $pdo->lastInsertId();
@@ -450,7 +450,7 @@ function set_active_client($client_id) {
 }
 
 /**
- * Require an active client â€” redirect if none selected
+ * Require an active client  redirect if none selected
  */
 function require_active_client() {
     if (!get_active_client()) {
@@ -552,7 +552,7 @@ function is_viewer($role = null) {
 }
 
 /**
- * Block write actions for viewer role â€” returns JSON error and exits
+ * Block write actions for viewer role  returns JSON error and exits
  * Call this at the top of any API action that modifies data
  */
 function require_non_viewer() {
@@ -587,11 +587,11 @@ function has_permission($permission, $user_id = null) {
 }
 
 /**
- * Require a specific module permission â€” show access denied if not permitted
+ * Require a specific module permission  show access denied if not permitted
  */
 function require_permission($permission) {
     if (!has_permission($permission)) {
-        // Don't redirect to index.php â€” that could loop. Show inline access-denied.
+        // Don't redirect to index.php  that could loop. Show inline access-denied.
         http_response_code(403);
         echo '<!DOCTYPE html><html><head><title>Access Denied</title>';
         echo '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">';
@@ -602,7 +602,7 @@ function require_permission($permission) {
         echo '<h1 class="text-2xl font-black mb-2">Access Denied</h1>';
         echo '<p class="text-slate-400 mb-6">You do not have permission to access this module. Contact your administrator to request access.</p>';
         echo '<div class="flex gap-3 justify-center">';
-        echo '<a href="index.php" class="inline-block px-6 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl transition-all">â† Back to Dashboard</a>';
+        echo '<a href="index.php" class="inline-block px-6 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl transition-all"> Back to Dashboard</a>';
         echo '<a href="../auth/logout.php" class="inline-block px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">Sign Out</a>';
         echo '</div>';
         echo '</div></body></html>';
@@ -695,7 +695,7 @@ function get_company_subscription($company_id = null) {
     $sub = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$sub) {
-        // No subscription row â€” treat as starter
+        // No subscription row  treat as starter
         $sub = [
             'plan_name' => 'starter',
             'status'    => 'active',
@@ -758,7 +758,7 @@ function require_subscription($module) {
             $company_id = $_SESSION['company_id'] ?? 0;
             
             if ($current_status === 'trial') {
-                // Trial expired â†’ downgrade to starter (free plan)
+                // Trial expired  downgrade to starter (free plan)
                 require_once __DIR__ . '/../config/subscription_plans.php';
                 $starter = get_plan_config('starter');
                 $pdo->prepare("
@@ -773,7 +773,7 @@ function require_subscription($module) {
                     (int)$starter['max_departments'], (int)$starter['data_retention_days'],
                     $company_id
                 ]);
-                log_audit($company_id, 0, 'trial_expired', 'billing', 0, 'Trial period expired â€” downgraded to Starter');
+                log_audit($company_id, 0, 'trial_expired', 'billing', 0, 'Trial period expired  downgraded to Starter');
             } else {
                 // Active subscription expired
                 $pdo->prepare("UPDATE company_subscriptions SET status = 'expired' WHERE company_id = ?")
@@ -828,7 +828,7 @@ function get_subscription_retention_cutoff() {
     return date('Y-m-d', strtotime("-{$days} days"));
 }
 
-// â”€â”€ Limit-check helpers â”€â”€
+//  Limit-check helpers 
 
 /**
  * Check a resource count against the subscription limit.
@@ -888,7 +888,7 @@ function check_department_limit($company_id = null, $client_id = null) {
     return check_subscription_limit('max_departments', (int)$stmt->fetchColumn());
 }
 
-// â”€â”€ Upgrade / Expired pages â”€â”€
+//  Upgrade / Expired pages 
 
 function show_upgrade_required_page($module, $plan) {
     $all_plans = get_all_plans();
@@ -896,7 +896,7 @@ function show_upgrade_required_page($module, $plan) {
     $current_label = $plan['label'] ?? 'Starter';
 
     http_response_code(403);
-    echo '<!DOCTYPE html><html><head><title>Upgrade Required â€” MIAUDITOPS</title>';
+    echo '<!DOCTYPE html><html><head><title>Upgrade Required  MIAUDITOPS</title>';
     echo '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">';
     echo '<script src="https://cdn.tailwindcss.com"></script>';
     echo '<script src="https://unpkg.com/lucide@latest"></script>';
@@ -921,14 +921,14 @@ function show_upgrade_required_page($module, $plan) {
         echo '<div class="p-4 rounded-xl border ' . $border . ' text-center transition-all">';
         echo '<div class="text-xs uppercase tracking-wider text-slate-500 mb-1">' . $p['label'] . '</div>';
         if ($active) echo '<div class="text-[10px] text-violet-400 mb-1">Current</div>';
-        echo '<div class="text-lg">' . ($has_module ? 'âœ…' : 'ðŸ”’') . '</div>';
+        echo '<div class="text-lg">' . ($has_module ? '' : '') . '</div>';
         echo '</div>';
     }
     echo '</div>';
 
     // Buttons
     echo '<div class="flex gap-3 justify-center">';
-    echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">â† Dashboard</a>';
+    echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all"> Dashboard</a>';
     echo '<a href="settings.php" class="px-6 py-3 bg-gradient-to-r from-violet-600 to-amber-500 hover:from-violet-500 hover:to-amber-400 text-white font-bold rounded-xl transition-all">Upgrade Plan</a>';
     echo '</div>';
 
@@ -946,7 +946,7 @@ function show_subscription_expired_page($plan, $was_trial = false) {
         : 'Your subscription has expired or been suspended. Please settle your outstanding invoice to continue using MIAUDITOPS.';
     $cta_text = $was_trial ? 'Upgrade Now' : 'Go to Billing';
     
-    echo '<!DOCTYPE html><html><head><title>' . $title . ' â€” MIAUDITOPS</title>';
+    echo '<!DOCTYPE html><html><head><title>' . $title . '  MIAUDITOPS</title>';
     echo '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">';
     echo '<script src="https://cdn.tailwindcss.com"></script>';
     echo '<script src="https://unpkg.com/lucide@latest"></script>';
@@ -958,7 +958,7 @@ function show_subscription_expired_page($plan, $was_trial = false) {
     echo '<p class="text-slate-400 mb-4">' . $message . '</p>';
     echo '<p class="text-sm text-slate-500 mb-8">You can still access the <strong class="text-white">Dashboard</strong>, <strong class="text-white">Billing</strong>, <strong class="text-white">Support</strong>, and <strong class="text-white">Company Setup</strong>.</p>';
     echo '<div class="flex gap-3 justify-center">';
-    echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all">â† Dashboard</a>';
+    echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all"> Dashboard</a>';
     echo '<a href="billing.php" class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold rounded-xl transition-all">' . $cta_text . '</a>';
     echo '</div>';
     echo '</div>';
