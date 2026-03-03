@@ -54,8 +54,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_tank_dipping (
     opening DECIMAL(15,2) DEFAULT 0, added DECIMAL(15,2) DEFAULT 0, closing DECIMAL(15,2) DEFAULT 0,
     capacity_kg DECIMAL(12,2) DEFAULT 0, max_fill_percent DECIMAL(5,2) DEFAULT 100
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-$pdo->exec("ALTER TABLE station_tank_dipping ADD COLUMN IF NOT EXISTS capacity_kg DECIMAL(12,2) DEFAULT 0");
-$pdo->exec("ALTER TABLE station_tank_dipping ADD COLUMN IF NOT EXISTS max_fill_percent DECIMAL(5,2) DEFAULT 100");
+try { $pdo->exec("ALTER TABLE station_tank_dipping ADD COLUMN capacity_kg DECIMAL(12,2) DEFAULT 0"); } catch(Exception $e) {}
+try { $pdo->exec("ALTER TABLE station_tank_dipping ADD COLUMN max_fill_percent DECIMAL(5,2) DEFAULT 100"); } catch(Exception $e) {}
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_haulage (
     id INT AUTO_INCREMENT PRIMARY KEY, session_id INT NOT NULL, company_id INT NOT NULL,
     delivery_date DATE, tank_name VARCHAR(100), product VARCHAR(20) DEFAULT 'PMS',
