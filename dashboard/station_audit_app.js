@@ -1,5 +1,5 @@
 /**
- * MIAUDITOPS — Station Audit Alpine.js App
+ * MIAUDITOPS  Station Audit Alpine.js App
  */
 function stationAudit() {
     return {
@@ -134,7 +134,7 @@ function stationAudit() {
         counterStockCountModal: false,
         counterStockCountView: null,
 
-        // ── Lifecycle ──
+        //  Lifecycle 
         init() {
             this.$watch('currentTab', val => localStorage.setItem('sa_currentTab', val));
             this.$watch('lubeSubTab', val => localStorage.setItem('sa_lubeSubTab', val));
@@ -341,12 +341,12 @@ function stationAudit() {
         fmt(n) { return (window.__NAIRA || '\u20A6') + (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 }); },
         toTitleCase(str) { return str.replace(/\b\w/g, c => c.toUpperCase()); },
 
-        // ── LPG helpers ────────────────────────────────────────────────────
+        //  LPG helpers 
         // Detect LPG product by name (case-insensitive)
         isLPG(product) { return /lpg|gas/i.test(product || ''); },
 
-        // Convert stored % gauge reading → kg using configuredPercentage pattern
-        // Formula: (gaugeReading% / maxFillPercent%) × capacity_kg
+        // Convert stored % gauge reading  kg using configuredPercentage pattern
+        // Formula: (gaugeReading% / maxFillPercent%)  capacity_kg
         lpgKgOpen(tank) {
             const mf = parseFloat(tank.max_fill_percent || 100);
             return (parseFloat(tank.opening || 0) / mf) * parseFloat(tank.capacity_kg || 0);
@@ -355,12 +355,12 @@ function stationAudit() {
             const mf = parseFloat(tank.max_fill_percent || 100);
             return (parseFloat(tank.closing || 0) / mf) * parseFloat(tank.capacity_kg || 0);
         },
-        // Convert stored tons → kg  (delivery is entered in MT)
+        // Convert stored tons  kg  (delivery is entered in MT)
         lpgKgAdded(tank) { return parseFloat(tank.added || 0) * 1000; },
         // Full diff in kg for one LPG tank
         lpgKgDiff(tank) { return this.lpgKgOpen(tank) + this.lpgKgAdded(tank) - this.lpgKgClose(tank); },
 
-        // ── LPG Discharge (truck gauge reading → kg delivered) ────────────
+        //  LPG Discharge (truck gauge reading  kg delivered) 
         // truck: { open_pct, close_pct, capacity_kg, max_fill_percent }
         lpgDischargeKg(truck) {
             const mf = parseFloat(truck.max_fill_percent || 100);
@@ -369,7 +369,7 @@ function stationAudit() {
             const closeKg = (parseFloat(truck.close_pct || 0) / mf) * cap;
             return closeKg - openKg;   // discharge INCREASES the tank, so after > before
         },
-        // ──────────────────────────────────────────────────────────────────
+        // 
         pumpTableLitres(pt) {
             return (pt.readings || []).reduce((sum, r) => sum + ((r.closing || 0) - (r.opening || 0) - (r.rtt || 0)), 0);
         },
@@ -592,9 +592,9 @@ function stationAudit() {
             } else { this.toast(r.message, false); }
         },
 
-        // ═══════════════════════════════════════
+        // 
         // DOCUMENT STORAGE
-        // ═══════════════════════════════════════
+        // 
         async loadDocuments() {
             const sid = this.docFilter === 'current' ? this.activeSession : '';
             const fd = new FormData();
@@ -761,7 +761,7 @@ function stationAudit() {
                 // New period starts from the closing date of the previous period
                 const newDateFrom = prevTable.date_to || dateFrom;
 
-                // Use new_rate_period API: closes previous + copies pumps with closing→opening
+                // Use new_rate_period API: closes previous + copies pumps with closingopening
                 const r = await this.api('new_rate_period', {
                     prev_table_id: prevTable.id,
                     session_id: this.activeSession,
@@ -777,13 +777,13 @@ function stationAudit() {
                     // Mark previous table as closed in UI
                     prevTable.is_closed = 1;
 
-                    // Build new table with pumps carried over (closing→opening)
+                    // Build new table with pumps carried over (closingopening)
                     const copiedReadings = (prevTable.readings || []).map((pr, idx) => ({
                         id: 0, pump_name: pr.pump_name,
                         opening: parseFloat(pr.closing) || 0, rtt: 0, closing: 0
                     }));
 
-                    // Tanks carried over from API (closing → opening)
+                    // Tanks carried over from API (closing  opening)
                     const copiedTanks = r.tanks || [];
 
                     this.pumpTables.push({
@@ -794,11 +794,11 @@ function stationAudit() {
                     const parts = [];
                     if (r.pumps_copied) parts.push(r.pumps_copied + ' pump(s)');
                     if (r.tanks_copied) parts.push(r.tanks_copied + ' tank(s)');
-                    this.toast('New rate period created' + (parts.length ? ' — ' + parts.join(', ') + ' carried over' : ''));
+                    this.toast('New rate period created' + (parts.length ? '  ' + parts.join(', ') + ' carried over' : ''));
                     this.$nextTick(() => lucide.createIcons());
                 } else { this.toast(r.message, false); }
             } else {
-                // First table for this product — no previous pumps to copy
+                // First table for this product  no previous pumps to copy
                 const r = await this.api('save_pump_table', {
                     session_id: this.activeSession, product: this.selectedProduct,
                     rate: rate, date_from: dateFrom, date_to: dateTo, station_location: station
@@ -810,7 +810,7 @@ function stationAudit() {
                         date_from: dateFrom, date_to: dateTo, station_location: station,
                         is_closed: 0, _tankOpen: false, readings: [], tanks: []
                     });
-                    this.toast('First pump table created — add pumps to begin');
+                    this.toast('First pump table created  add pumps to begin');
                     this.$nextTick(() => lucide.createIcons());
                 } else { this.toast(r.message, false); }
             }
@@ -897,7 +897,7 @@ function stationAudit() {
             const r = await this.api('save_tank_dipping', { pump_table_id: pt.id, tanks: pt.tanks || [] });
             this.saving = false;
             if (r.success) {
-                // Sync closing → opening of next rate period's tanks in the UI
+                // Sync closing  opening of next rate period's tanks in the UI
                 const sameProd = this.pumpTables.filter(p => p.product === pt.product);
                 const idx = sameProd.findIndex(p => p.id === pt.id);
                 if (idx >= 0 && idx < sameProd.length - 1) {
@@ -909,7 +909,7 @@ function stationAudit() {
                         });
                     }
                 }
-                this.toast('Tank dipping saved' + (r.synced ? ' — next period updated' : ''));
+                this.toast('Tank dipping saved' + (r.synced ? '  next period updated' : ''));
             } else { this.toast(r.message, false); }
         },
         addHaulage() {
@@ -933,7 +933,7 @@ function stationAudit() {
                 const products = [...new Set(unmatched.map(h => h.product))].join(', ');
                 this.toast(
                     `${unmatched.length} delivery(ies) for [${products}] have no matching rate period. ` +
-                    `Go to Pump Sales → create or adjust a period that covers the delivery date(s) first.`,
+                    `Go to Pump Sales  create or adjust a period that covers the delivery date(s) first.`,
                     false
                 );
                 return;
@@ -952,11 +952,11 @@ function stationAudit() {
                         }
                     });
                 }
-                this.toast('Haulage saved' + (r.tanks_updated ? ' — ' + r.tanks_updated + ' tank(s) updated' : ''));
+                this.toast('Haulage saved' + (r.tanks_updated ? '  ' + r.tanks_updated + ' tank(s) updated' : ''));
             } else { this.toast(r.message, false); }
         },
 
-        // ── Expense Categories & Ledger ──
+        //  Expense Categories & Ledger 
         async createExpenseCategory() {
             if (!this.newExpenseCatName.trim()) return this.toast('Enter a category name', false);
             if (this.newExpenseCatName.includes('&')) return this.toast("Name cannot contain '&'. Use 'and' instead.", false);
@@ -1074,7 +1074,7 @@ function stationAudit() {
             } else { this.toast(r.message, false); }
         },
 
-        // ── Debtor Accounts & Ledger ──
+        //  Debtor Accounts & Ledger 
         async createDebtorAccount() {
             if (!this.newDebtorName.trim()) return this.toast('Enter a customer name', false);
             if (this.newDebtorName.includes('&')) return this.toast("Name cannot contain '&'. Use 'and' instead.", false);
@@ -1203,22 +1203,22 @@ function stationAudit() {
             const totCR = rows.reduce((s, r) => s + r.credit, 0);
             printReport({
                 title: 'Debtor Accounts Summary',
-                subtitle: rows.length + ' accounts · Outstanding: ' + _pFmt(totDR - totCR),
+                subtitle: rows.length + ' accounts  Outstanding: ' + _pFmt(totDR - totCR),
                 orientation: 'landscape',
                 columns: [
                     { label: '#', key: '_idx', align: 'center' },
                     { label: 'Customer Name', key: 'name', bold: true },
                     { label: 'Entries', key: 'entries', align: 'center' },
-                    { label: 'Total DR (₦)', key: 'debit', align: 'right', fmt: v => _pFmt(v) },
-                    { label: 'Total CR (₦)', key: 'credit', align: 'right', fmt: v => _pFmt(v) },
-                    { label: 'Balance (₦)', key: 'balance', align: 'right', fmt: v => _pFmt(v) },
+                    { label: 'Total DR ()', key: 'debit', align: 'right', fmt: v => _pFmt(v) },
+                    { label: 'Total CR ()', key: 'credit', align: 'right', fmt: v => _pFmt(v) },
+                    { label: 'Balance ()', key: 'balance', align: 'right', fmt: v => _pFmt(v) },
                 ],
                 rows: rows.map((r, i) => ({ ...r, _idx: i + 1 })),
                 footer: `<td colspan="3" style="text-align:right;font-weight:800;">Totals:</td><td style="text-align:right;font-weight:900;">${_pFmt(totDR)}</td><td style="text-align:right;font-weight:900;">${_pFmt(totCR)}</td><td style="text-align:right;font-weight:900;">${_pFmt(totDR - totCR)}</td>`,
             });
         },
 
-        // ── Lubricant Store methods ──
+        //  Lubricant Store methods 
         addLubeStoreItem() {
             this.lubeStoreItems.push({ id: null, item_name: '', opening: 0, received: 0, return_out: 0, selling_price: 0, _editing: true });
         },
@@ -1331,7 +1331,7 @@ function stationAudit() {
             } else { this.toast(r.message, false); }
         },
 
-        // ── Lubricant Counter methods ──
+        //  Lubricant Counter methods 
         async createLubeSection() {
             const name = prompt('Enter counter name (e.g., Main Counter):');
             if (!name) return;
@@ -1385,7 +1385,7 @@ function stationAudit() {
             if (r.success) { ls._editing = false; this.toast('Counter items saved'); }
             else { this.toast(r.message, false); }
         },
-        // Sold = what has gone from the counter (Opening + Received − Closing)
+        // Sold = what has gone from the counter (Opening + Received  Closing)
         counterItemSold(it) {
             return Math.max(0, parseFloat(it.opening || 0) + parseFloat(it.received || 0) - parseFloat(it.closing || 0));
         },
@@ -1396,7 +1396,7 @@ function stationAudit() {
             return this.lubeSections.reduce((sum, ls) => sum + this.lubeSectionAmount(ls), 0);
         },
 
-        // ── Stock Count: Lube Store (closing per product) ──
+        //  Stock Count: Lube Store (closing per product) 
         get lubeStoreStockCount() {
             return this.lubeStoreItems.map(si => {
                 const cp = parseFloat(this.lubeProducts.find(p => p.product_name === si.item_name)?.cost_price || 0);
@@ -1409,7 +1409,7 @@ function stationAudit() {
             });
         },
 
-        // ── Stock Count: Counters (closing per product, aggregated across all counters) ──
+        //  Stock Count: Counters (closing per product, aggregated across all counters) 
         get lubeCounterStockCount() {
             const map = {};
             this.lubeSections.forEach(ls => {
@@ -1424,7 +1424,7 @@ function stationAudit() {
             return Object.values(map);
         },
 
-        // ── Consolidation: merge store closing + all counter closings per product ──
+        //  Consolidation: merge store closing + all counter closings per product 
         get lubeConsolidation() {
             const map = {};
             // Store contributions
@@ -1459,7 +1459,7 @@ function stationAudit() {
             }
         },
 
-        // ── Lube Products methods ──
+        //  Lube Products methods 
         openLubeProductModal(p = null) {
             this.lubeProductForm = p ? { ...p } : { id: 0, product_name: '', unit: 'Litre', cost_price: 0, selling_price: 0, reorder_level: 0 };
             this.lubeProductModal = true;
@@ -1483,7 +1483,7 @@ function stationAudit() {
             else { this.toast(r.message, false); }
         },
 
-        // ── Lube Suppliers methods ──
+        //  Lube Suppliers methods 
         openLubeSupplierModal(s = null) {
             this.lubeSupplierForm = s ? { ...s } : { id: 0, supplier_name: '', contact_person: '', phone: '', email: '', address: '' };
             this.lubeSupplierModal = true;
@@ -1507,7 +1507,7 @@ function stationAudit() {
             else { this.toast(r.message, false); }
         },
 
-        // ── GRN methods ──
+        //  GRN methods 
         openLubeGrnModal(g = null) {
             this.lubeGrnForm = g ? { ...g, items: (g.items || []).map(i => ({ ...i, total_cost: parseFloat(i.total_cost || i.line_total || 0) || (parseFloat(i.quantity || 0) * parseFloat(i.cost_price || 0)) })) }
                 : { id: 0, supplier_id: '', grn_number: 'GRN-' + Date.now().toString().slice(-6), grn_date: new Date().toISOString().slice(0, 10), invoice_number: '', notes: '', items: [] };
@@ -1558,7 +1558,7 @@ function stationAudit() {
             else { this.toast(r.message, false); }
         },
 
-        // ── Stock Count methods ──
+        //  Stock Count methods 
         openStockCountModal(sc = null) {
             if (sc) {
                 // Edit existing
@@ -1628,7 +1628,7 @@ function stationAudit() {
             else { this.toast(r.message, false); }
         },
 
-        // ── Counter Stock Count methods (period-based per counter) ──
+        //  Counter Stock Count methods (period-based per counter) 
         getCounterStockCounts(sectionId) {
             return this.counterStockCounts[sectionId] || [];
         },
@@ -1696,14 +1696,14 @@ function stationAudit() {
                 const rsc = await this.api('get_counter_stock_counts', { section_id: sid });
                 if (rsc.success) this.counterStockCounts[sid] = rsc.counts || [];
 
-                // Push physical count → closing in counter table (sold is auto-computed)
+                // Push physical count  closing in counter table (sold is auto-computed)
                 const section = this.lubeSections.find(s => s.id == sid);
                 if (section) {
                     this.counterStockCountForm.items.forEach(scItem => {
                         const counterItem = (section.items || []).find(ci => ci.item_name === scItem.product_name);
                         if (counterItem) {
                             counterItem.closing = parseInt(scItem.physical_count || 0);
-                            // sold is NOT written — it's always computed as Opening + Received − Closing
+                            // sold is NOT written  it's always computed as Opening + Received  Closing
                         }
                     });
                     // Auto-save counter items to persist the updated closing
@@ -1730,7 +1730,7 @@ function stationAudit() {
             else { this.toast(r.message, false); }
         },
 
-        // ── Load company-level lube data ──
+        //  Load company-level lube data 
         async loadLubeData() {
             const [rp, rs, rg, rsc] = await Promise.all([
                 this.api('get_lube_products', {}, 'POST'),
@@ -1746,7 +1746,7 @@ function stationAudit() {
             this.syncStoreFromProducts();
         },
 
-        // ── Report PDF Builder ──
+        //  Report PDF Builder 
         _buildReportHTML() {
             const N = window.__NAIRA || '\u20A6';
             const s = this.sessionData?.session || {};
@@ -1765,7 +1765,7 @@ function stationAudit() {
             const fmtL = n => (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2 });
             const esc = v => this._esc(v);
 
-            // ── SVG icon map for professional PDF ──
+            //  SVG icon map for professional PDF 
             const svgIcons = {
                 payment: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
                 pump: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 22V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M3 22h10"/><path d="M13 10h2a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V9l-3-3"/></svg>',
@@ -1791,7 +1791,7 @@ function stationAudit() {
 
             const tableHead = (...cols) => `<thead><tr>${cols.map(c => `<th style="padding:9px 12px;background:linear-gradient(180deg,#f8fafc,#f1f5f9);font-size:11px;font-weight:700;color:#475569;text-align:${c.right ? 'right' : 'left'};border-bottom:2px solid #e2e8f0;white-space:nowrap;letter-spacing:.3px">${c.label}</th>`).join('')}</tr></thead>`;
 
-            // ── 1. SYSTEM SALES ──
+            //  1. SYSTEM SALES 
             const sysSalesHTML = `
                 <div class="rpt-section">
                     ${sectionHeader('payment', 'Payment/Declared', '#2563eb')}
@@ -1806,7 +1806,7 @@ function stationAudit() {
                     </div>
                 </div>`;
 
-            // ── 2. PUMP SALES ──
+            //  2. PUMP SALES 
             const pumpRows = this.pumpSalesGrouped.map(r => {
                 if (r.type === 'subtotal') {
                     return `<tr style="background:#fef3c7"><td colspan="4" style="padding:7px 12px;font-size:12px;font-weight:800;color:#92400e">${esc(r.product)} Subtotal</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700">${fmtL(r.totalLitres)} L</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:800;color:#d97706">${fmtN(r.totalAmount)}</td></tr>`;
@@ -1825,7 +1825,7 @@ function stationAudit() {
                     </div>
                 </div>`;
 
-            // ── 3. TANK DIPPING ──
+            //  3. TANK DIPPING 
             const tankRows = this.tankProductTotals.map(t => `
                 <tr>
                     <td style="padding:6px 12px;font-size:12px;font-weight:700;color:#0f766e">${esc(t.product)}</td>
@@ -1845,7 +1845,7 @@ function stationAudit() {
                     </div>
                 </div>`;
 
-            // ── 4. HAULAGE ──
+            //  4. HAULAGE 
             const haulRows = this.haulageByProduct.map(h => `
                 <tr>
                     <td style="padding:6px 12px;font-size:12px;font-weight:700;color:#4338ca">${esc(h.product)}</td>
@@ -1865,7 +1865,7 @@ function stationAudit() {
                     </div>
                 </div>`;
 
-            // ── 5. LUBRICANTS ──
+            //  5. LUBRICANTS 
             const lubeRows = this.lubeSections.map(ls => `
                 <tr>
                     <td style="padding:6px 12px;font-size:12px;font-weight:600">${esc(ls.section_name || ls.name)}</td>
@@ -1884,7 +1884,7 @@ function stationAudit() {
                     </div>
                 </div>`;
 
-            // ── 6. EXPENSES ──
+            //  6. EXPENSES 
             const expenseRows = this.expenseCategories.map(cat => {
                 const bal = this.expenseCatBalance(cat);
                 return `<tr><td style="padding:6px 12px;font-size:12px;font-weight:600">${esc(cat.category_name || cat.name || 'Uncategorised')}</td><td style="padding:6px 12px;text-align:right;font-size:12px">${(cat.ledger || []).length}</td><td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:#be123c">${fmtN(bal)}</td></tr>`;
@@ -1901,7 +1901,7 @@ function stationAudit() {
                     </div>
                 </div>`;
 
-            // ── 7. DEBTORS ──
+            //  7. DEBTORS 
             const debtorRows = this.debtorAccounts.map(acct => {
                 const bal = this.debtorBalance(acct);
                 return `<tr><td style="padding:6px 12px;font-size:12px;font-weight:600">${esc(acct.customer_name || acct.account_name || acct.name || 'Unknown')}</td><td style="padding:6px 12px;text-align:right;font-size:12px">${(acct.ledger || []).length}</td><td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:${bal > 0 ? '#b45309' : '#059669'}">${fmtN(Math.abs(bal))} ${bal > 0 ? '(DR)' : '(CR)'}</td></tr>`;
@@ -1918,7 +1918,7 @@ function stationAudit() {
                     </div>
                 </div>`;
 
-            // ── 8. VARIANCE SUMMARY ──
+            //  8. VARIANCE SUMMARY 
             const variance = this.reportVariance;
             const tankVsPump = this.totalTankDiff - this.totalPumpLitres;
             const varianceHTML = `
@@ -1928,12 +1928,12 @@ function stationAudit() {
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
                             <div style="padding:14px;background:${variance === 0 ? '#f0fdf4' : '#fef2f2'};border-radius:10px;border:1px solid ${variance === 0 ? '#bbf7d0' : '#fecaca'}">
                                 <div style="font-size:11px;font-weight:700;color:${variance === 0 ? '#166534' : '#991b1b'};text-transform:uppercase;margin-bottom:4px;letter-spacing:.4px">Sales Variance</div>
-                                <div style="font-size:12px;color:#475569">Payment/Declared − Pump Sales</div>
+                                <div style="font-size:12px;color:#475569">Payment/Declared  Pump Sales</div>
                                 <div style="font-size:16px;font-weight:800;color:${variance === 0 ? '#166534' : variance > 0 ? '#0369a1' : '#dc2626'};margin-top:6px">${fmtN(variance)} ${variance === 0 ? '&#10004; BALANCED' : variance > 0 ? '&#9650; OVER' : '&#9660; SHORT'}</div>
                             </div>
                             <div style="padding:14px;background:${Math.abs(tankVsPump) < 0.01 ? '#f0fdf4' : '#fef2f2'};border-radius:10px;border:1px solid ${Math.abs(tankVsPump) < 0.01 ? '#bbf7d0' : '#fecaca'}">
                                 <div style="font-size:11px;font-weight:700;color:${Math.abs(tankVsPump) < 0.01 ? '#166534' : '#991b1b'};text-transform:uppercase;margin-bottom:4px;letter-spacing:.4px">Tank vs Pump</div>
-                                <div style="font-size:12px;color:#475569">Tank Diff − Pump Litres</div>
+                                <div style="font-size:12px;color:#475569">Tank Diff  Pump Litres</div>
                                 <div style="font-size:16px;font-weight:800;color:${Math.abs(tankVsPump) < 0.01 ? '#166534' : tankVsPump > 0 ? '#0369a1' : '#dc2626'};margin-top:6px">${fmtL(tankVsPump)} L ${Math.abs(tankVsPump) < 0.01 ? '&#10004; OK' : tankVsPump > 0 ? '&#9650; EXCESS' : '&#9660; SHORT'}</div>
                             </div>
                         </div>
@@ -1946,7 +1946,7 @@ function stationAudit() {
                     </div>
                 </div>`;
 
-            // ── CSS ──
+            //  CSS 
             const css = `
                 *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
                 body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;background:#f8fafc;color:#1e293b;-webkit-font-smoothing:antialiased}
@@ -1981,7 +1981,7 @@ function stationAudit() {
                             <div class="meta-item"><label>Reporting Period</label><span>${esc(period)}</span></div>
                             <div class="meta-item"><label>Station</label><span>${esc(station)}</span></div>
                             <div class="meta-item"><label>Prepared By</label><span>${esc(preparer)}</span></div>
-                            <div class="meta-item"><label>Reviewed By</label><span>${esc(reviewer || '—')}</span></div>
+                            <div class="meta-item"><label>Reviewed By</label><span>${esc(reviewer || '')}</span></div>
                             <div class="meta-item"><label>Generated</label><span>${genDate} ${genTime}</span></div>
                             <div class="meta-item"><label>Status</label><span>${esc(s.status ? s.status.toUpperCase() : 'DRAFT')}</span></div>
                         </div>
@@ -1993,31 +1993,31 @@ function stationAudit() {
                     const surplusColor = mc.surplus >= 0 ? '#059669' : '#dc2626';
                     const surplusLabel = mc.surplus >= 0 ? 'SURPLUS' : 'DEFICIT';
                     const expLines = mc.expenseLines.map(e => `
-                            <tr><td style="padding:5px 12px;font-size:11px;color:#64748b;padding-left:28px">Add: ${esc(e.name)}</td><td style="padding:5px 12px;text-align:right;font-size:11px;font-weight:700;color:#1e293b">${fmtN(e.amount)}</td><td style="padding:5px 12px;text-align:right;font-size:11px;color:#94a3b8">—</td></tr>`).join('');
+                            <tr><td style="padding:5px 12px;font-size:11px;color:#64748b;padding-left:28px">Add: ${esc(e.name)}</td><td style="padding:5px 12px;text-align:right;font-size:11px;font-weight:700;color:#1e293b">${fmtN(e.amount)}</td><td style="padding:5px 12px;text-align:right;font-size:11px;color:#94a3b8"></td></tr>`).join('');
                     return `
                         <div class="rpt-section" style="margin-bottom:20px">
-                            ${sectionHeader('closeout', 'Month Close-Out — Financial Reconciliation', '#334155')}
+                            ${sectionHeader('closeout', 'Month Close-Out  Financial Reconciliation', '#334155')}
                             <div style="overflow-x:auto">
                                 <table style="width:100%;border-collapse:collapse">
                                     <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
                                         <th style="padding:7px 12px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Description</th>
-                                        <th style="padding:7px 12px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;width:140px">Debit (₦)</th>
-                                        <th style="padding:7px 12px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;width:140px">Credit (₦)</th>
+                                        <th style="padding:7px 12px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;width:140px">Debit ()</th>
+                                        <th style="padding:7px 12px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;width:140px">Credit ()</th>
                                     </tr></thead>
                                     <tbody>
-                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563eb;margin-right:8px;vertical-align:middle"></span>System Sales</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.systemSales)}</td></tr>
-                                        <tr style="background:#fef2f2"><td style="padding:7px 12px;font-size:12px;color:#dc2626;font-weight:600"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:8px;vertical-align:middle"></span>Less: Bank Deposit</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#dc2626">– ${fmtN(mc.bankDeposit)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
-                                        <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:13px;font-weight:800;color:#0f172a">Total Balance</td><td style="padding:9px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td><td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:800;color:#0f172a">${fmtN(mc.totalBalance)}</td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563eb;margin-right:8px;vertical-align:middle"></span>System Sales</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8"></td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.systemSales)}</td></tr>
+                                        <tr style="background:#fef2f2"><td style="padding:7px 12px;font-size:12px;color:#dc2626;font-weight:600"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:8px;vertical-align:middle"></span>Less: Bank Deposit</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#dc2626"> ${fmtN(mc.bankDeposit)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8"></td></tr>
+                                        <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:13px;font-weight:800;color:#0f172a">Total Balance</td><td style="padding:9px 12px;text-align:right;font-size:12px;color:#94a3b8"></td><td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:800;color:#0f172a">${fmtN(mc.totalBalance)}</td></tr>
                                         ${mc.expenseLines.length > 0 ? `
                                         <tr><td colspan="3" style="padding:0"><div style="height:1px;background:#e2e8f0"></div></td></tr>
                                         ${expLines}` : `
-                                        <tr style="background:#fff1f2"><td style="padding:7px 12px;font-size:11px;font-weight:600;color:#94a3b8"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#cbd5e1;margin-right:8px;vertical-align:middle"></span><em>No expense categories entered</em></td><td style="padding:7px 12px;text-align:right;font-size:11px;color:#94a3b8">${fmtN(0)}</td><td style="padding:7px 12px;text-align:right;font-size:11px;color:#94a3b8">—</td></tr>`}
+                                        <tr style="background:#fff1f2"><td style="padding:7px 12px;font-size:11px;font-weight:600;color:#94a3b8"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#cbd5e1;margin-right:8px;vertical-align:middle"></span><em>No expense categories entered</em></td><td style="padding:7px 12px;text-align:right;font-size:11px;color:#94a3b8">${fmtN(0)}</td><td style="padding:7px 12px;text-align:right;font-size:11px;color:#94a3b8"></td></tr>`}
                                         <tr><td colspan="3" style="padding:0"><div style="height:1px;background:#e2e8f0"></div></td></tr>
-                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#7c3aed;margin-right:8px;vertical-align:middle"></span>Add: POS, Transfer Sales</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.posTransferSales)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
-                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#059669;margin-right:8px;vertical-align:middle"></span>Add: Cash At Hand</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.cashAtHand)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
-                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4d7c0f;margin-right:8px;vertical-align:middle"></span>Add: Lube Stock Unsold</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.lubeUnsold)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
-                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#b45309;margin-right:8px;vertical-align:middle"></span>Add: Receivables/Debtors</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.receivables)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
-                                        <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:13px;font-weight:800;color:#0f172a">Total</td><td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:800;color:#0f172a">${fmtN(mc.expectedTotal)}</td><td style="padding:9px 12px;text-align:right;font-size:12px;color:#94a3b8">—</td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#7c3aed;margin-right:8px;vertical-align:middle"></span>Add: POS, Transfer Sales</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.posTransferSales)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8"></td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#059669;margin-right:8px;vertical-align:middle"></span>Add: Cash At Hand</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.cashAtHand)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8"></td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4d7c0f;margin-right:8px;vertical-align:middle"></span>Add: Lube Stock Unsold</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.lubeUnsold)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8"></td></tr>
+                                        <tr><td style="padding:7px 12px;font-size:12px;font-weight:600;color:#1e293b"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#b45309;margin-right:8px;vertical-align:middle"></span>Add: Receivables/Debtors</td><td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:#1e293b">${fmtN(mc.receivables)}</td><td style="padding:7px 12px;text-align:right;font-size:12px;color:#94a3b8"></td></tr>
+                                        <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:13px;font-weight:800;color:#0f172a">Total</td><td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:800;color:#0f172a">${fmtN(mc.expectedTotal)}</td><td style="padding:9px 12px;text-align:right;font-size:12px;color:#94a3b8"></td></tr>
                                         <tr style="background:${mc.surplus >= 0 ? '#f0fdf4' : '#fef2f2'}"><td style="padding:11px 12px;font-size:13px;font-weight:800;color:${surplusColor}">${surplusLabel}</td><td colspan="2" style="padding:11px 12px;text-align:right;font-size:15px;font-weight:900;color:${surplusColor}">${fmtN(Math.abs(mc.surplus))}</td></tr>
                                     </tbody>
                                 </table>
@@ -2040,7 +2040,7 @@ function stationAudit() {
             return { html, station, dateFrom, dateTo };
         },
 
-        // ── Preview Report (fullscreen overlay) ──
+        //  Preview Report (fullscreen overlay) 
         previewReportPDF() {
             const { html } = this._buildReportHTML();
             const existing = document.getElementById('rpt-preview-overlay');
@@ -2052,19 +2052,19 @@ function stationAudit() {
             overlay.innerHTML = `
                 <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:linear-gradient(135deg,#1e293b,#0f172a);border-bottom:1px solid rgba(255,255,255,.1);flex-shrink:0">
                     <div style="display:flex;align-items:center;gap:10px">
-                        <div style="width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:16px">📊</div>
+                        <div style="width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:16px"></div>
                         <div>
                             <h3 style="color:#fff;font-size:13px;font-weight:800;margin:0">Report Preview</h3>
                             <p style="color:#94a3b8;font-size:10px;margin:0">Scroll to review all sections &bull; Zoom to adjust size</p>
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px">
-                        <button id="rpt-zoom-out" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">−</button>
+                        <button id="rpt-zoom-out" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700"></button>
                         <span id="rpt-zoom-label" style="color:#94a3b8;font-size:11px;min-width:38px;text-align:center">100%</span>
                         <button id="rpt-zoom-in" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">+</button>
                         <div style="width:1px;height:24px;background:rgba(255,255,255,.1);margin:0 4px"></div>
-                        <button id="rpt-preview-download" style="padding:7px 14px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;cursor:pointer;font-size:11px;font-weight:700">⬇ Download PDF</button>
-                        <button id="rpt-preview-close" style="width:30px;height:30px;border-radius:6px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;font-size:16px;line-height:1">×</button>
+                        <button id="rpt-preview-download" style="padding:7px 14px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;cursor:pointer;font-size:11px;font-weight:700"> Download PDF</button>
+                        <button id="rpt-preview-close" style="width:30px;height:30px;border-radius:6px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;font-size:16px;line-height:1"></button>
                     </div>
                 </div>
                 <div style="flex:1;overflow-y:auto;padding:24px;display:flex;justify-content:center">
@@ -2095,19 +2095,19 @@ function stationAudit() {
             document.addEventListener('keydown', esc);
         },
 
-        // ── Download Report PDF ──
+        //  Download Report PDF 
         downloadReportPDF() {
             const { html, station, dateFrom, dateTo } = this._buildReportHTML();
             const pw = window.open('', '_blank');
-            if (!pw) { this.toast('Pop-up blocked — please allow pop-ups for this site', false); return; }
+            if (!pw) { this.toast('Pop-up blocked  please allow pop-ups for this site', false); return; }
             pw.document.write(html);
             pw.document.close();
             pw.onload = () => { pw.focus(); pw.print(); };
         },
 
-        // ══════════════════════════════════════════════
-        // ── FINAL REPORT — Professional PDF Builder ──
-        // ══════════════════════════════════════════════
+        // 
+        //  FINAL REPORT  Professional PDF Builder 
+        // 
         _buildFinalReportHTML() {
             const N = window.__NAIRA || '\u20A6';
             const s = this.sessionData?.session || {};
@@ -2135,25 +2135,25 @@ function stationAudit() {
             const cashAtHand = mc.cashAtHand;
             const receivables = mc.receivables;
             const accounted = mc.expectedTotal;  // auto-sum of all Add items
-            const variance = mc.surplus;          // expectedTotal − totalBalance
+            const variance = mc.surplus;          // expectedTotal  totalBalance
             const totalPages = 5 + 1 + (this.finalReportIncludePhotos && (this.systemSales.teller_proof_url || this.systemSales.pos_proof_url) ? 1 : 0);
 
 
-            // ── Shared page footer helper ──
+            //  Shared page footer helper 
             const pageFooter = (pg) => `
                 <div style="position:absolute;bottom:55px;left:75px;right:75px;border-top:1px solid #f1f5f9;padding-top:12px;display:flex;justify-content:space-between;align-items:center;opacity:.5">
                     <p style="font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:2px">Generated by ${esc(company)}</p>
                     <p style="font-size:8px;font-family:'JetBrains Mono',monospace">PAGE ${String(pg).padStart(2, '0')} OF ${String(totalPages).padStart(2, '0')}</p>
                 </div>`;
 
-            // ── Shared section title helper ──
+            //  Shared section title helper 
             const sectionTitle = (num, title, sub) => `
                 <h3 style="font-size:16px;font-weight:900;color:#000;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end">
                     <span>${String(num).padStart(2, '0')}. ${esc(title).toUpperCase()}</span>
                     <span style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:2px">${esc(sub)}</span>
                 </h3>`;
 
-            // ── Shared table helper ──
+            //  Shared table helper 
             const tbl = (headers, bodyRows, footerRow) => {
                 const ths = headers.map(h => `<th style="text-align:${h.right ? 'right' : 'left'};background:#000;color:#fff;text-transform:uppercase;font-size:10px;letter-spacing:.05em;padding:8px 12px;font-weight:700">${h.label}</th>`).join('');
                 const foot = footerRow ? `<tfoot><tr style="background:#f8fafc;border-top:2px solid #000">${footerRow}</tr></tfoot>` : '';
@@ -2171,9 +2171,9 @@ function stationAudit() {
                 @page { size:A4; margin:0; }
             `;
 
-            // ══════════════════════════════════════════
+            // 
             // PAGE 1: COVER
-            // ══════════════════════════════════════════
+            // 
             const page1 = `
             <div class="page" style="display:flex;flex-direction:column;justify-content:space-between">
                 <div style="border-bottom:4px solid #000;padding-bottom:32px;display:flex;justify-content:space-between;align-items:flex-start">
@@ -2194,7 +2194,7 @@ function stationAudit() {
                     <div style="width:96px;height:8px;background:#f59e0b;margin:40px auto;border-radius:4px"></div>
                     <div style="margin-top:16px">
                         <h3 style="font-size:22px;font-weight:700;color:#1e293b">${esc(station)}</h3>
-                        <p style="color:#64748b;font-family:'JetBrains Mono',monospace;font-size:13px;margin-top:4px">${esc(dateFrom)} — ${esc(dateTo)}</p>
+                        <p style="color:#64748b;font-family:'JetBrains Mono',monospace;font-size:13px;margin-top:4px">${esc(dateFrom)}  ${esc(dateTo)}</p>
                     </div>
                     ${coverNotes ? `<p style="margin-top:20px;font-size:11px;color:#64748b;font-style:italic;max-width:400px;margin-left:auto;margin-right:auto">${esc(coverNotes)}</p>` : ''}
                 </div>
@@ -2222,9 +2222,9 @@ function stationAudit() {
                 </div>
             </div>`;
 
-            // ══════════════════════════════════════════
-            // PAGE 2: SECTION 01 — FINANCIAL RECONCILIATION
-            // ══════════════════════════════════════════
+            // 
+            // PAGE 2: SECTION 01  FINANCIAL RECONCILIATION
+            // 
             const surplusLabel = variance >= 0 ? 'Surplus' : 'Deficit';
             const varianceColor = variance >= 0 ? '#059669' : '#e11d48';
             const page2 = `
@@ -2248,16 +2248,16 @@ function stationAudit() {
                 </div>
                 ${tbl(
                 [{ label: 'Description' }, { label: 'Debit (DR)', right: true }, { label: 'Credit (CR)', right: true }],
-                `<tr style="background:#f8fafc"><td style="padding:8px 12px;font-weight:700;font-size:11px">System Sales</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">—</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(auditSales)}</td></tr>
-                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500;color:#dc2626">Less: Bank Deposit</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#dc2626">– ${fmt(bankDeposit)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">—</td></tr>
-                     <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">Total Balance</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:11px;color:#94a3b8">—</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">${fmt(auditSales - bankDeposit)}</td></tr>
+                `<tr style="background:#f8fafc"><td style="padding:8px 12px;font-weight:700;font-size:11px">System Sales</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px"></td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(auditSales)}</td></tr>
+                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500;color:#dc2626">Less: Bank Deposit</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#dc2626"> ${fmt(bankDeposit)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px"></td></tr>
+                     <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">Total Balance</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:11px;color:#94a3b8"></td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">${fmt(auditSales - bankDeposit)}</td></tr>
                      <tr><td colspan="3" style="padding:0"><div style="height:1px;background:#e2e8f0"></div></td></tr>
-                     ${mc.expenseLines.length > 0 ? mc.expenseLines.map(e => `<tr><td style="padding:6px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: ${esc(e.name)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px">${fmt(e.amount)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8">—</td></tr>`).join('') : `<tr><td style="padding:6px 12px;padding-left:32px;font-size:11px;font-weight:500;color:#94a3b8"><em>No expense categories</em></td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8">${fmt(0)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8">—</td></tr>`}
-                     ${mc.posTransferSales > 0 ? `<tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: POS, Transfer Sales</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(mc.posTransferSales)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8">—</td></tr>` : ''}
-                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Cash At Hand</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(cashAtHand)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8">—</td></tr>
-                     ${mc.lubeUnsold > 0 ? `<tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Lube Stock Unsold</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(mc.lubeUnsold)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8">—</td></tr>` : ''}
-                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Receivables/Debtors</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(receivables)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8">—</td></tr>
-                     <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">Total</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">${fmt(accounted)}</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:11px;color:#94a3b8">—</td></tr>`,
+                     ${mc.expenseLines.length > 0 ? mc.expenseLines.map(e => `<tr><td style="padding:6px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: ${esc(e.name)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px">${fmt(e.amount)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8"></td></tr>`).join('') : `<tr><td style="padding:6px 12px;padding-left:32px;font-size:11px;font-weight:500;color:#94a3b8"><em>No expense categories</em></td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8">${fmt(0)}</td><td class="font-mono" style="text-align:right;padding:6px 12px;font-size:11px;color:#94a3b8"></td></tr>`}
+                     ${mc.posTransferSales > 0 ? `<tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: POS, Transfer Sales</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(mc.posTransferSales)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8"></td></tr>` : ''}
+                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Cash At Hand</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(cashAtHand)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8"></td></tr>
+                     ${mc.lubeUnsold > 0 ? `<tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Lube Stock Unsold</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(mc.lubeUnsold)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8"></td></tr>` : ''}
+                     <tr><td style="padding:8px 12px;padding-left:32px;font-size:11px;font-weight:500">Add: Receivables/Debtors</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px">${fmt(receivables)}</td><td class="font-mono" style="text-align:right;padding:8px 12px;font-size:11px;color:#94a3b8"></td></tr>
+                     <tr style="background:#f1f5f9"><td style="padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">Total</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:12px;font-weight:800;color:#0f172a">${fmt(accounted)}</td><td class="font-mono" style="text-align:right;padding:9px 12px;font-size:11px;color:#94a3b8"></td></tr>`,
                 `<td style="padding:12px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:1px;background:#000;color:#fff">${surplusLabel}</td><td class="font-mono" style="text-align:right;padding:12px;font-weight:800;font-size:13px;color:${variance >= 0 ? '#6ee7b7' : '#fda4af'};background:#000" colspan="2">${fmt(Math.abs(variance))}</td>`
             )}
 
@@ -2281,9 +2281,9 @@ function stationAudit() {
                 ${pageFooter(2)}
             </div>`;
 
-            // ══════════════════════════════════════════
+            // 
             // PAGE 3: SECTION 02 (Pump & Tank) + 03 (Expenses) + 04 (Receivables)
-            // ══════════════════════════════════════════
+            // 
 
             // Pump breakdown
             const pumpGroups = {};
@@ -2333,12 +2333,12 @@ function stationAudit() {
                     ${tbl(
                 [{ label: 'Product' }, { label: 'Volume (L)', right: true }, { label: 'Avg Rate', right: true }, { label: 'Revenue', right: true }],
                 pumpRows,
-                `<td style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:1px">Grand Total</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:700;font-size:11px">${fmtL(pumpTotalL)}</td><td style="text-align:right;padding:10px 12px;font-size:11px">—</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px">${fmt(pumpTotal)}</td>`
+                `<td style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:1px">Grand Total</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:700;font-size:11px">${fmtL(pumpTotalL)}</td><td style="text-align:right;padding:10px 12px;font-size:11px"></td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px">${fmt(pumpTotal)}</td>`
             )}
                 </div>
 
                 ${(() => {
-                    // Section 02a: Audit Sales Analysis (Pumps) — per-pump detail grouped by product
+                    // Section 02a: Audit Sales Analysis (Pumps)  per-pump detail grouped by product
                     const productOrder = ['PMS', 'AGO', 'DPK', 'LPG'];
                     const grouped = {};
                     this.pumpTables.forEach(pt => {
@@ -2391,7 +2391,7 @@ function stationAudit() {
                             Audit Sales Analysis (Pumps)
                         </h4>
                         ${tbl(
-                        [{ label: 'Pump / Nozzle' }, { label: 'Date Range' }, { label: 'Rate (₦)', right: true }, { label: 'Litres', right: true }, { label: 'Amount (₦)', right: true }],
+                        [{ label: 'Pump / Nozzle' }, { label: 'Date Range' }, { label: 'Rate ()', right: true }, { label: 'Litres', right: true }, { label: 'Amount ()', right: true }],
                         detailRows,
                         '<td colspan="3" style="padding:10px 12px;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:1px;background:#f0f9ff;color:#0c4a6e;border-top:2px solid #0ea5e9">Grand Total</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:800;font-size:11px;background:#f0f9ff;color:#0c4a6e;border-top:2px solid #0ea5e9">' + fmtL(grandLitres) + '</td><td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:11px;background:#f0f9ff;color:#0c4a6e;border-top:2px solid #0ea5e9">' + fmt(grandAmount) + '</td>'
                     )}
@@ -2427,9 +2427,9 @@ function stationAudit() {
                 ${pageFooter(3)}
             </div>`;
 
-            // ══════════════════════════════════════════
+            // 
             // PAGE 4: SECTION 05 (Variance) + 06 (Lubricants)
-            // ══════════════════════════════════════════
+            // 
 
             // Variance by product
             const comparison = this.productComparison;
@@ -2465,7 +2465,7 @@ function stationAudit() {
             }).join('');
             const lubeTotal = this.lubeStoreTotalValue;
 
-            // Counter stock evaluation — per-counter breakdown
+            // Counter stock evaluation  per-counter breakdown
             const counters = this.lubeSections || [];
             const hasCounters = counters.length > 0 && counters.some(ls => (ls.items || []).length > 0);
             const counterBlocks = counters.map(ls => {
@@ -2492,7 +2492,7 @@ function stationAudit() {
                 return `
                     <div style="margin-bottom:20px">
                         <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;color:#000;display:flex;justify-content:space-between;align-items:baseline">
-                            <span>📦 ${esc(ls.name || 'Counter')}</span>
+                            <span> ${esc(ls.name || 'Counter')}</span>
                             <span class="font-mono" style="font-size:9px;font-weight:700;color:#059669">Sales: ${fmt(counterSalesTotal)}</span>
                         </h4>
                         ${tbl(
@@ -2504,7 +2504,7 @@ function stationAudit() {
             }).filter(b => b).join('');
             const counterTotalSales = this.lubeTotalAmount;
 
-            // Stock consolidation — merge store + counters
+            // Stock consolidation  merge store + counters
             const consolidation = this.lubeConsolidation || [];
             const hasConsolidation = consolidation.length > 0;
             const consolidationRows = consolidation.map(row => {
@@ -2523,7 +2523,7 @@ function stationAudit() {
             let section06 = `
                 ${sectionTitle(6, 'Lubricant Sales & Stock Evaluation', 'Inventory Position')}
 
-                <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;color:#000">🏪 Lube Store (Warehouse)</h4>
+                <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;color:#000"> Lube Store (Warehouse)</h4>
                 <div style="margin-bottom:20px">
                     ${lubeItems.length > 0 ? tbl(
                 [{ label: 'Product' }, { label: 'Open', right: false }, { label: 'Rcvd', right: false }, { label: 'Issued', right: false }, { label: 'Close', right: false }, { label: 'Unit Price', right: true }, { label: 'Stock Value', right: true }],
@@ -2548,7 +2548,7 @@ function stationAudit() {
             if (hasConsolidation) {
                 section06 += `
                 <div style="margin-top:20px;border-top:2px solid #000;padding-top:16px">
-                    <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;color:#000">📊 Consolidated Stock Summary (Store + Counters)</h4>
+                    <h4 style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;color:#000"> Consolidated Stock Summary (Store + Counters)</h4>
                     ${tbl(
                     [{ label: 'Product' }, { label: 'Store Close', right: false }, { label: 'Counter Close', right: false }, { label: 'Total Close', right: false }, { label: 'Cost Price', right: true }, { label: 'Total Value', right: true }],
                     consolidationRows,
@@ -2575,9 +2575,9 @@ function stationAudit() {
                 ${pageFooter(4)}
             </div>`;
 
-            // ══════════════════════════════════════════
+            // 
             // PAGE 5: SECTION 07 (Metrics) + 08 (Infographics)
-            // ══════════════════════════════════════════
+            // 
 
             // Calculate key metrics
             const depositPct = auditSales > 0 ? (bankDeposit / auditSales * 100) : 0;
@@ -2616,7 +2616,7 @@ function stationAudit() {
                     <div style="height:18px;background:#f1f5f9;border-radius:4px;overflow:hidden">
                         <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#f59e0b,#d97706);border-radius:4px;transition:width .3s"></div>
                     </div>
-                    <p style="font-size:8px;color:#94a3b8;margin-top:2px">${fmtL(p.litres)} litres · Avg ${fmt(p.rate)}/L</p>
+                    <p style="font-size:8px;color:#94a3b8;margin-top:2px">${fmtL(p.litres)} litres  Avg ${fmt(p.rate)}/L</p>
                 </div>`;
             }).join('');
 
@@ -2664,7 +2664,7 @@ function stationAudit() {
                 ${sectionTitle(7, 'Key Metrics', 'Performance Dashboard')}
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:32px">
                     ${metricCard('Total Revenue', fmt(auditSales), `${numProducts} products`, '#000')}
-                    ${metricCard('Avg Daily Sales', fmt(avgDailySales), `${esc(dateFrom)} – ${esc(dateTo)}`, '#3b82f6')}
+                    ${metricCard('Avg Daily Sales', fmt(avgDailySales), `${esc(dateFrom)}  ${esc(dateTo)}`, '#3b82f6')}
                     ${metricCard('Total Volume', fmtL(totalVolume) + ' L', `Avg ${fmt(avgPricePerLitre)}/L`, '#f59e0b')}
                     ${metricCard('Deposit Rate', fmtPct(depositPct), fmt(bankDeposit) + ' deposited', '#10b981')}
                     ${metricCard('Expense Ratio', fmtPct(expensePct), fmt(totalExpenses) + ' spent', '#e11d48')}
@@ -2672,7 +2672,7 @@ function stationAudit() {
                     ${metricCard('Cash Retained', fmtPct(cashPct), fmt(cashAtHand) + ' at hand', '#06b6d4')}
                     ${metricCard('Debtors', fmtPct(debtorPct), fmt(receivables) + ' outstanding', '#b45309')}
                     ${metricCard('Deliveries', haulageCount + ' trips', fmtL(totalHaulage) + ' L received', '#6366f1')}
-                    ${topProduct ? metricCard('Top Product', esc(topProduct.product), fmt(topProduct.amount) + ' revenue', '#059669') : metricCard('Top Product', '—', 'No data', '#94a3b8')}
+                    ${topProduct ? metricCard('Top Product', esc(topProduct.product), fmt(topProduct.amount) + ' revenue', '#059669') : metricCard('Top Product', '', 'No data', '#94a3b8')}
                 </div>
 
                 ${sectionTitle(8, 'Infographics', 'Visual Analysis')}
@@ -2692,9 +2692,9 @@ function stationAudit() {
                 ${pageFooter(5)}
             </div>`;
 
-            // ══════════════════════════════════════════
-            // PAGE 6: SECTION 09 — 3D PIE CHART ANALYTICS
-            // ══════════════════════════════════════════
+            // 
+            // PAGE 6: SECTION 09  3D PIE CHART ANALYTICS
+            // 
 
             // Color palette for pie slices
             const pieColors = ['#3b82f6', '#f59e0b', '#10b981', '#e11d48', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6366f1'];
@@ -2737,7 +2737,7 @@ function stationAudit() {
                 </div>`;
             };
 
-            // ── Data for each pie chart ──
+            //  Data for each pie chart 
 
             // 1. Sales Revenue by Product
             const salesPieItems = pumpBreakdown.map(p => ({
@@ -2825,9 +2825,9 @@ function stationAudit() {
                 ${pageFooter(6)}
             </div>`;
 
-            // ══════════════════════════════════════════
-            // PAGE 7: SECTION 10 — PHOTO EVIDENCE (optional)
-            // ══════════════════════════════════════════
+            // 
+            // PAGE 7: SECTION 10  PHOTO EVIDENCE (optional)
+            // 
             const tellerUrl = this.systemSales.teller_proof_url || '';
             const posUrl = this.systemSales.pos_proof_url || '';
             const showPhotos = this.finalReportIncludePhotos && (tellerUrl || posUrl);
@@ -2876,11 +2876,11 @@ function stationAudit() {
                 ${pageFooter(totalPages)}
             </div>` : '';
 
-            const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Final Audit Report — ${esc(company)}</title><style>${css}</style></head><body>${page1}${page2}${page3}${page4}${page5}${page6}${page7}</body></html>`;
+            const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Final Audit Report  ${esc(company)}</title><style>${css}</style></head><body>${page1}${page2}${page3}${page4}${page5}${page6}${page7}</body></html>`;
             return { html, station, dateFrom, dateTo };
         },
 
-        // ── Preview Final Report (fullscreen overlay) ──
+        //  Preview Final Report (fullscreen overlay) 
         previewFinalReport() {
             const { html } = this._buildFinalReportHTML();
             const existing = document.getElementById('final-rpt-preview-overlay');
@@ -2901,12 +2901,12 @@ function stationAudit() {
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px">
-                        <button id="frpt-zoom-out" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">−</button>
+                        <button id="frpt-zoom-out" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700"></button>
                         <span id="frpt-zoom-label" style="color:#94a3b8;font-size:11px;min-width:38px;text-align:center">100%</span>
                         <button id="frpt-zoom-in" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">+</button>
                         <div style="width:1px;height:24px;background:rgba(255,255,255,.1);margin:0 4px"></div>
-                        <button id="frpt-preview-download" style="padding:7px 14px;border-radius:8px;background:#f59e0b;border:none;color:#000;cursor:pointer;font-size:11px;font-weight:800">⬇ Download PDF</button>
-                        <button id="frpt-preview-close" style="width:30px;height:30px;border-radius:6px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;font-size:16px;line-height:1">×</button>
+                        <button id="frpt-preview-download" style="padding:7px 14px;border-radius:8px;background:#f59e0b;border:none;color:#000;cursor:pointer;font-size:11px;font-weight:800"> Download PDF</button>
+                        <button id="frpt-preview-close" style="width:30px;height:30px;border-radius:6px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;font-size:16px;line-height:1"></button>
                     </div>
                 </div>
                 <div style="flex:1;overflow-y:auto;padding:24px;display:flex;justify-content:center">
@@ -2935,11 +2935,11 @@ function stationAudit() {
             document.addEventListener('keydown', esc2);
         },
 
-        // ── Download Final Report PDF ──
+        //  Download Final Report PDF 
         downloadFinalReport() {
             const { html } = this._buildFinalReportHTML();
             const pw = window.open('', '_blank');
-            if (!pw) { this.toast('Pop-up blocked — please allow pop-ups for this site', false); return; }
+            if (!pw) { this.toast('Pop-up blocked  please allow pop-ups for this site', false); return; }
             pw.document.write(html);
             pw.document.close();
             pw.onload = () => { pw.focus(); pw.print(); };
@@ -2950,7 +2950,7 @@ function stationAudit() {
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         },
 
-        // ── URL Hash helpers ──
+        //  URL Hash helpers 
         _updateHash() {
             if (this.activeSession) {
                 window.location.hash = `session=${this.activeSession}&tab=${this.currentTab}`;

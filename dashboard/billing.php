@@ -1,6 +1,6 @@
 <?php
 /**
- * MIAUDITOPS — Billing & Subscription Management
+ * MIAUDITOPS  Billing & Subscription Management
  * View subscription status, invoices, and make payments
  */
 $page_title = 'Billing';
@@ -15,7 +15,7 @@ require_login();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?> — MIAUDITOPS</title>
+    <title><?php echo $page_title; ?>  MIAUDITOPS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -59,7 +59,7 @@ require_login();
 
                     <div x-show="!loading" x-transition>
 
-                        <!-- ═══════════ Subscription Status Card ═══════════ -->
+                        <!--  Subscription Status Card  -->
                         <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
                             <div class="p-6">
                                 <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -86,7 +86,7 @@ require_login();
                                                 <span x-text="sub.billing_cycle ? (sub.billing_cycle.charAt(0).toUpperCase() + sub.billing_cycle.slice(1)) + ' billing' : 'Free tier'"></span>
                                                 <template x-if="sub.expires_at">
                                                     <span>
-                                                        · Expires <span class="font-semibold" :class="sub.days_remaining <= 7 ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'"
+                                                         Expires <span class="font-semibold" :class="sub.days_remaining <= 7 ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'"
                                                                         x-text="formatDate(sub.expires_at)"></span>
                                                     </span>
                                                 </template>
@@ -125,7 +125,7 @@ require_login();
                             </template>
                         </div>
 
-                        <!-- ═══════════ Current Usage Stats ═══════════ -->
+                        <!--  Current Usage Stats  -->
                         <template x-if="usage && sub.status !== 'expired'">
                             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
                                 <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
@@ -139,7 +139,7 @@ require_login();
                                         <div class="flex items-center justify-between mb-2">
                                             <span class="text-xs font-semibold text-slate-500">Users</span>
                                             <span class="text-xs font-bold text-slate-800 dark:text-white">
-                                                <span x-text="usage.users"></span> / <span x-text="usage.plan_limits.max_users == 0 ? '∞' : usage.plan_limits.max_users"></span>
+                                                <span x-text="usage.users"></span> / <span x-text="usage.plan_limits.max_users == 0 ? '' : usage.plan_limits.max_users"></span>
                                             </span>
                                         </div>
                                         <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -151,7 +151,7 @@ require_login();
                                         <div class="flex items-center justify-between mb-2">
                                             <span class="text-xs font-semibold text-slate-500">Outlets / Stations</span>
                                             <span class="text-xs font-bold text-slate-800 dark:text-white">
-                                                <span x-text="usage.outlets"></span> / <span x-text="usage.plan_limits.max_outlets == 0 ? '∞' : usage.plan_limits.max_outlets"></span>
+                                                <span x-text="usage.outlets"></span> / <span x-text="usage.plan_limits.max_outlets == 0 ? '' : usage.plan_limits.max_outlets"></span>
                                             </span>
                                         </div>
                                         <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -163,7 +163,7 @@ require_login();
                                         <div class="flex items-center justify-between mb-2">
                                             <span class="text-xs font-semibold text-slate-500">Departments</span>
                                             <span class="text-xs font-bold text-slate-800 dark:text-white">
-                                                <span x-text="usage.departments"></span> / <span x-text="usage.plan_limits.max_departments == 0 ? '∞' : usage.plan_limits.max_departments"></span>
+                                                <span x-text="usage.departments"></span> / <span x-text="usage.plan_limits.max_departments == 0 ? '' : usage.plan_limits.max_departments"></span>
                                             </span>
                                         </div>
                                         <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -174,7 +174,7 @@ require_login();
                             </div>
                         </template>
 
-                        <!-- ═══════════ Self-Service Add-On Packs ═══════════ -->
+                        <!--  Self-Service Add-On Packs  -->
                         <template x-if="sub.plan_name === 'starter' || sub.plan_name === 'free'">
                             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden">
                                 <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-800/50 dark:to-slate-900/50">
@@ -194,7 +194,7 @@ require_login();
                             <div class="px-6 py-4 border-b border-amber-100 dark:border-amber-500/20 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/5 dark:to-orange-500/5">
                                 <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                                     <i data-lucide="package-plus" class="w-4 h-4 text-amber-500"></i> Add-On Packs
-                                    <span class="text-[10px] font-normal text-slate-400 ml-1">Each pack: +1 Client + 6 Departments at ₦25,000/mo</span>
+                                    <span class="text-[10px] font-normal text-slate-400 ml-1">Each pack: +1 Client + 6 Departments at 25,000/mo</span>
                                 </h3>
                             </div>
                             <div class="p-6">
@@ -226,7 +226,7 @@ require_login();
                                             <p class="text-[10px] text-slate-400 font-semibold">Extra Depts</p>
                                         </div>
                                         <div>
-                                            <p class="text-lg font-black text-amber-600 dark:text-amber-400" x-text="'₦' + (addonPacks * 25000).toLocaleString()"></p>
+                                            <p class="text-lg font-black text-amber-600 dark:text-amber-400" x-text="'' + (addonPacks * 25000).toLocaleString()"></p>
                                             <p class="text-[10px] text-slate-400 font-semibold">/month</p>
                                         </div>
                                     </div>
@@ -281,7 +281,7 @@ require_login();
                         </div>
                         </template>
 
-                        <!-- ═══════════ Upcoming Invoice ═══════════ -->
+                        <!--  Upcoming Invoice  -->
                         <template x-if="upcomingInvoice">
                             <div class="bg-white dark:bg-slate-900 rounded-2xl border shadow-xl overflow-hidden"
                                  :class="upcomingInvoice.invoice_status === 'overdue'
@@ -309,18 +309,18 @@ require_login();
                                             <div class="flex items-center gap-3 text-sm">
                                                 <span class="text-slate-500">Plan:</span>
                                                 <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="sub.plan_label + ' (' + upcomingInvoice.billing_cycle + ')'"></span>
-                                                <span class="font-bold text-slate-800 dark:text-white" x-text="'₦' + Number(upcomingInvoice.plan_cost).toLocaleString()"></span>
+                                                <span class="font-bold text-slate-800 dark:text-white" x-text="'' + Number(upcomingInvoice.plan_cost).toLocaleString()"></span>
                                             </div>
                                             <template x-if="upcomingInvoice.addon_packs > 0">
                                                 <div class="flex items-center gap-3 text-sm">
                                                     <span class="text-slate-500">Add-ons:</span>
                                                     <span class="font-semibold text-amber-600 dark:text-amber-400" x-text="upcomingInvoice.addon_packs + ' pack(s)'"></span>
-                                                    <span class="font-bold text-amber-600 dark:text-amber-400" x-text="'₦' + Number(upcomingInvoice.addon_cost).toLocaleString()"></span>
+                                                    <span class="font-bold text-amber-600 dark:text-amber-400" x-text="'' + Number(upcomingInvoice.addon_cost).toLocaleString()"></span>
                                                 </div>
                                             </template>
                                             <div class="flex items-center gap-3 text-sm pt-1 border-t border-slate-100 dark:border-slate-800">
                                                 <span class="text-slate-500 font-bold">Total:</span>
-                                                <span class="text-xl font-black text-slate-800 dark:text-white" x-text="'₦' + Number(upcomingInvoice.invoice_amount).toLocaleString()"></span>
+                                                <span class="text-xl font-black text-slate-800 dark:text-white" x-text="'' + Number(upcomingInvoice.invoice_amount).toLocaleString()"></span>
                                             </div>
                                         </div>
                                         <template x-if="upcomingInvoice.has_invoice && upcomingInvoice.invoice_status !== 'paid'">
@@ -335,7 +335,7 @@ require_login();
                             </div>
                         </template>
 
-                        <!-- ═══════════ Tabs ═══════════ -->
+                        <!--  Tabs  -->
                         <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800">
                             <button @click="tab = 'invoices'" class="px-4 py-2.5 text-sm font-semibold border-b-2 transition-all cursor-pointer"
                                     :class="tab === 'invoices' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
@@ -351,7 +351,7 @@ require_login();
                             </button>
                         </div>
 
-                        <!-- ═══════════ Invoices Tab ═══════════ -->
+                        <!--  Invoices Tab  -->
                         <div x-show="tab === 'invoices'" x-transition>
                             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
                                 <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -393,10 +393,10 @@ require_login();
                                                         <span class="text-[10px] text-slate-400 block" x-text="inv.billing_cycle"></span>
                                                     </td>
                                                     <td class="px-4 py-3">
-                                                        <span class="text-xs text-slate-500" x-text="inv.period_start ? (formatDate(inv.period_start) + ' → ' + formatDate(inv.period_end)) : '—'"></span>
+                                                        <span class="text-xs text-slate-500" x-text="inv.period_start ? (formatDate(inv.period_start) + '  ' + formatDate(inv.period_end)) : ''"></span>
                                                     </td>
                                                     <td class="px-4 py-3 text-right">
-                                                        <span class="font-bold text-slate-800 dark:text-white" x-text="'₦' + Number(inv.amount_naira).toLocaleString()"></span>
+                                                        <span class="font-bold text-slate-800 dark:text-white" x-text="'' + Number(inv.amount_naira).toLocaleString()"></span>
                                                     </td>
                                                     <td class="px-4 py-3 text-center">
                                                         <span class="text-xs text-slate-500" x-text="formatDate(inv.due_date)"></span>
@@ -433,7 +433,7 @@ require_login();
                             </div>
                         </div>
 
-                        <!-- ═══════════ Upgrade Plan Tab ═══════════ -->
+                        <!--  Upgrade Plan Tab  -->
                         <div x-show="tab === 'upgrade'" x-transition>
                             <div class="space-y-4">
                                 <!-- Billing Cycle Selector -->
@@ -474,7 +474,7 @@ require_login();
                                                 </div>
 
                                                 <div class="mb-4">
-                                                    <span class="text-3xl font-black text-slate-800 dark:text-white">₦<span x-text="Number(plan[selectedCycle]).toLocaleString()"></span></span>
+                                                    <span class="text-3xl font-black text-slate-800 dark:text-white"><span x-text="Number(plan[selectedCycle]).toLocaleString()"></span></span>
                                                     <span class="text-xs text-slate-400" x-text="'/' + selectedCycle"></span>
                                                 </div>
 
@@ -502,7 +502,7 @@ require_login();
                             </div>
                         </div>
 
-                        <!-- ═══════════ Payment History Tab ═══════════ -->
+                        <!--  Payment History Tab  -->
                         <div x-show="tab === 'history'" x-transition>
                             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
                                 <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
@@ -535,13 +535,13 @@ require_login();
                                                        }"></i>
                                                 </div>
                                                 <div class="min-w-0">
-                                                    <p class="text-xs font-bold text-slate-800 dark:text-white truncate" x-text="pay.plan_name.charAt(0).toUpperCase() + pay.plan_name.slice(1) + ' — ' + pay.billing_cycle"></p>
+                                                    <p class="text-xs font-bold text-slate-800 dark:text-white truncate" x-text="pay.plan_name.charAt(0).toUpperCase() + pay.plan_name.slice(1) + '  ' + pay.billing_cycle"></p>
                                                     <p class="text-[10px] text-slate-400 font-mono truncate" x-text="pay.reference"></p>
                                                     <p class="text-[10px] text-slate-400" x-text="formatDate(pay.created_at)"></p>
                                                 </div>
                                             </div>
                                             <div class="text-right shrink-0">
-                                                <p class="text-sm font-bold text-slate-800 dark:text-white" x-text="'₦' + Number(pay.amount_kobo / 100).toLocaleString()"></p>
+                                                <p class="text-sm font-bold text-slate-800 dark:text-white" x-text="'' + Number(pay.amount_kobo / 100).toLocaleString()"></p>
                                                 <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
                                                       :class="{
                                                           'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600': pay.status === 'success',
@@ -608,7 +608,7 @@ require_login();
                     },
 
                     async payInvoice(inv) {
-                        if (!confirm('Pay invoice ' + inv.invoice_number + ' for ₦' + Number(inv.amount_naira).toLocaleString() + '?\n\nYou will be redirected to Paystack to complete payment.')) return;
+                        if (!confirm('Pay invoice ' + inv.invoice_number + ' for ' + Number(inv.amount_naira).toLocaleString() + '?\n\nYou will be redirected to Paystack to complete payment.')) return;
                         this.paying = true;
                         try {
                             const fd = new FormData();
@@ -619,7 +619,7 @@ require_login();
                             if (data.success && data.authorization_url) {
                                 window.location.href = data.authorization_url;
                             } else {
-                                alert('✗ ' + (data.message || 'Failed to initialize payment'));
+                                alert(' ' + (data.message || 'Failed to initialize payment'));
                             }
                         } catch (e) {
                             alert('Network error. Please try again.');
@@ -636,7 +636,7 @@ require_login();
                         const amount = plan[cycle] || 0;
                         if (amount <= 0) { alert('Invalid plan price.'); return; }
 
-                        if (!confirm('Subscribe to ' + plan.label + ' (' + cycle + ') for ₦' + Number(amount).toLocaleString() + '?\n\nYou will be redirected to Paystack to complete payment.')) return;
+                        if (!confirm('Subscribe to ' + plan.label + ' (' + cycle + ') for ' + Number(amount).toLocaleString() + '?\n\nYou will be redirected to Paystack to complete payment.')) return;
 
                         this.paying = true;
                         try {
@@ -649,7 +649,7 @@ require_login();
                             if (data.success && data.authorization_url) {
                                 window.location.href = data.authorization_url;
                             } else {
-                                alert('✗ ' + (data.message || 'Failed to initialize payment'));
+                                alert(' ' + (data.message || 'Failed to initialize payment'));
                             }
                         } catch (e) {
                             alert('Network error. Please try again.');
@@ -658,7 +658,7 @@ require_login();
                     },
 
                     formatDate(dateStr) {
-                        if (!dateStr) return '—';
+                        if (!dateStr) return '';
                         const d = new Date(dateStr);
                         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                     },
@@ -668,8 +668,8 @@ require_login();
                         const diff = this.addonPacks - this.sub.addon_client_packs;
                         const cost = this.addonPacks * 25000;
                         let msg = diff > 0
-                            ? `Add ${diff} add-on pack(s)?\n\nNew total: ${this.addonPacks} pack(s) at ₦${cost.toLocaleString()}/mo\nYour invoice will be updated immediately.`
-                            : `Remove ${Math.abs(diff)} add-on pack(s)?\n\nNew total: ${this.addonPacks} pack(s) at ₦${cost.toLocaleString()}/mo`;
+                            ? `Add ${diff} add-on pack(s)?\n\nNew total: ${this.addonPacks} pack(s) at ${cost.toLocaleString()}/mo\nYour invoice will be updated immediately.`
+                            : `Remove ${Math.abs(diff)} add-on pack(s)?\n\nNew total: ${this.addonPacks} pack(s) at ${cost.toLocaleString()}/mo`;
                         if (!confirm(msg)) return;
 
                         this.addonSaving = true;
@@ -685,9 +685,9 @@ require_login();
                                 this.sub.effective_departments = data.effective_departments;
                                 this.sub.addon_monthly_cost = data.addon_monthly_cost;
                                 await this.loadBillingData(); // refresh everything
-                                alert('✓ ' + data.message);
+                                alert(' ' + data.message);
                             } else {
-                                alert('✗ ' + (data.message || 'Failed to update'));
+                                alert(' ' + (data.message || 'Failed to update'));
                                 this.addonPacks = this.sub.addon_client_packs; // revert
                             }
                         } catch (e) {

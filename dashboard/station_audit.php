@@ -1,6 +1,6 @@
 <?php
 /**
- * MIAUDITOPS — Filling Station Audit Module
+ * MIAUDITOPS  Filling Station Audit Module
  * 5 Tabs: System Sales, Pump Sales, Tank Dipping, Haulage, General Report
  */
 require_once '../includes/functions.php';
@@ -14,7 +14,7 @@ $client_id  = get_active_client();
 $user_id    = $_SESSION['user_id'];
 $page_title = 'Station Audit';
 
-// ── Auto-migrate DB tables ──
+//  Auto-migrate DB tables 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_audit_sessions (
     id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL, client_id INT NOT NULL, outlet_id INT NOT NULL,
     date_from DATE, date_to DATE, status ENUM('draft','submitted','approved') DEFAULT 'draft',
@@ -84,14 +84,14 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_issues (
 // Add store_item_id to lube_items if missing (existing installs)
 try { $pdo->exec("ALTER TABLE station_lube_items ADD COLUMN store_item_id INT NULL AFTER section_id"); } catch(Exception $e) {}
 try { $pdo->exec("ALTER TABLE station_lube_store_items ADD COLUMN adjustment DECIMAL(12,2) DEFAULT 0 AFTER return_out"); } catch(Exception $e) {}
-// ── Issue log for audit history ──
+//  Issue log for audit history 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_issue_log (
     id INT AUTO_INCREMENT PRIMARY KEY, store_item_id INT NOT NULL, section_id INT NOT NULL,
     company_id INT NOT NULL, quantity DECIMAL(12,2) DEFAULT 0,
     product_name VARCHAR(150), counter_name VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-// ── Lube product catalog (company-level, not session-scoped) ──
+//  Lube product catalog (company-level, not session-scoped) 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_products (
     id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL,
     product_name VARCHAR(150) NOT NULL, unit VARCHAR(50) DEFAULT 'Litre',
@@ -100,14 +100,14 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_products (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_prod (company_id, product_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-// ── Lube suppliers (company-level) ──
+//  Lube suppliers (company-level) 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_suppliers (
     id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL,
     supplier_name VARCHAR(150) NOT NULL, contact_person VARCHAR(100),
     phone VARCHAR(30), email VARCHAR(100), address TEXT,
     is_active TINYINT(1) DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-// ── GRN header (company-level, linked to session optionally) ──
+//  GRN header (company-level, linked to session optionally) 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_grn (
     id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL,
     session_id INT NULL, supplier_id INT NULL,
@@ -115,7 +115,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_grn (
     total_cost DECIMAL(15,2) DEFAULT 0, notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-// ── GRN line items ──
+//  GRN line items 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_grn_items (
     id INT AUTO_INCREMENT PRIMARY KEY, grn_id INT NOT NULL, company_id INT NOT NULL,
     product_id INT NULL, product_name VARCHAR(150),
@@ -124,7 +124,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_grn_items (
     line_total DECIMAL(15,2) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-// ── Lube Stock Count (period-based physical counts) ──
+//  Lube Stock Count (period-based physical counts) 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_stock_counts (
     id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL,
     session_id INT NULL, date_from DATE NOT NULL, date_to DATE NOT NULL,
@@ -139,7 +139,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_stock_count_items (
     sold_qty INT DEFAULT 0, sold_value_cost DECIMAL(15,2) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-// ── Counter Stock Count (period-based physical counts per counter) ──
+//  Counter Stock Count (period-based physical counts per counter) 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_counter_stock_counts (
     id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL,
     section_id INT NOT NULL, date_from DATE NOT NULL, date_to DATE NOT NULL,
@@ -159,7 +159,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_outlet_terminals (
     sort_order INT DEFAULT 0,
     UNIQUE KEY uk_outlet_terminal (company_id, outlet_id, terminal_name, terminal_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-// ── Load data ──
+//  Load data 
 $client_outlets = get_client_outlets($client_id, $company_id);
 $js_outlets = json_encode($client_outlets, JSON_HEX_TAG | JSON_HEX_APOS);
 
@@ -173,7 +173,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Station Audit — MIAUDITOPS</title>
+    <title>Station Audit  MIAUDITOPS</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
@@ -194,7 +194,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
         <main class="flex-1 overflow-y-auto p-6 lg:p-8 scroll-smooth">
             <?php display_flash_message(); ?>
 
-            <!-- ═══ SESSION SELECTOR / CREATOR ═══ -->
+            <!--  SESSION SELECTOR / CREATOR  -->
             <template x-if="!activeSession">
                 <div class="max-w-3xl mx-auto space-y-6">
                     <!-- Create New -->
@@ -214,7 +214,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             <div>
                                 <label class="text-xs font-semibold text-slate-600 mb-1 block">Station / Outlet *</label>
                                 <select x-model="newSession.outlet_id" required class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
-                                    <option value="">— Select Station —</option>
+                                    <option value=""> Select Station </option>
                                     <template x-for="o in outlets" :key="o.id">
                                         <option :value="o.id" x-text="o.name + ' (' + o.type.replace('_',' ') + ')'"></option>
                                     </template>
@@ -250,10 +250,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                     </select>
                                     <select x-model="sessionFilterQuarter" class="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-600 focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 transition-all">
                                         <option value="">All Quarters</option>
-                                        <option value="1">Q1 (Jan–Mar)</option>
-                                        <option value="2">Q2 (Apr–Jun)</option>
-                                        <option value="3">Q3 (Jul–Sep)</option>
-                                        <option value="4">Q4 (Oct–Dec)</option>
+                                        <option value="1">Q1 (JanMar)</option>
+                                        <option value="2">Q2 (AprJun)</option>
+                                        <option value="3">Q3 (JulSep)</option>
+                                        <option value="4">Q4 (OctDec)</option>
                                     </select>
                                     <button x-show="sessionFilterYear || sessionFilterQuarter" @click="sessionFilterYear=''; sessionFilterQuarter=''" class="text-[10px] text-amber-600 hover:text-amber-800 font-bold transition-colors">Clear</button>
                                 </div>
@@ -263,7 +263,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             <template x-for="s in filteredSessions" :key="s.id">
                                 <div class="px-6 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer group" @click="loadSession(s.id)">
                                     <div>
-                                        <p class="text-sm font-bold text-slate-800 dark:text-white" x-text="(s.outlet_name || 'Station') + ' — ' + s.date_from + ' to ' + s.date_to"></p>
+                                        <p class="text-sm font-bold text-slate-800 dark:text-white" x-text="(s.outlet_name || 'Station') + '  ' + s.date_from + ' to ' + s.date_to"></p>
                                         <p class="text-[10px] text-slate-400" x-text="'Created: ' + s.created_at"></p>
                                     </div>
                                     <div class="flex items-center gap-2 flex-shrink-0">
@@ -282,7 +282,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ─── Trash Section ─── -->
+                    <!--  Trash Section  -->
                     <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden mt-6">
                         <div class="px-6 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between cursor-pointer"
                              @click="showTrash = !showTrash; if(showTrash && trashItems.length === 0) loadTrash()">
@@ -330,7 +330,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                 </div>
             </template>
 
-            <!-- ═══ ACTIVE SESSION VIEW ═══ -->
+            <!--  ACTIVE SESSION VIEW  -->
             <template x-if="activeSession">
                 <div>
                     <!-- Session Header -->
@@ -344,7 +344,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <input type="date" :value="sessionData?.session?.date_from"
                                        @change="sessionData.session.date_from=$event.target.value; updateSessionDates()"
                                        class="px-2 py-0.5 bg-transparent border border-transparent hover:border-slate-300 focus:border-amber-400 rounded text-xs text-slate-500 focus:ring-1 focus:ring-amber-400/30 transition-all cursor-pointer">
-                                <span class="text-xs text-slate-400">—</span>
+                                <span class="text-xs text-slate-400"></span>
                                 <input type="date" :value="sessionData?.session?.date_to"
                                        @change="sessionData.session.date_to=$event.target.value; updateSessionDates()"
                                        class="px-2 py-0.5 bg-transparent border border-transparent hover:border-slate-300 focus:border-amber-400 rounded text-xs text-slate-500 focus:ring-1 focus:ring-amber-400/30 transition-all cursor-pointer">
@@ -369,7 +369,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ TAB 1: SYSTEM SALES ═══ -->
+                    <!--  TAB 1: SYSTEM SALES  -->
                     <div x-show="currentTab==='system_sales'" x-transition>
                         <div class="max-w-2xl mx-auto space-y-5">
                             <!-- Entry Form -->
@@ -381,24 +381,24 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <div class="p-6 space-y-4">
                                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                         <div>
-                                            <label class="text-[10px] font-bold text-blue-600 block mb-1">POS (₦) <span class="text-[8px] text-blue-400 font-normal">auto from terminals</span></label>
+                                            <label class="text-[10px] font-bold text-blue-600 block mb-1">POS () <span class="text-[8px] text-blue-400 font-normal">auto from terminals</span></label>
                                             <input type="number" step="0.01" x-model="systemSales.pos_amount" readonly class="w-full px-3 py-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-sm font-semibold cursor-not-allowed">
                                         </div>
                                         <div>
-                                            <label class="text-[10px] font-bold text-emerald-600 block mb-1">Cash (₦) <span class="text-[8px] text-emerald-400 font-normal">auto from denom.</span></label>
+                                            <label class="text-[10px] font-bold text-emerald-600 block mb-1">Cash () <span class="text-[8px] text-emerald-400 font-normal">auto from denom.</span></label>
                                             <input type="number" step="0.01" x-model="systemSales.cash_amount" readonly class="w-full px-3 py-2.5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm font-semibold cursor-not-allowed">
                                         </div>
                                         <div>
-                                            <label class="text-[10px] font-bold text-violet-600 block mb-1">Transfer (₦) <span class="text-[8px] text-violet-400 font-normal">auto from terminals</span></label>
+                                            <label class="text-[10px] font-bold text-violet-600 block mb-1">Transfer () <span class="text-[8px] text-violet-400 font-normal">auto from terminals</span></label>
                                             <input type="number" step="0.01" x-model="systemSales.transfer_amount" readonly class="w-full px-3 py-2.5 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl text-sm font-semibold cursor-not-allowed">
                                         </div>
                                         <div>
-                                            <label class="text-[10px] font-bold text-amber-600 block mb-1">Teller (₦)</label>
+                                            <label class="text-[10px] font-bold text-amber-600 block mb-1">Teller ()</label>
                                             <input type="number" step="0.01" x-model="systemSales.teller_amount" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-xl text-sm font-semibold">
                                         </div>
                                     </div>
 
-                                    <!-- ── POS Terminal Breakdown ── -->
+                                    <!--  POS Terminal Breakdown  -->
                                     <div class="rounded-xl border border-blue-200 dark:border-blue-800/50 overflow-hidden">
                                         <button type="button" @click="showPosTerminals = !showPosTerminals" class="w-full flex items-center justify-between px-4 py-2.5 bg-blue-50/80 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all">
                                             <div class="flex items-center gap-2">
@@ -434,7 +434,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                     </div>
 
-                                    <!-- ── Transfer Terminal Breakdown ── -->
+                                    <!--  Transfer Terminal Breakdown  -->
                                     <div class="rounded-xl border border-violet-200 dark:border-violet-800/50 overflow-hidden">
                                         <button type="button" @click="showTransferTerminals = !showTransferTerminals" class="w-full flex items-center justify-between px-4 py-2.5 bg-violet-50/80 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-all">
                                             <div class="flex items-center gap-2">
@@ -470,7 +470,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                     </div>
 
-                                    <!-- ── Cash Denomination Breakdown ── -->
+                                    <!--  Cash Denomination Breakdown  -->
                                     <div class="rounded-xl border border-emerald-200 dark:border-emerald-800/50 overflow-hidden">
                                         <button type="button" @click="showDenom = !showDenom" class="w-full flex items-center justify-between px-4 py-2.5 bg-emerald-50/80 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all">
                                             <div class="flex items-center gap-2">
@@ -486,7 +486,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             <div class="grid grid-cols-4 gap-2">
                                                 <template x-for="d in denominations" :key="d.value">
                                                     <div class="flex flex-col">
-                                                        <label class="text-[9px] font-bold text-emerald-600 mb-0.5" x-text="'₦'+d.value.toLocaleString()"></label>
+                                                        <label class="text-[9px] font-bold text-emerald-600 mb-0.5" x-text="''+d.value.toLocaleString()"></label>
                                                         <div class="flex items-center gap-1">
                                                             <input type="number" min="0" x-model.number="d.count" @input="calcDenomination()" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-mono text-center" placeholder="0">
                                                         </div>
@@ -501,12 +501,12 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                     </div>
 
-                                    <!-- ── POS Proof of Transaction ── -->
+                                    <!--  POS Proof of Transaction  -->
                                     <div class="rounded-xl border border-blue-200 dark:border-blue-800/50 overflow-hidden">
                                         <div class="px-4 py-2.5 bg-blue-50/80 dark:bg-blue-900/20">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <i data-lucide="file-check" class="w-3.5 h-3.5 text-blue-600"></i>
-                                                <span class="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">POS — Proof of Transaction</span>
+                                                <span class="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">POS  Proof of Transaction</span>
                                             </div>
                                             <div class="flex items-center gap-3 flex-wrap">
                                                 <label class="cursor-pointer px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-[10px] font-bold rounded-lg shadow-md hover:scale-105 transition-all flex items-center gap-1.5">
@@ -532,12 +532,12 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                     </div>
 
-                                    <!-- ── Teller Proof of Deposit ── -->
+                                    <!--  Teller Proof of Deposit  -->
                                     <div class="rounded-xl border border-amber-200 dark:border-amber-800/50 overflow-hidden">
                                         <div class="px-4 py-2.5 bg-amber-50/80 dark:bg-amber-900/20">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <i data-lucide="file-check" class="w-3.5 h-3.5 text-amber-600"></i>
-                                                <span class="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">Teller — Proof of Deposit</span>
+                                                <span class="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">Teller  Proof of Deposit</span>
                                             </div>
                                             <div class="flex items-center gap-3 flex-wrap">
                                                 <label class="cursor-pointer px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-bold rounded-lg shadow-md hover:scale-105 transition-all flex items-center gap-1.5">
@@ -638,7 +638,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ TAB 2: PUMP SALES ═══ -->
+                    <!--  TAB 2: PUMP SALES  -->
                     <div x-show="currentTab==='pump_sales'" x-transition>
                         <div class="space-y-4">
                             <!-- Product Selector -->
@@ -700,7 +700,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                        class="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] font-bold disabled:opacity-60 disabled:cursor-not-allowed">
                                             </div>
                                             <div class="flex items-center gap-1">
-                                                <span class="text-[9px] font-bold text-orange-500 uppercase">Rate ₦</span>
+                                                <span class="text-[9px] font-bold text-orange-500 uppercase">Rate </span>
                                                 <input type="number" step="0.01" x-model="pt.rate" :disabled="!pt._editing"
                                                        @change="updatePumpTable(pt)"
                                                        class="w-24 px-2 py-1 bg-white dark:bg-slate-900 border border-orange-200 dark:border-orange-700 rounded-lg text-[10px] font-bold font-mono text-right disabled:opacity-60 disabled:cursor-not-allowed">
@@ -750,7 +750,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                     </template>
 
-                                    <!-- ── Tank Dipping Section (inside pump table card) ── -->
+                                    <!--  Tank Dipping Section (inside pump table card)  -->
                                     <div class="border-t-2 border-dashed border-teal-300 dark:border-teal-700 mt-2">
                                         <button type="button" @click="pt._tankOpen = !pt._tankOpen" class="w-full px-6 py-3 bg-gradient-to-r from-teal-500/10 to-transparent flex items-center justify-between hover:from-teal-500/20 transition-all cursor-pointer">
                                             <div class="flex items-center gap-2">
@@ -938,7 +938,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ TAB 3: TANK DIPPING (Summary) ═══ -->
+                    <!--  TAB 3: TANK DIPPING (Summary)  -->
                     <div x-show="currentTab==='tank_dipping'" x-transition>
                         <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-teal-500/10 to-transparent">
@@ -963,7 +963,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             <tr class="border-b border-slate-100 dark:border-slate-800">
                                                 <td class="px-4 py-2 text-xs font-bold flex items-center gap-1.5">
                                                     <span x-text="p.product"></span>
-                                                    <span x-show="p.isLpg" class="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold">LPG · kg</span>
+                                                    <span x-show="p.isLpg" class="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold">LPG  kg</span>
                                                     <span x-show="!p.isLpg" class="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 font-bold">Litres</span>
                                                 </td>
                                                 <td class="px-4 py-2 text-right font-mono text-xs" x-text="p.opening.toLocaleString('en',{minimumFractionDigits:2})"></td>
@@ -991,7 +991,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ TAB 4: HAULAGE ═══ -->
+                    <!--  TAB 4: HAULAGE  -->
                     <div x-show="currentTab==='haulage'" x-transition>
                         <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-indigo-500/10 to-transparent flex items-center justify-between">
@@ -1027,12 +1027,12 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                         <!-- Period-match badge -->
                                                         <template x-if="pumpTableForDelivery(h.product, h.delivery_date)">
                                                             <span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded"
-                                                                x-text="'✓ ' + (pumpTableForDelivery(h.product, h.delivery_date).date_from||'') + ' → ' + (pumpTableForDelivery(h.product, h.delivery_date).date_to||'')">
+                                                                x-text="' ' + (pumpTableForDelivery(h.product, h.delivery_date).date_from||'') + '  ' + (pumpTableForDelivery(h.product, h.delivery_date).date_to||'')">
                                                             </span>
                                                         </template>
                                                         <template x-if="h.delivery_date && !pumpTableForDelivery(h.product, h.delivery_date)">
                                                             <span class="text-[9px] font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded">
-                                                                ⚠ No period — create in Pump Sales
+                                                                 No period  create in Pump Sales
                                                             </span>
                                                         </template>
                                                     </div>
@@ -1049,7 +1049,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     </select>
                                                 </td>
 
-                                                <!-- Quantity cell — LPG gets discharge toggle, others get plain input -->
+                                                <!-- Quantity cell  LPG gets discharge toggle, others get plain input -->
                                                 <td class="px-4 py-2" colspan="2">
                                                     <template x-if="!isLPG(h.product)">
                                                         <!-- Non-LPG: plain quantity + waybill -->
@@ -1093,7 +1093,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             <!-- Discharge calculator -->
                                                             <template x-if="h._lpg_mode === 'discharge'">
                                                                 <div class="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/40 space-y-2">
-                                                                    <p class="text-[9px] text-blue-700 dark:text-blue-300 font-bold">Truck discharge calculator — mirrors your standalone calculator</p>
+                                                                    <p class="text-[9px] text-blue-700 dark:text-blue-300 font-bold">Truck discharge calculator  mirrors your standalone calculator</p>
 
                                                                     <!-- Row 1: Truck config -->
                                                                     <div class="flex items-center gap-2">
@@ -1181,7 +1181,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ TAB 5: LUBRICANTS ═══ -->
+                    <!--  TAB 5: LUBRICANTS  -->
                     <div x-show="currentTab==='lubricants'" x-transition>
                         <div class="space-y-4">
 
@@ -1189,7 +1189,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             <div class="flex items-center justify-between">
                                 <div>
                                     <h3 class="font-bold text-lg text-slate-900 dark:text-white">Lubricant Audit</h3>
-                                    <p class="text-xs text-slate-500">Store supplies counters — track inventory from source to point of sale</p>
+                                    <p class="text-xs text-slate-500">Store supplies counters  track inventory from source to point of sale</p>
                                 </div>
                             </div>
 
@@ -1226,7 +1226,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </button>
                             </div>
 
-                            <!-- ── PRODUCTS SUB-TAB ── -->
+                            <!--  PRODUCTS SUB-TAB  -->
                             <div x-show="lubeSubTab==='products'" x-transition>
                                 <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                     <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-500/10 to-transparent flex items-center justify-between">
@@ -1261,9 +1261,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-violet-50/20 transition-colors">
                                                         <td class="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200 text-xs" x-text="p.product_name"></td>
                                                         <td class="px-4 py-2.5 text-center text-xs text-slate-500" x-text="p.unit"></td>
-                                                        <td class="px-4 py-2.5 text-right font-mono text-xs text-orange-600" x-text="'₦' + parseFloat(p.cost_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                        <td class="px-4 py-2.5 text-right font-mono text-xs text-emerald-600" x-text="'₦' + parseFloat(p.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                        <td class="px-4 py-2.5 text-right font-mono text-xs" :class="(p.selling_price - p.cost_price) >= 0 ? 'text-blue-600' : 'text-red-600'" x-text="'₦' + (parseFloat(p.selling_price||0) - parseFloat(p.cost_price||0)).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-4 py-2.5 text-right font-mono text-xs text-orange-600" x-text="'' + parseFloat(p.cost_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-4 py-2.5 text-right font-mono text-xs text-emerald-600" x-text="'' + parseFloat(p.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-4 py-2.5 text-right font-mono text-xs" :class="(p.selling_price - p.cost_price) >= 0 ? 'text-blue-600' : 'text-red-600'" x-text="'' + (parseFloat(p.selling_price||0) - parseFloat(p.cost_price||0)).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                         <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-500" x-text="parseFloat(p.reorder_level||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                         <td class="px-4 py-2.5 text-center">
                                                             <div class="flex items-center justify-center gap-1">
@@ -1285,7 +1285,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                             </div>
 
-                            <!-- ── GRN SUB-TAB ── -->
+                            <!--  GRN SUB-TAB  -->
                             <div x-show="lubeSubTab==='grn'" x-transition>
                                 <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                     <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-blue-500/10 to-transparent flex items-center justify-between">
@@ -1295,7 +1295,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             </div>
                                             <div>
                                                 <h4 class="font-bold text-slate-900 dark:text-white text-sm">Goods Received Notes (GRN)</h4>
-                                                <p class="text-[10px] text-slate-500" x-text="lubeGrns.length + ' GRN(s) · Total: ₦' + lubeGrns.reduce((s,g)=>s+parseFloat(g.total_cost||0),0).toLocaleString('en',{minimumFractionDigits:2})"></p>
+                                                <p class="text-[10px] text-slate-500" x-text="lubeGrns.length + ' GRN(s)  Total: ' + lubeGrns.reduce((s,g)=>s+parseFloat(g.total_cost||0),0).toLocaleString('en',{minimumFractionDigits:2})"></p>
                                             </div>
                                         </div>
                                         <button @click="openLubeGrnModal(); $nextTick(()=>lucide.createIcons())" class="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all">
@@ -1320,10 +1320,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-blue-50/20 transition-colors">
                                                         <td class="px-4 py-2.5 font-bold text-blue-700 text-xs" x-text="g.grn_number || ('GRN-' + g.id)"></td>
                                                         <td class="px-4 py-2.5 text-xs text-slate-600" x-text="g.grn_date"></td>
-                                                        <td class="px-4 py-2.5 text-xs text-slate-600" x-text="g.supplier_name || '—'"></td>
-                                                        <td class="px-4 py-2.5 text-xs text-slate-500" x-text="g.invoice_number || '—'"></td>
+                                                        <td class="px-4 py-2.5 text-xs text-slate-600" x-text="g.supplier_name || ''"></td>
+                                                        <td class="px-4 py-2.5 text-xs text-slate-500" x-text="g.invoice_number || ''"></td>
                                                         <td class="px-4 py-2.5 text-right text-xs font-mono" x-text="(g.items||[]).length"></td>
-                                                        <td class="px-4 py-2.5 text-right font-mono font-bold text-emerald-600 text-xs" x-text="'₦' + parseFloat(g.total_cost||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-4 py-2.5 text-right font-mono font-bold text-emerald-600 text-xs" x-text="'' + parseFloat(g.total_cost||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                         <td class="px-4 py-2.5 text-center">
                                                             <div class="flex items-center justify-center gap-1">
                                                                 <button @click="openLubeGrnModal(g); $nextTick(()=>lucide.createIcons())" class="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><i data-lucide="pencil" class="w-3 h-3"></i></button>
@@ -1344,7 +1344,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                             </div>
 
-                            <!-- ── SUPPLIERS SUB-TAB ── -->
+                            <!--  SUPPLIERS SUB-TAB  -->
                             <div x-show="lubeSubTab==='suppliers'" x-transition>
                                 <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                     <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-orange-500/10 to-transparent flex items-center justify-between">
@@ -1377,10 +1377,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <template x-for="s in lubeSuppliers" :key="s.id">
                                                     <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-orange-50/20 transition-colors">
                                                         <td class="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200 text-xs" x-text="s.supplier_name"></td>
-                                                        <td class="px-4 py-2.5 text-xs text-slate-600" x-text="s.contact_person || '—'"></td>
-                                                        <td class="px-4 py-2.5 text-xs text-slate-600" x-text="s.phone || '—'"></td>
-                                                        <td class="px-4 py-2.5 text-xs text-slate-500" x-text="s.email || '—'"></td>
-                                                        <td class="px-4 py-2.5 text-xs text-slate-500 max-w-[150px] truncate" x-text="s.address || '—'"></td>
+                                                        <td class="px-4 py-2.5 text-xs text-slate-600" x-text="s.contact_person || ''"></td>
+                                                        <td class="px-4 py-2.5 text-xs text-slate-600" x-text="s.phone || ''"></td>
+                                                        <td class="px-4 py-2.5 text-xs text-slate-500" x-text="s.email || ''"></td>
+                                                        <td class="px-4 py-2.5 text-xs text-slate-500 max-w-[150px] truncate" x-text="s.address || ''"></td>
                                                         <td class="px-4 py-2.5 text-center">
                                                             <div class="flex items-center justify-center gap-1">
                                                                 <button @click="openLubeSupplierModal(s); $nextTick(()=>lucide.createIcons())" class="p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-all"><i data-lucide="pencil" class="w-3 h-3"></i></button>
@@ -1401,7 +1401,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                             </div>
 
-                            <!-- ── LUBE STORE SUB-TAB ── -->
+                            <!--  LUBE STORE SUB-TAB  -->
                             <div x-show="lubeSubTab==='store'" x-transition>
                                 <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                     <!-- Store header -->
@@ -1411,8 +1411,8 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <i data-lucide="warehouse" class="w-4 h-4 text-white"></i>
                                             </div>
                                             <div>
-                                                <h4 class="font-bold text-slate-900 dark:text-white text-sm">Lube Store — Master Inventory</h4>
-                                                <p class="text-[10px] text-slate-500" x-text="lubeStoreItems.length + ' product(s) · All postings via action buttons'"></p>
+                                                <h4 class="font-bold text-slate-900 dark:text-white text-sm">Lube Store  Master Inventory</h4>
+                                                <p class="text-[10px] text-slate-500" x-text="lubeStoreItems.length + ' product(s)  All postings via action buttons'"></p>
                                             </div>
                                         </div>
                                         <button @click="saveLubeStoreItems()" :disabled="saving || lubeStoreItems.length===0" class="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-lime-500 to-green-600 text-white text-xs font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50">
@@ -1440,7 +1440,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             <tbody>
                                                 <template x-for="(si, sii) in lubeStoreItems" :key="sii">
                                                     <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-lime-50/30 dark:hover:bg-lime-900/5 transition-colors">
-                                                        <td class="px-3 py-2.5 font-bold text-xs text-slate-800 dark:text-slate-200" x-text="si.item_name || '—'"></td>
+                                                        <td class="px-3 py-2.5 font-bold text-xs text-slate-800 dark:text-slate-200" x-text="si.item_name || ''"></td>
                                                         <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-700" x-text="Math.round(si.opening || 0)"></td>
                                                         <td class="px-3 py-2.5 text-right font-mono text-xs text-blue-600 font-bold" x-text="Math.round(si.received || 0)"></td>
                                                         <td class="px-3 py-2.5 text-right font-mono text-xs text-teal-600 font-bold" x-text="Math.round(si.return_out || 0)"></td>
@@ -1448,7 +1448,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                         <td class="px-3 py-2.5 text-right font-bold text-xs font-mono text-rose-600" x-text="Math.round(storeItemIssued(si))"></td>
                                                         <td class="px-3 py-2.5 text-right font-mono text-xs font-bold" :class="(si.adjustment||0) > 0 ? 'text-indigo-600' : (si.adjustment||0) < 0 ? 'text-red-600' : 'text-slate-400'" x-text="Math.round(si.adjustment || 0)"></td>
                                                         <td class="px-3 py-2.5 text-right font-bold text-xs font-mono bg-emerald-50/30" :class="storeItemClosing(si) < 0 ? 'text-red-600' : 'text-emerald-600'" x-text="Math.round(storeItemClosing(si))"></td>
-                                                        <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-500" x-text="'₦' + parseFloat(si.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-500" x-text="'' + parseFloat(si.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                         <td class="px-3 py-2.5 text-center">
                                                             <button @click="openAdjustModal(si); $nextTick(()=>lucide.createIcons())" :disabled="!si.id || lubeSections.length===0" class="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 text-rose-600 text-[10px] font-bold rounded-lg border border-rose-200 dark:border-rose-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed" title="Issue to counter">
                                                                 <i data-lucide="arrow-right-circle" class="w-3 h-3"></i> Issue
@@ -1483,7 +1483,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                     </template>
                                 </div>
 
-                                <!-- ── ISSUE HISTORY (Audit Trail) ── -->
+                                <!--  ISSUE HISTORY (Audit Trail)  -->
                                 <template x-if="lubeIssueLog.length > 0">
                                     <div class="border-t border-slate-200 dark:border-slate-700">
                                         <div class="px-6 py-3 bg-gradient-to-r from-rose-500/5 to-transparent flex items-center gap-2">
@@ -1504,9 +1504,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <tbody>
                                                     <template x-for="(log, li) in lubeIssueLog" :key="li">
                                                         <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-rose-50/20 transition-colors">
-                                                            <td class="px-4 py-1.5 font-mono text-[10px] text-slate-500" x-text="log.created_at ? new Date(log.created_at).toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'"></td>
-                                                            <td class="px-4 py-1.5 font-semibold text-xs text-slate-700 dark:text-slate-300" x-text="log.product_name || '—'"></td>
-                                                            <td class="px-4 py-1.5 text-xs text-lime-700" x-text="log.counter_name || '—'"></td>
+                                                            <td class="px-4 py-1.5 font-mono text-[10px] text-slate-500" x-text="log.created_at ? new Date(log.created_at).toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ''"></td>
+                                                            <td class="px-4 py-1.5 font-semibold text-xs text-slate-700 dark:text-slate-300" x-text="log.product_name || ''"></td>
+                                                            <td class="px-4 py-1.5 text-xs text-lime-700" x-text="log.counter_name || ''"></td>
                                                             <td class="px-4 py-1.5 text-right font-mono font-bold text-xs text-rose-600" x-text="parseFloat(log.quantity||0).toLocaleString('en')"></td>
                                                         </tr>
                                                     </template>
@@ -1516,7 +1516,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                     </div>
                                 </template>
 
-                                <!-- ── LUBE STORE STOCK COUNT ── -->
+                                <!--  LUBE STORE STOCK COUNT  -->
                                 <div x-show="lubeStoreItems.length > 0" class="border-t border-slate-200 dark:border-slate-700">
                                     <div class="px-6 py-3 bg-gradient-to-r from-slate-500/5 to-transparent flex items-center gap-2">
                                         <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-slate-500"></i>
@@ -1535,17 +1535,17 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             <tbody>
                                                 <template x-for="row in lubeStoreStockCount" :key="row.product_name">
                                                     <tr class="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 transition-colors">
-                                                        <td class="px-4 py-2 font-semibold text-slate-700 dark:text-slate-300" x-text="row.product_name || '—'"></td>
+                                                        <td class="px-4 py-2 font-semibold text-slate-700 dark:text-slate-300" x-text="row.product_name || ''"></td>
                                                         <td class="px-4 py-2 text-right font-mono font-bold" :class="row.closing < 0 ? 'text-red-600' : 'text-emerald-600'" x-text="row.closing.toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                        <td class="px-4 py-2 text-right font-mono text-slate-500" x-text="'₦' + row.cost_price.toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                        <td class="px-4 py-2 text-right font-mono font-bold text-blue-700" x-text="'₦' + row.value.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-4 py-2 text-right font-mono text-slate-500" x-text="'' + row.cost_price.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-4 py-2 text-right font-mono font-bold text-blue-700" x-text="'' + row.value.toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                     </tr>
                                                 </template>
                                             </tbody>
                                             <tfoot class="bg-slate-100/60 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
                                                 <tr>
                                                     <td colspan="3" class="px-4 py-2 text-right text-[10px] font-bold text-slate-600 uppercase">Total Store Stock Value</td>
-                                                    <td class="px-4 py-2 text-right font-black font-mono text-blue-800 dark:text-blue-300" x-text="'₦' + lubeStoreStockCount.reduce((s,r)=>s+r.value,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                    <td class="px-4 py-2 text-right font-black font-mono text-blue-800 dark:text-blue-300" x-text="'' + lubeStoreStockCount.reduce((s,r)=>s+r.value,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                 </tr>
                                             </tfoot>
                                         </table>
@@ -1559,7 +1559,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                             </div>
 
-                            <!-- ── COUNTERS SUB-TAB ── -->
+                            <!--  COUNTERS SUB-TAB  -->
                             <div x-show="lubeSubTab==='counters'" x-transition>
                                 <div class="space-y-4">
                                     <!-- Counter header -->
@@ -1579,11 +1579,11 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <div class="w-8 h-8 bg-gradient-to-br from-lime-500 to-green-600 rounded-xl flex items-center justify-center text-white font-black text-sm" x-text="lsi+1"></div>
                                                     <div>
                                                         <h4 class="font-bold text-slate-900 dark:text-white text-sm" x-text="ls.name"></h4>
-                                                        <p class="text-[10px] text-slate-500" x-text="(ls.items||[]).length + ' item(s) · Sales: ' + fmt(lubeSectionAmount(ls))"></p>
+                                                        <p class="text-[10px] text-slate-500" x-text="(ls.items||[]).length + ' item(s)  Sales: ' + fmt(lubeSectionAmount(ls))"></p>
                                                     </div>
                                                 </div>
                                                 <div class="flex items-center gap-2">
-                                                    <button @click="ls._editing = !ls._editing" class="px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all" :class="ls._editing ? 'bg-lime-100 text-lime-700 border border-lime-300' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'" x-text="ls._editing ? '✏️ Editing' : '✏️ Edit'"></button>
+                                                    <button @click="ls._editing = !ls._editing" class="px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all" :class="ls._editing ? 'bg-lime-100 text-lime-700 border border-lime-300' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'" x-text="ls._editing ? ' Editing' : ' Edit'"></button>
                                                     <button @click="deleteLubeSection(ls)" class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
                                                         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                                                     </button>
@@ -1608,13 +1608,13 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <tbody>
                                                         <template x-for="(it, ii) in ls.items" :key="ii">
                                                             <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-lime-50/20 transition-colors">
-                                                                <td class="px-3 py-2.5 font-bold text-xs text-slate-800 dark:text-slate-200" x-text="it.item_name || '—'"></td>
+                                                                <td class="px-3 py-2.5 font-bold text-xs text-slate-800 dark:text-slate-200" x-text="it.item_name || ''"></td>
                                                                 <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-700" x-text="Math.round(it.opening || 0)"></td>
                                                                 <td class="px-3 py-2.5 text-right font-mono text-xs text-rose-600 font-bold" x-text="Math.round(it.received || 0)"></td>
                                                                 <td class="px-3 py-2.5 text-right font-bold text-xs font-mono text-slate-700 bg-slate-50/50" x-text="Math.round((it.opening||0)+(it.received||0))"></td>
                                                                 <td class="px-3 py-2.5 text-right font-mono text-xs font-bold text-indigo-700" x-text="Math.round(it.closing || 0)"></td>
                                                                 <td class="px-3 py-2.5 text-right font-mono text-xs text-lime-700 font-bold" x-text="Math.round(counterItemSold(it))"></td>
-                                                                <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-500" x-text="'₦' + parseFloat(it.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                                <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-500" x-text="'' + parseFloat(it.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                                 <td class="px-3 py-2.5 text-right font-bold text-emerald-600 text-xs font-mono" x-text="fmt(counterItemSold(it)*(it.selling_price||0))"></td>
                                                             </tr>
                                                         </template>
@@ -1630,7 +1630,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             <td class="px-3 py-2 text-right font-mono text-xs text-emerald-700" x-text="fmt(lubeSectionAmount(ls))"></td>
                                                         </tr>
                                                         <tr x-show="(ls.items||[]).length === 0">
-                                                            <td colspan="8" class="px-4 py-6 text-center text-slate-400 text-xs italic">No products in Lube Store yet. Add products to the store first — they'll appear here automatically.</td>
+                                                            <td colspan="8" class="px-4 py-6 text-center text-slate-400 text-xs italic">No products in Lube Store yet. Add products to the store first  they'll appear here automatically.</td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
@@ -1664,8 +1664,8 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             <tbody>
                                                                 <template x-for="(log, li) in lubeIssueLog.filter(l => l.section_id == ls.id)" :key="li">
                                                                     <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-blue-50/20 transition-colors">
-                                                                        <td class="px-4 py-1 font-mono text-[10px] text-slate-500" x-text="log.created_at ? new Date(log.created_at).toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'"></td>
-                                                                        <td class="px-4 py-1 font-semibold text-xs text-slate-700 dark:text-slate-300" x-text="log.product_name || '—'"></td>
+                                                                        <td class="px-4 py-1 font-mono text-[10px] text-slate-500" x-text="log.created_at ? new Date(log.created_at).toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ''"></td>
+                                                                        <td class="px-4 py-1 font-semibold text-xs text-slate-700 dark:text-slate-300" x-text="log.product_name || ''"></td>
                                                                         <td class="px-4 py-1 text-right font-mono font-bold text-xs text-blue-600" x-text="parseFloat(log.quantity||0).toLocaleString('en')"></td>
                                                                     </tr>
                                                                 </template>
@@ -1675,7 +1675,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 </div>
                                             </template>
 
-                                            <!-- ── Counter Stock Count Periods ── -->
+                                            <!--  Counter Stock Count Periods  -->
                                             <div class="border-t border-slate-200 dark:border-slate-700 mt-2">
                                                 <div class="px-4 py-3 flex items-center justify-between">
                                                     <div class="flex items-center gap-2">
@@ -1696,10 +1696,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                 <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-slate-400 transition-transform" :class="counterStockCountView === sc.id && 'rotate-90'"></i>
                                                                 <div>
                                                                     <div class="flex items-center gap-2">
-                                                                        <span class="text-xs font-bold text-slate-700 dark:text-slate-300" x-text="new Date(sc.date_from).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ' → ' + new Date(sc.date_to).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})"></span>
+                                                                        <span class="text-xs font-bold text-slate-700 dark:text-slate-300" x-text="new Date(sc.date_from).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + '  ' + new Date(sc.date_to).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})"></span>
                                                                         <span class="px-2 py-0.5 text-[9px] font-bold rounded-full" :class="sc.status === 'closed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'" x-text="sc.status === 'closed' ? 'Finalized' : 'Open'"></span>
                                                                     </div>
-                                                                    <p class="text-[10px] text-slate-400" x-text="(sc.items||[]).length + ' product(s)' + (sc.notes ? ' · ' + sc.notes : '')"></p>
+                                                                    <p class="text-[10px] text-slate-400" x-text="(sc.items||[]).length + ' product(s)' + (sc.notes ? '  ' + sc.notes : '')"></p>
                                                                 </div>
                                                             </div>
                                                             <div class="flex items-center gap-1" @click.stop>
@@ -1741,8 +1741,8 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                                 <td class="px-3 py-1.5 text-right font-mono text-blue-700" x-text="it.physical_count"></td>
                                                                                 <td class="px-3 py-1.5 text-right font-mono font-bold" :class="parseInt(it.variance) < 0 ? 'text-red-600' : parseInt(it.variance) > 0 ? 'text-amber-600' : 'text-emerald-600'" x-text="it.variance"></td>
                                                                                 <td class="px-3 py-1.5 text-right font-mono text-emerald-700" x-text="it.sold_qty"></td>
-                                                                                <td class="px-3 py-1.5 text-right font-mono text-slate-500" x-text="'₦' + parseFloat(it.cost_price||it.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                                                <td class="px-3 py-1.5 text-right font-mono font-bold text-indigo-700" x-text="'₦' + parseFloat(it.sold_value||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                                                <td class="px-3 py-1.5 text-right font-mono text-slate-500" x-text="'' + parseFloat(it.cost_price||it.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                                                <td class="px-3 py-1.5 text-right font-mono font-bold text-indigo-700" x-text="'' + parseFloat(it.sold_value||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                                             </tr>
                                                                         </template>
                                                                     </tbody>
@@ -1772,7 +1772,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                     <div x-show="lubeSections.length > 0 && lubeCounterStockCount.length > 0" class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                         <div class="px-6 py-3 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-slate-500/5 to-transparent flex items-center gap-2">
                                             <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-slate-500"></i>
-                                            <p class="text-[10px] font-bold text-slate-500 uppercase">Counter Stock Count — Closing Stock (All Counters Combined)</p>
+                                            <p class="text-[10px] font-bold text-slate-500 uppercase">Counter Stock Count  Closing Stock (All Counters Combined)</p>
                                         </div>
                                         <div class="overflow-x-auto">
                                             <table class="w-full text-xs">
@@ -1787,17 +1787,17 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <tbody>
                                                     <template x-for="row in lubeCounterStockCount" :key="row.product_name">
                                                         <tr class="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 transition-colors">
-                                                            <td class="px-4 py-2.5 font-semibold text-slate-700 dark:text-slate-300" x-text="row.product_name || '—'"></td>
+                                                            <td class="px-4 py-2.5 font-semibold text-slate-700 dark:text-slate-300" x-text="row.product_name || ''"></td>
                                                             <td class="px-4 py-2.5 text-right font-mono font-bold" :class="row.closing < 0 ? 'text-red-600' : 'text-emerald-600'" x-text="row.closing.toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                            <td class="px-4 py-2.5 text-right font-mono text-slate-500" x-text="'₦' + row.cost_price.toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                            <td class="px-4 py-2.5 text-right font-mono font-bold text-blue-700" x-text="'₦' + row.value.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-4 py-2.5 text-right font-mono text-slate-500" x-text="'' + row.cost_price.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-4 py-2.5 text-right font-mono font-bold text-blue-700" x-text="'' + row.value.toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                         </tr>
                                                     </template>
                                                 </tbody>
                                                 <tfoot class="bg-slate-100/60 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
                                                     <tr>
                                                         <td colspan="3" class="px-4 py-2.5 text-right text-[10px] font-bold text-slate-600 uppercase">Total Counter Stock Value</td>
-                                                        <td class="px-4 py-2.5 text-right font-black font-mono text-blue-800 dark:text-blue-300" x-text="'₦' + lubeCounterStockCount.reduce((s,r)=>s+r.value,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-4 py-2.5 text-right font-black font-mono text-blue-800 dark:text-blue-300" x-text="'' + lubeCounterStockCount.reduce((s,r)=>s+r.value,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                     </tr>
                                                 </tfoot>
                                             </table>
@@ -1807,7 +1807,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                             </div>
 
-                            <!-- ── STOCK COUNT SUB-TAB ── -->
+                            <!--  STOCK COUNT SUB-TAB  -->
                             <div x-show="lubeSubTab==='stock_count'" x-transition>
                                 <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                     <!-- Header -->
@@ -1817,8 +1817,8 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <i data-lucide="clipboard-check" class="w-4 h-4 text-white"></i>
                                             </div>
                                             <div>
-                                                <h4 class="font-bold text-slate-900 dark:text-white text-sm">Stock Count — Physical Verification</h4>
-                                                <p class="text-[10px] text-slate-500" x-text="lubeStockCounts.length + ' count(s) · Create periodic physical stock counts'"></p>
+                                                <h4 class="font-bold text-slate-900 dark:text-white text-sm">Stock Count  Physical Verification</h4>
+                                                <p class="text-[10px] text-slate-500" x-text="lubeStockCounts.length + ' count(s)  Create periodic physical stock counts'"></p>
                                             </div>
                                         </div>
                                         <button @click="openStockCountModal(); $nextTick(()=>lucide.createIcons())" :disabled="lubeStoreItems.length===0" class="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-500 to-teal-600 text-white text-xs font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50">
@@ -1835,10 +1835,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                         <div class="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black" :class="sc.status==='closed' ? 'bg-emerald-100 text-emerald-700' : 'bg-cyan-100 text-cyan-700'" x-text="sci+1"></div>
                                                         <div>
                                                             <p class="text-sm font-bold text-slate-800 dark:text-slate-200">
-                                                                <span x-text="sc.date_from"></span> → <span x-text="sc.date_to"></span>
+                                                                <span x-text="sc.date_from"></span>  <span x-text="sc.date_to"></span>
                                                             </p>
                                                             <p class="text-[10px] text-slate-500">
-                                                                <span x-text="(sc.items||[]).length + ' items'"></span> ·
+                                                                <span x-text="(sc.items||[]).length + ' items'"></span> 
                                                                 <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold" :class="sc.status==='closed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'" x-text="sc.status==='closed' ? 'Finalized' : 'Open'"></span>
                                                             </p>
                                                         </div>
@@ -1895,7 +1895,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                             </div>
 
-                            <!-- ── EVALUATION SUB-TAB ── -->
+                            <!--  EVALUATION SUB-TAB  -->
                             <div x-show="lubeSubTab==='evaluation'" x-transition>
                                 <div class="space-y-6">
                                     <!-- Consolidated Stock Evaluation -->
@@ -1924,19 +1924,19 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <tbody>
                                                     <template x-for="row in lubeConsolidation" :key="row.product_name">
                                                         <tr class="border-t border-slate-100 dark:border-slate-800 hover:bg-indigo-50/20 transition-colors">
-                                                            <td class="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200 text-xs" x-text="row.product_name || '—'"></td>
+                                                            <td class="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200 text-xs" x-text="row.product_name || ''"></td>
                                                             <td class="px-4 py-2.5 text-right font-mono text-xs text-lime-700" x-text="row.store_closing.toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                             <td class="px-4 py-2.5 text-right font-mono text-xs text-blue-700" x-text="row.counter_closing.toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                             <td class="px-4 py-2.5 text-right font-mono font-bold text-xs bg-indigo-50/30" :class="row.total_closing < 0 ? 'text-red-600' : 'text-indigo-700'" x-text="row.total_closing.toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                            <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-500" x-text="'₦' + row.cost_price.toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                            <td class="px-4 py-2.5 text-right font-mono font-bold text-xs text-emerald-700" x-text="'₦' + row.total_value.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-500" x-text="'' + row.cost_price.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-4 py-2.5 text-right font-mono font-bold text-xs text-emerald-700" x-text="'' + row.total_value.toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                         </tr>
                                                     </template>
                                                 </tbody>
                                                 <tfoot class="bg-indigo-50/60 dark:bg-indigo-900/20 border-t-2 border-indigo-200 dark:border-indigo-700">
                                                     <tr>
                                                         <td colspan="5" class="px-4 py-3 text-right text-xs font-bold text-indigo-700 uppercase">Grand Total Consolidated Stock Value</td>
-                                                        <td class="px-4 py-3 text-right font-black font-mono text-indigo-800 dark:text-indigo-300 text-base" x-text="'₦' + lubeConsolidationTotalValue.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-4 py-3 text-right font-black font-mono text-indigo-800 dark:text-indigo-300 text-base" x-text="'' + lubeConsolidationTotalValue.toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                     </tr>
                                                 </tfoot>
                                             </table>
@@ -1946,7 +1946,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                     <!-- Grand Total Sales -->
                                     <div x-show="lubeSections.length > 0" class="glass-card rounded-2xl p-4 border border-lime-200/60 dark:border-lime-700/60 bg-gradient-to-r from-lime-500/5 to-transparent">
                                         <div class="flex items-center justify-between">
-                                            <span class="text-sm font-bold text-slate-700 dark:text-slate-300">Grand Total — Lubricant Sales (All Counters)</span>
+                                            <span class="text-sm font-bold text-slate-700 dark:text-slate-300">Grand Total  Lubricant Sales (All Counters)</span>
                                             <span class="text-lg font-black text-lime-700 dark:text-lime-400 font-mono" x-text="fmt(lubeTotalAmount)"></span>
                                         </div>
                                     </div>
@@ -1963,7 +1963,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ STOCK COUNT MODAL ═══ -->
+                    <!--  STOCK COUNT MODAL  -->
                     <div x-show="lubeStockCountModal" x-transition.opacity class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" @click.self="lubeStockCountModal=false">
                         <div x-show="lubeStockCountModal" x-transition.scale.90 class="w-full max-w-4xl max-h-[90vh] glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden flex flex-col" @click.stop>
                             <!-- Header -->
@@ -2036,7 +2036,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             </div>
                             <!-- Footer -->
                             <div class="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-                                <p class="text-[10px] text-slate-400">Enter physical count for each product. Variance = Physical Count − System Stock.</p>
+                                <p class="text-[10px] text-slate-400">Enter physical count for each product. Variance = Physical Count  System Stock.</p>
                                 <div class="flex items-center gap-2">
                                     <button @click="lubeStockCountModal=false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl transition-all">Cancel</button>
                                     <button @click="saveLubeStockCount()" :disabled="saving" class="px-6 py-2 bg-gradient-to-r from-cyan-500 to-teal-600 text-white text-xs font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50">
@@ -2047,7 +2047,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ COUNTER STOCK COUNT MODAL ═══ -->
+                    <!--  COUNTER STOCK COUNT MODAL  -->
                     <div x-show="counterStockCountModal" x-transition.opacity class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" @click.self="counterStockCountModal=false">
                         <div x-show="counterStockCountModal" x-transition.scale.90 class="w-full max-w-4xl max-h-[90vh] glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden flex flex-col" @click.stop>
                             <!-- Header -->
@@ -2104,8 +2104,8 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 </td>
                                                 <td class="px-4 py-2 text-right font-mono font-bold text-xs" :class="counterStockCountItemVariance(it) < 0 ? 'text-red-600' : counterStockCountItemVariance(it) > 0 ? 'text-amber-600' : 'text-emerald-600'" x-text="counterStockCountItemVariance(it)"></td>
                                                 <td class="px-4 py-2 text-right font-mono font-bold text-xs text-emerald-700" x-text="counterStockCountItemSold(it)"></td>
-                                                <td class="px-4 py-2 text-right font-mono text-xs text-slate-500" x-text="'₦' + parseFloat(it.cost_price||it.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                <td class="px-4 py-2 text-right font-mono font-bold text-xs text-indigo-700" x-text="'₦' + (counterStockCountItemSold(it) * parseFloat(it.cost_price||it.selling_price||0)).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                <td class="px-4 py-2 text-right font-mono text-xs text-slate-500" x-text="'' + parseFloat(it.cost_price||it.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                <td class="px-4 py-2 text-right font-mono font-bold text-xs text-indigo-700" x-text="'' + (counterStockCountItemSold(it) * parseFloat(it.cost_price||it.selling_price||0)).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                             </tr>
                                         </template>
                                     </tbody>
@@ -2113,7 +2113,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             </div>
                             <!-- Footer -->
                             <div class="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-                                <p class="text-[10px] text-slate-400">Enter physical count for each product. Variance = Physical − System.</p>
+                                <p class="text-[10px] text-slate-400">Enter physical count for each product. Variance = Physical  System.</p>
                                 <div class="flex items-center gap-2">
                                     <button @click="counterStockCountModal=false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl transition-all">Cancel</button>
                                     <button @click="saveCounterStockCount()" :disabled="saving" class="px-6 py-2 bg-gradient-to-r from-cyan-500 to-teal-600 text-white text-xs font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50">
@@ -2124,7 +2124,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ ISSUE / ADJUSTMENT MODAL ═══ -->
+                    <!--  ISSUE / ADJUSTMENT MODAL  -->
                     <div x-show="lubeIssueModal" x-transition.opacity class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" @click.self="lubeIssueModal=false">
                         <div x-show="lubeIssueModal" x-transition.scale.90 class="w-full max-w-sm glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden" @click.stop>
                             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-rose-500/10 to-transparent flex items-center justify-between">
@@ -2181,7 +2181,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 <!-- ADJUST MODE -->
                                 <div x-show="lubeIssueForm.mode==='adjust'" class="space-y-4">
                                     <div>
-                                        <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Adjustment Quantity <span class="text-[9px] text-slate-400">(+ to add, − to subtract)</span></label>
+                                        <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Adjustment Quantity <span class="text-[9px] text-slate-400">(+ to add,  to subtract)</span></label>
                                         <input type="number" step="1" x-model.number="lubeIssueForm.adjustment_qty" placeholder="0" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl text-sm font-mono text-center text-lg font-bold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
                                     </div>
                                     <div>
@@ -2201,7 +2201,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ PRODUCT MODAL ═══ -->
+                    <!--  PRODUCT MODAL  -->
                     <div x-show="lubeProductModal" x-transition.opacity class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" @click.self="lubeProductModal=false">
                         <div x-show="lubeProductModal" x-transition.scale.90 class="w-full max-w-md glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden" @click.stop>
                             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-500/10 to-transparent flex items-center justify-between">
@@ -2235,18 +2235,18 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label class="text-[11px] font-semibold mb-1.5 block text-orange-600">Cost Price (₦)</label>
+                                        <label class="text-[11px] font-semibold mb-1.5 block text-orange-600">Cost Price ()</label>
                                         <input type="number" step="0.01" x-model.number="lubeProductForm.cost_price" placeholder="0.00" class="w-full px-3 py-2.5 bg-orange-50 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-800 rounded-xl text-sm font-mono font-bold text-orange-700 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all">
                                     </div>
                                     <div>
-                                        <label class="text-[11px] font-semibold mb-1.5 block text-emerald-600">Selling Price (₦)</label>
+                                        <label class="text-[11px] font-semibold mb-1.5 block text-emerald-600">Selling Price ()</label>
                                         <input type="number" step="0.01" x-model.number="lubeProductForm.selling_price" placeholder="0.00" class="w-full px-3 py-2.5 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm font-mono font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all">
                                     </div>
                                 </div>
                                 <!-- Margin preview -->
                                 <div class="flex items-center justify-between px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
                                     <span class="text-[11px] font-semibold text-slate-500">Margin per unit</span>
-                                    <span class="text-sm font-black font-mono" :class="(lubeProductForm.selling_price - lubeProductForm.cost_price) >= 0 ? 'text-blue-600' : 'text-red-600'" x-text="'₦' + (parseFloat(lubeProductForm.selling_price||0) - parseFloat(lubeProductForm.cost_price||0)).toLocaleString('en',{minimumFractionDigits:2})"></span>
+                                    <span class="text-sm font-black font-mono" :class="(lubeProductForm.selling_price - lubeProductForm.cost_price) >= 0 ? 'text-blue-600' : 'text-red-600'" x-text="'' + (parseFloat(lubeProductForm.selling_price||0) - parseFloat(lubeProductForm.cost_price||0)).toLocaleString('en',{minimumFractionDigits:2})"></span>
                                 </div>
                                 <div class="flex gap-3 pt-1">
                                     <button @click="lubeProductModal=false" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
@@ -2256,7 +2256,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ SUPPLIER MODAL ═══ -->
+                    <!--  SUPPLIER MODAL  -->
                     <div x-show="lubeSupplierModal" x-transition.opacity class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" @click.self="lubeSupplierModal=false">
                         <div x-show="lubeSupplierModal" x-transition.scale.90 class="w-full max-w-md glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden" @click.stop>
                             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-orange-500/10 to-transparent flex items-center justify-between">
@@ -2302,7 +2302,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ GRN MODAL ═══ -->
+                    <!--  GRN MODAL  -->
                     <div x-show="lubeGrnModal" x-transition.opacity class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" @click.self="lubeGrnModal=false">
                         <div x-show="lubeGrnModal" x-transition.scale.90 class="w-full max-w-2xl glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" @click.stop>
                             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-blue-500/10 to-transparent flex items-center justify-between flex-shrink-0">
@@ -2333,7 +2333,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                     <div>
                                         <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Supplier</label>
                                         <select x-model="lubeGrnForm.supplier_id" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
-                                            <option value="">— No Supplier —</option>
+                                            <option value=""> No Supplier </option>
                                             <template x-for="s in lubeSuppliers" :key="s.id">
                                                 <option :value="s.id" x-text="s.supplier_name"></option>
                                             </template>
@@ -2360,8 +2360,8 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <th class="px-3 py-2 text-center text-[10px] font-bold text-slate-500 uppercase">Unit</th>
                                                     <th class="px-3 py-2 text-right text-[10px] font-bold text-slate-500 uppercase">Qty</th>
                                                     <th class="px-3 py-2 text-right text-[10px] font-bold text-slate-400 uppercase">Unit Cost</th>
-                                                    <th class="px-3 py-2 text-right text-[10px] font-bold text-emerald-600 uppercase">Sell ₦</th>
-                                                    <th class="px-3 py-2 text-right text-[10px] font-bold text-blue-700 uppercase">Total ₦</th>
+                                                    <th class="px-3 py-2 text-right text-[10px] font-bold text-emerald-600 uppercase">Sell </th>
+                                                    <th class="px-3 py-2 text-right text-[10px] font-bold text-blue-700 uppercase">Total </th>
                                                     <th class="px-2 py-2"></th>
                                                 </tr>
                                             </thead>
@@ -2404,7 +2404,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             <tfoot class="bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700">
                                                 <tr>
                                                     <td colspan="5" class="px-3 py-2 text-right text-xs font-bold text-slate-600">Grand Total Cost</td>
-                                                    <td class="px-2 py-2 text-right font-black font-mono text-blue-700 text-sm" x-text="'₦' + grnFormTotal.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                    <td class="px-2 py-2 text-right font-black font-mono text-blue-700 text-sm" x-text="'' + grnFormTotal.toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                     <td></td>
                                                 </tr>
                                             </tfoot>
@@ -2423,7 +2423,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ TAB 6: EXPENSES (Ledger System) ═══ -->
+                    <!--  TAB 6: EXPENSES (Ledger System)  -->
                     <div x-show="currentTab==='expenses'" x-transition>
                         <div class="space-y-4">
 
@@ -2524,7 +2524,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <div class="flex items-center gap-3">
                                                         <div class="w-9 h-9 rounded-full bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center text-white font-black text-sm shadow" x-text="activeExpenseCat.category_name.charAt(0).toUpperCase()"></div>
                                                         <div>
-                                                            <h3 class="font-bold text-slate-900 dark:text-white text-sm" x-text="activeExpenseCat.category_name + ' — Ledger'"></h3>
+                                                            <h3 class="font-bold text-slate-900 dark:text-white text-sm" x-text="activeExpenseCat.category_name + '  Ledger'"></h3>
                                                             <p class="text-[10px] text-slate-400" x-text="(activeExpenseCat.ledger||[]).length + ' transactions'"></p>
                                                         </div>
                                                     </div>
@@ -2551,10 +2551,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             <tr>
                                                                 <th class="px-3 py-2.5 text-left text-xs font-bold text-slate-500 w-28">Date</th>
                                                                 <th class="px-3 py-2.5 text-left text-xs font-bold text-slate-500">Description</th>
-                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-28">DR (₦)</th>
-                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-28">CR (₦)</th>
+                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-28">DR ()</th>
+                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-28">CR ()</th>
                                                                 <th class="px-3 py-2.5 text-center text-xs font-bold text-slate-500 w-20">Payment</th>
-                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance (₦)</th>
+                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance ()</th>
                                                                 <th class="px-3 py-2.5 w-10"></th>
                                                             </tr>
                                                         </thead>
@@ -2566,13 +2566,13 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                         <td class="px-3 py-2 font-mono text-xs text-slate-600" x-text="entry.entry_date"></td>
                                                                     </template>
                                                                     <template x-if="!entry._editing">
-                                                                        <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300" x-text="entry.description || '—'"></td>
+                                                                        <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300" x-text="entry.description || ''"></td>
                                                                     </template>
                                                                     <template x-if="!entry._editing">
-                                                                        <td class="px-3 py-2 text-right text-xs font-bold" :class="parseFloat(entry.debit) > 0 ? 'text-red-600' : 'text-slate-300'" x-text="parseFloat(entry.debit) > 0 ? fmt(entry.debit) : '—'"></td>
+                                                                        <td class="px-3 py-2 text-right text-xs font-bold" :class="parseFloat(entry.debit) > 0 ? 'text-red-600' : 'text-slate-300'" x-text="parseFloat(entry.debit) > 0 ? fmt(entry.debit) : ''"></td>
                                                                     </template>
                                                                     <template x-if="!entry._editing">
-                                                                        <td class="px-3 py-2 text-right text-xs font-bold" :class="parseFloat(entry.credit) > 0 ? 'text-emerald-600' : 'text-slate-300'" x-text="parseFloat(entry.credit) > 0 ? fmt(entry.credit) : '—'"></td>
+                                                                        <td class="px-3 py-2 text-right text-xs font-bold" :class="parseFloat(entry.credit) > 0 ? 'text-emerald-600' : 'text-slate-300'" x-text="parseFloat(entry.credit) > 0 ? fmt(entry.credit) : ''"></td>
                                                                     </template>
                                                                     <template x-if="!entry._editing">
                                                                         <td class="px-3 py-2 text-center"><span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full" :class="entry.payment_method === 'cash' ? 'bg-blue-50 text-blue-600' : entry.payment_method === 'transfer' ? 'bg-violet-50 text-violet-600' : 'bg-slate-100 text-slate-500'" x-text="(entry.payment_method||'cash').charAt(0).toUpperCase() + (entry.payment_method||'cash').slice(1)"></span></td>
@@ -2609,7 +2609,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                         </td>
                                                                     </template>
                                                                     <template x-if="entry._editing">
-                                                                        <td class="px-1 py-1 text-center text-xs text-slate-400">—</td>
+                                                                        <td class="px-1 py-1 text-center text-xs text-slate-400"></td>
                                                                     </template>
                                                                     <template x-if="entry._editing">
                                                                         <td class="px-1 py-1 text-center">
@@ -2656,11 +2656,11 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             </datalist>
                                                         </div>
                                                         <div>
-                                                            <label class="text-[9px] font-bold text-red-500 block mb-0.5">Debit (DR) ₦</label>
+                                                            <label class="text-[9px] font-bold text-red-500 block mb-0.5">Debit (DR) </label>
                                                             <input type="number" step="0.01" x-model="newExpenseLedgerEntry.debit" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-700 rounded-lg text-xs text-right font-bold text-red-600">
                                                         </div>
                                                         <div>
-                                                            <label class="text-[9px] font-bold text-emerald-500 block mb-0.5">Credit (CR) ₦</label>
+                                                            <label class="text-[9px] font-bold text-emerald-500 block mb-0.5">Credit (CR) </label>
                                                             <input type="number" step="0.01" x-model="newExpenseLedgerEntry.credit" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-700 rounded-lg text-xs text-right font-bold text-emerald-600">
                                                         </div>
                                                         <div>
@@ -2695,13 +2695,13 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
                             </div>
 
-                            <!-- ═══════════ Expense Description Summary History ═══════════ -->
+                            <!--  Expense Description Summary History  -->
                             <div x-show="expenseDescriptionSummary.length > 0" class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                 <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-rose-500/10 to-transparent">
                                     <div class="flex items-center gap-2">
                                         <i data-lucide="history" class="w-4 h-4 text-rose-500"></i>
                                         <h3 class="font-bold text-slate-900 dark:text-white text-sm">Expense Summary by Description</h3>
-                                        <span class="ml-auto text-[10px] text-slate-400">All categories combined — descriptions auto-summed</span>
+                                        <span class="ml-auto text-[10px] text-slate-400">All categories combined  descriptions auto-summed</span>
                                     </div>
                                 </div>
                                 <div class="overflow-x-auto max-h-[300px] overflow-y-auto">
@@ -2710,9 +2710,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             <tr>
                                                 <th class="px-4 py-2.5 text-left text-xs font-bold text-slate-500">Description</th>
                                                 <th class="px-3 py-2.5 text-center text-xs font-bold text-slate-400 w-16">#</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-32">Total DR (₦)</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-32">Total CR (₦)</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance (₦)</th>
+                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-32">Total DR ()</th>
+                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-32">Total CR ()</th>
+                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance ()</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -2733,7 +2733,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
-                    <!-- ═══ TAB 7: DEBTORS (Ledger System) ═══ -->
+                    <!--  TAB 7: DEBTORS (Ledger System)  -->
                     <div x-show="currentTab==='debtors'" x-transition>
                         <div class="space-y-4">
 
@@ -2838,7 +2838,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <div class="flex items-center gap-3">
                                                         <div class="w-9 h-9 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white font-black text-sm shadow" x-text="activeDebtor.customer_name.charAt(0).toUpperCase()"></div>
                                                         <div>
-                                                            <h3 class="font-bold text-slate-900 dark:text-white text-sm" x-text="activeDebtor.customer_name + ' — Ledger'"></h3>
+                                                            <h3 class="font-bold text-slate-900 dark:text-white text-sm" x-text="activeDebtor.customer_name + '  Ledger'"></h3>
                                                             <p class="text-[10px] text-slate-400" x-text="(activeDebtor.ledger||[]).length + ' transactions'"></p>
                                                         </div>
                                                     </div>
@@ -2865,9 +2865,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             <tr>
                                                                 <th class="px-3 py-2.5 text-left text-xs font-bold text-slate-500 w-28">Date</th>
                                                                 <th class="px-3 py-2.5 text-left text-xs font-bold text-slate-500">Description</th>
-                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-28">DR (₦)</th>
-                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-28">CR (₦)</th>
-                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance (₦)</th>
+                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-28">DR ()</th>
+                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-28">CR ()</th>
+                                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance ()</th>
                                                                 <th class="px-3 py-2.5 w-10"></th>
                                                             </tr>
                                                         </thead>
@@ -2879,13 +2879,13 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                         <td class="px-3 py-2 font-mono text-xs text-slate-600" x-text="entry.entry_date"></td>
                                                                     </template>
                                                                     <template x-if="!entry._editing">
-                                                                        <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300" x-text="entry.description || '—'"></td>
+                                                                        <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300" x-text="entry.description || ''"></td>
                                                                     </template>
                                                                     <template x-if="!entry._editing">
-                                                                        <td class="px-3 py-2 text-right text-xs font-bold" :class="parseFloat(entry.debit) > 0 ? 'text-red-600' : 'text-slate-300'" x-text="parseFloat(entry.debit) > 0 ? fmt(entry.debit) : '—'"></td>
+                                                                        <td class="px-3 py-2 text-right text-xs font-bold" :class="parseFloat(entry.debit) > 0 ? 'text-red-600' : 'text-slate-300'" x-text="parseFloat(entry.debit) > 0 ? fmt(entry.debit) : ''"></td>
                                                                     </template>
                                                                     <template x-if="!entry._editing">
-                                                                        <td class="px-3 py-2 text-right text-xs font-bold" :class="parseFloat(entry.credit) > 0 ? 'text-emerald-600' : 'text-slate-300'" x-text="parseFloat(entry.credit) > 0 ? fmt(entry.credit) : '—'"></td>
+                                                                        <td class="px-3 py-2 text-right text-xs font-bold" :class="parseFloat(entry.credit) > 0 ? 'text-emerald-600' : 'text-slate-300'" x-text="parseFloat(entry.credit) > 0 ? fmt(entry.credit) : ''"></td>
                                                                     </template>
                                                                     <template x-if="!entry._editing">
                                                                         <td class="px-3 py-2 text-right text-xs font-black" :class="(() => { let b = 0; for (let i = 0; i <= idx; i++) { b += parseFloat(activeDebtor.ledger[i].debit||0) - parseFloat(activeDebtor.ledger[i].credit||0); } return b > 0 ? 'text-red-600' : 'text-emerald-600'; })()" x-text="(() => { let b = 0; for (let i = 0; i <= idx; i++) { b += parseFloat(activeDebtor.ledger[i].debit||0) - parseFloat(activeDebtor.ledger[i].credit||0); } return fmt(b); })()"></td>
@@ -2912,7 +2912,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                         <td class="px-1 py-1"><input type="number" step="0.01" x-model="entry._edit.credit" class="w-full px-1 py-1 bg-amber-50 dark:bg-slate-800 border border-emerald-200 rounded text-xs text-right font-bold text-emerald-600"></td>
                                                                     </template>
                                                                     <template x-if="entry._editing">
-                                                                        <td class="px-1 py-1 text-center text-xs text-slate-400">—</td>
+                                                                        <td class="px-1 py-1 text-center text-xs text-slate-400"></td>
                                                                     </template>
                                                                     <template x-if="entry._editing">
                                                                         <td class="px-1 py-1 text-center">
@@ -2958,11 +2958,11 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             </datalist>
                                                         </div>
                                                         <div>
-                                                            <label class="text-[9px] font-bold text-red-500 block mb-0.5">Debit (DR) ₦</label>
+                                                            <label class="text-[9px] font-bold text-red-500 block mb-0.5">Debit (DR) </label>
                                                             <input type="number" step="0.01" x-model="newLedgerEntry.debit" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-700 rounded-lg text-xs text-right font-bold text-red-600">
                                                         </div>
                                                         <div>
-                                                            <label class="text-[9px] font-bold text-emerald-500 block mb-0.5">Credit (CR) ₦</label>
+                                                            <label class="text-[9px] font-bold text-emerald-500 block mb-0.5">Credit (CR) </label>
                                                             <input type="number" step="0.01" x-model="newLedgerEntry.credit" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-700 rounded-lg text-xs text-right font-bold text-emerald-600">
                                                         </div>
                                                         <div>
@@ -2988,13 +2988,13 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
                             </div>
 
-                            <!-- ═══════════ Debtor Description Summary History ═══════════ -->
+                            <!--  Debtor Description Summary History  -->
                             <div x-show="debtorDescriptionSummary.length > 0" class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                 <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 to-transparent">
                                     <div class="flex items-center gap-2">
                                         <i data-lucide="history" class="w-4 h-4 text-amber-500"></i>
                                         <h3 class="font-bold text-slate-900 dark:text-white text-sm">Receivable Summary by Description</h3>
-                                        <span class="ml-auto text-[10px] text-slate-400">All accounts combined — descriptions auto-summed</span>
+                                        <span class="ml-auto text-[10px] text-slate-400">All accounts combined  descriptions auto-summed</span>
                                     </div>
                                 </div>
                                 <div class="overflow-x-auto max-h-[300px] overflow-y-auto">
@@ -3003,9 +3003,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             <tr>
                                                 <th class="px-4 py-2.5 text-left text-xs font-bold text-slate-500">Description</th>
                                                 <th class="px-3 py-2.5 text-center text-xs font-bold text-slate-400 w-16">#</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-32">Total DR (₦)</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-32">Total CR (₦)</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance (₦)</th>
+                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-32">Total DR ()</th>
+                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-32">Total CR ()</th>
+                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance ()</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -3029,7 +3029,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
 
 
-                    <!-- â•â•â• TAB: REPORT â•â•â• -->
+                    <!--  TAB: REPORT  -->
 
                     <div x-show="currentTab==='documents'" x-transition>
                         <div class="max-w-4xl mx-auto space-y-5">
@@ -3188,7 +3188,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
                                     <h2 class="text-lg font-black text-slate-900 dark:text-white">Audit Close-Out Report</h2>
 
-                                    <p class="text-xs text-slate-500" x-text="(sessionData?.session?.outlet_name || 'Station') + ' Â· ' + (sessionData?.session?.date_from || '') + ' to ' + (sessionData?.session?.date_to || '')"></p>
+                                    <p class="text-xs text-slate-500" x-text="(sessionData?.session?.outlet_name || 'Station') + '  ' + (sessionData?.session?.date_from || '') + ' to ' + (sessionData?.session?.date_to || '')"></p>
 
                                 </div>
 
@@ -3302,7 +3302,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
                                                 class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
 
-                                                placeholder="Any additional notes or disclaimers for the cover pageâ€¦"></textarea>
+                                                placeholder="Any additional notes or disclaimers for the cover page"></textarea>
 
                                         </div>
 
@@ -3314,7 +3314,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
                                                 <div class="inline-block bg-white/10 border border-white/20 rounded-full px-3 py-0.5 text-[9px] font-bold text-white/80 uppercase tracking-widest mb-2"
 
-                                                    x-text="(window.__SA_COMPANY || 'MIAUDITOPS') + ' Â· CONFIDENTIAL'"></div>
+                                                    x-text="(window.__SA_COMPANY || 'MIAUDITOPS') + '  CONFIDENTIAL'"></div>
 
                                                 <div class="text-sm font-black text-white leading-tight" x-text="reportCover.title || 'Station Audit Close-Out Report'"></div>
 
@@ -3324,7 +3324,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
                                                 <div class="flex items-center justify-between mt-2">
 
-                                                    <span class="text-[9px] text-white/50" x-text="'Period: ' + (reportCover.reportingPeriod || ((sessionData?.session?.date_from||'') + ' â€“ ' + (sessionData?.session?.date_to||'')))"></span>
+                                                    <span class="text-[9px] text-white/50" x-text="'Period: ' + (reportCover.reportingPeriod || ((sessionData?.session?.date_from||'') + '  ' + (sessionData?.session?.date_to||'')))"></span>
 
                                                     <span class="text-[9px] text-white/50" x-text="'By: ' + (reportCover.preparedBy || (window.__SA_USER?.name || 'Auditor'))"></span>
 
@@ -3612,7 +3612,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
 
 
-                            <!-- ═══ MONTH CLOSE-OUT ═══ -->
+                            <!--  MONTH CLOSE-OUT  -->
 
                             <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl overflow-hidden">
 
@@ -3658,7 +3658,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             </div>
                                             <span class="text-[13px] font-semibold text-slate-600 dark:text-slate-300"><span class="text-red-500 font-bold mr-1">Less:</span> Bank Deposit</span>
                                         </div>
-                                        <span class="text-[13px] font-bold text-red-600 dark:text-red-400 tabular-nums" x-text="'− ' + fmt(monthCloseout.bankDeposit)"></span>
+                                        <span class="text-[13px] font-bold text-red-600 dark:text-red-400 tabular-nums" x-text="' ' + fmt(monthCloseout.bankDeposit)"></span>
                                     </div>
 
                                     <!-- Total Balance -->
@@ -3689,7 +3689,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                             </div>
                                             <span class="text-[13px] text-slate-400 italic">No expense categories entered</span>
                                         </div>
-                                        <span class="text-[13px] font-bold text-slate-400 tabular-nums">₦0.00</span>
+                                        <span class="text-[13px] font-bold text-slate-400 tabular-nums">0.00</span>
                                     </div>
 
                                     <!-- POS, Transfer Sales -->
@@ -3785,7 +3785,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
                     </div>
 
-                    <!-- â•â•â• END REPORT TAB â•â•â• -->
+                    <!--  END REPORT TAB  -->
 
                     <!-- FINAL REPORT TAB -->
                     <div x-show="currentTab==='final_report'" x-transition>
@@ -3796,7 +3796,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             <div class="flex items-center justify-between flex-wrap gap-3">
                                 <div>
                                     <h2 class="text-lg font-black text-slate-900 dark:text-white">Final Audit Report</h2>
-                                    <p class="text-xs text-slate-500" x-text="(sessionData?.session?.outlet_name || 'Station') + ' · ' + (sessionData?.session?.date_from || '') + ' to ' + (sessionData?.session?.date_to || '')"></p>
+                                    <p class="text-xs text-slate-500" x-text="(sessionData?.session?.outlet_name || 'Station') + '  ' + (sessionData?.session?.date_from || '') + ' to ' + (sessionData?.session?.date_to || '')"></p>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <label class="inline-flex items-center gap-2 cursor-pointer select-none mr-2">
@@ -3888,7 +3888,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <h3 class="text-xl font-black text-black tracking-tight leading-tight" x-text="finalReportCover.title || 'RECONCILIATION REPORT'"></h3>
                                                 <div class="w-12 h-1 bg-amber-500 mx-auto my-3 rounded-full"></div>
                                                 <p class="text-sm font-bold text-slate-700" x-text="sessionData?.session?.outlet_name || 'Station'"></p>
-                                                <p class="text-[10px] text-slate-400 font-mono mt-0.5" x-text="(sessionData?.session?.date_from || '--') + ' — ' + (sessionData?.session?.date_to || '--')"></p>
+                                                <p class="text-[10px] text-slate-400 font-mono mt-0.5" x-text="(sessionData?.session?.date_from || '--') + '  ' + (sessionData?.session?.date_to || '--')"></p>
                                             </div>
 
                                             <div class="flex justify-between items-end pt-4 border-t-2 border-black text-[9px]">

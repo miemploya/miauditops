@@ -1,6 +1,6 @@
 <?php
 /**
- * MIAUDITOPS — Daily Audit & Sales Control Module
+ * MIAUDITOPS  Daily Audit & Sales Control Module
  * SPA with tabs: Sales Entry, Bank Lodgments, Variance Detection, Audit Sign-Off
  */
 require_once '../includes/functions.php';
@@ -49,7 +49,7 @@ $js_lodgments = json_encode($lodgments, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_variances = json_encode($variances, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_today = json_encode($today, JSON_HEX_TAG | JSON_HEX_APOS);
 
-// ── Tab-lock enforcement ──
+//  Tab-lock enforcement 
 $audit_tabs = ['sales', 'lodgments', 'variance'];
 $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($t) {
     return subscription_allows_tab('audit', $t);
@@ -60,7 +60,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Daily Audit — MIAUDITOPS</title>
+    <title>Daily Audit  MIAUDITOPS</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
@@ -147,7 +147,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                     <span class="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center"><i data-lucide="store" class="w-3.5 h-3.5 text-indigo-600"></i></span> Outlet *
                                 </label>
                                 <select x-model="salesForm.outlet_id" required class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
-                                    <option value="">— Select Outlet —</option>
+                                    <option value=""> Select Outlet </option>
                                     <template x-for="o in outlets" :key="o.id">
                                         <option :value="o.id" x-text="o.name + ' (' + o.type.replace('_',' ') + ')'"></option>
                                     </template>
@@ -190,33 +190,33 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                     <option value="full_day">Full Day</option>
                                 </select>
                             </div>
-                            <!-- ── System Sales (Actual Amounts) ── -->
+                            <!--  System Sales (Actual Amounts)  -->
                             <div class="p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-900/10 border border-blue-200/60 dark:border-blue-800/40">
                                 <p class="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-2.5 flex items-center gap-1.5">
                                     <i data-lucide="bar-chart-3" class="w-3 h-3"></i> System Sales
                                 </p>
                                 <div>
-                                    <label class="text-[10px] font-bold text-blue-600/80 mb-0.5 block">Amount (₦)</label>
+                                    <label class="text-[10px] font-bold text-blue-600/80 mb-0.5 block">Amount ()</label>
                                     <input type="number" step="0.01" x-model="salesForm.system_amount" class="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all">
                                 </div>
                             </div>
 
-                            <!-- ── Declared Amounts ── -->
+                            <!--  Declared Amounts  -->
                             <div class="p-3.5 rounded-xl bg-amber-50/70 dark:bg-amber-900/10 border border-amber-200/60 dark:border-amber-800/40">
                                 <p class="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-2.5 flex items-center gap-1.5">
                                     <i data-lucide="clipboard-check" class="w-3 h-3"></i> Declared Amounts
                                 </p>
                                 <div class="grid grid-cols-3 gap-2">
                                     <div>
-                                        <label class="text-[10px] font-bold text-amber-600/80 mb-0.5 block">POS (₦)</label>
+                                        <label class="text-[10px] font-bold text-amber-600/80 mb-0.5 block">POS ()</label>
                                         <input type="number" step="0.01" x-model="salesForm.declared_pos" class="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-all">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] font-bold text-amber-600/80 mb-0.5 block">Cash (₦)</label>
+                                        <label class="text-[10px] font-bold text-amber-600/80 mb-0.5 block">Cash ()</label>
                                         <input type="number" step="0.01" x-model="salesForm.declared_cash" class="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-all">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] font-bold text-amber-600/80 mb-0.5 block">Transfer (₦)</label>
+                                        <label class="text-[10px] font-bold text-amber-600/80 mb-0.5 block">Transfer ()</label>
                                         <input type="number" step="0.01" x-model="salesForm.declared_transfer" class="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-all">
                                     </div>
                                 </div>
@@ -226,7 +226,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                 </div>
                             </div>
 
-                            <!-- ── Variance & Comment ── -->
+                            <!--  Variance & Comment  -->
                             <div class="p-3.5 rounded-xl border-2 transition-colors"
                                  :class="liveVariance === 0 ? 'bg-emerald-50/70 border-emerald-300 dark:bg-emerald-900/15 dark:border-emerald-700' : (liveVariance > 0 ? 'bg-blue-50/70 border-blue-300 dark:bg-blue-900/15 dark:border-blue-700' : 'bg-red-50/70 border-red-300 dark:bg-red-900/15 dark:border-red-700')">
                                 <p class="text-[10px] font-black uppercase tracking-widest mb-2 flex items-center gap-1.5"
@@ -236,7 +236,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                 </p>
                                 <div class="flex justify-between items-center mb-3">
                                     <div>
-                                        <span class="text-xs text-slate-500 dark:text-slate-400">Declared − System</span>
+                                        <span class="text-xs text-slate-500 dark:text-slate-400">Declared  System</span>
                                     </div>
                                     <span class="text-2xl font-black"
                                           :class="liveVariance === 0 ? 'text-emerald-600' : (liveVariance > 0 ? 'text-blue-600' : 'text-red-600')"
@@ -245,12 +245,12 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                 <div class="flex items-center gap-2 text-[10px] mb-3"
                                      :class="liveVariance === 0 ? 'text-emerald-600' : (liveVariance > 0 ? 'text-blue-600' : 'text-red-600')">
                                     <i :data-lucide="liveVariance === 0 ? 'check-circle' : (liveVariance > 0 ? 'trending-up' : 'trending-down')" class="w-3.5 h-3.5"></i>
-                                    <span x-text="liveVariance === 0 ? 'Amounts match — no variance' : (liveVariance > 0 ? 'Excess: Declared exceeds system by ' + fmt(liveVariance) : 'Shortage: System exceeds declared by ' + fmt(Math.abs(liveVariance)))"></span>
+                                    <span x-text="liveVariance === 0 ? 'Amounts match  no variance' : (liveVariance > 0 ? 'Excess: Declared exceeds system by ' + fmt(liveVariance) : 'Shortage: System exceeds declared by ' + fmt(Math.abs(liveVariance)))"></span>
                                 </div>
                                 <div>
                                     <label class="text-[10px] font-bold uppercase mb-1 block"
                                            :class="liveVariance === 0 ? 'text-emerald-500' : (liveVariance > 0 ? 'text-blue-500' : 'text-red-500')">Comment / Explanation</label>
-                                    <textarea x-model="salesForm.notes" rows="2" placeholder="Add comment or explain variance…"
+                                    <textarea x-model="salesForm.notes" rows="2" placeholder="Add comment or explain variance"
                                               class="w-full px-2.5 py-2 bg-white/80 dark:bg-slate-900/80 border rounded-lg text-sm focus:ring-2 transition-all"
                                               :class="liveVariance === 0 ? 'border-emerald-200 dark:border-emerald-800 focus:ring-emerald-500/30 focus:border-emerald-500' : (liveVariance > 0 ? 'border-blue-200 dark:border-blue-800 focus:ring-blue-500/30 focus:border-blue-500' : 'border-red-200 dark:border-red-800 focus:ring-red-500/30 focus:border-red-500')"></textarea>
                                 </div>
@@ -363,7 +363,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                                 <tr x-show="expandedDates[group.date]" x-transition class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                                                     <td class="pl-3 pr-1 py-2.5"></td>
                                                     <td class="px-2 py-2.5 font-mono text-xs text-slate-400" x-text="t.transaction_date"></td>
-                                                    <td class="px-2 py-2.5"><span class="px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 text-xs font-semibold" x-text="t.outlet_name || '—'"></span></td>
+                                                    <td class="px-2 py-2.5"><span class="px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 text-xs font-semibold" x-text="t.outlet_name || ''"></span></td>
                                                     <td class="px-2 py-2.5"><span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold capitalize" x-text="t.shift"></span></td>
                                                     <td class="px-2 py-2.5 text-right font-mono text-xs" x-text="fmt(t.pos_amount)"></td>
                                                     <td class="px-2 py-2.5 text-right font-mono text-xs" x-text="fmt(t.cash_amount)"></td>
@@ -374,27 +374,27 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                                         <div class="flex flex-nowrap gap-1 justify-center">
                                                             <!-- POS Approve -->
                                                             <template x-if="parseFloat(t.pos_amount) > 0 && !parseInt(t.pos_approved)">
-                                                                <button @click.stop="approveSalesPayment(t.id, 'pos')" class="px-1.5 py-0.5 bg-blue-100 hover:bg-blue-200 text-blue-700 text-[10px] font-bold rounded-md transition-all whitespace-nowrap" title="Approve POS">✓POS</button>
+                                                                <button @click.stop="approveSalesPayment(t.id, 'pos')" class="px-1.5 py-0.5 bg-blue-100 hover:bg-blue-200 text-blue-700 text-[10px] font-bold rounded-md transition-all whitespace-nowrap" title="Approve POS">POS</button>
                                                             </template>
                                                             <template x-if="parseFloat(t.pos_amount) > 0 && parseInt(t.pos_approved)">
-                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">✓POS</span>
+                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">POS</span>
                                                             </template>
                                                             <!-- Transfer Approve -->
                                                             <template x-if="parseFloat(t.transfer_amount) > 0 && !parseInt(t.transfer_approved)">
-                                                                <button @click.stop="approveSalesPayment(t.id, 'transfer')" class="px-1.5 py-0.5 bg-purple-100 hover:bg-purple-200 text-purple-700 text-[10px] font-bold rounded-md transition-all whitespace-nowrap" title="Approve Transfer">✓TRF</button>
+                                                                <button @click.stop="approveSalesPayment(t.id, 'transfer')" class="px-1.5 py-0.5 bg-purple-100 hover:bg-purple-200 text-purple-700 text-[10px] font-bold rounded-md transition-all whitespace-nowrap" title="Approve Transfer">TRF</button>
                                                             </template>
                                                             <template x-if="parseFloat(t.transfer_amount) > 0 && parseInt(t.transfer_approved)">
-                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">✓TRF</span>
+                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">TRF</span>
                                                             </template>
                                                             <!-- Cash Status -->
                                                             <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'pending'">
-                                                                <span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-md whitespace-nowrap" title="Cash pending">⏳</span>
+                                                                <span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-md whitespace-nowrap" title="Cash pending"></span>
                                                             </template>
                                                             <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'deposited'">
-                                                                <span class="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-md whitespace-nowrap">🏦</span>
+                                                                <span class="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-md whitespace-nowrap"></span>
                                                             </template>
                                                             <template x-if="parseFloat(t.cash_amount) > 0 && t.cash_lodgment_status === 'confirmed'">
-                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">✓$</span>
+                                                                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-md whitespace-nowrap">$</span>
                                                             </template>
                                                             <!-- Edit & Delete -->
                                                             <button @click.stop="editSale(t)" class="px-1.5 py-0.5 bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 text-[10px] font-bold rounded-md transition-all" title="Edit">
@@ -442,12 +442,12 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                  :class="pc.cash_lodgment_status === 'deposited' ? 'bg-blue-50/50 border-blue-200 dark:bg-blue-900/10 dark:border-blue-800' : 'bg-amber-50/50 border-amber-200 dark:bg-amber-900/10 dark:border-amber-800'">
                                 <div class="flex-1 min-w-0">
                                     <p class="text-sm font-bold text-slate-800 dark:text-white" x-text="fmt(pc.cash_amount)"></p>
-                                    <p class="text-[10px] text-slate-500 truncate" x-text="pc.transaction_date + ' · ' + (pc.outlet_name || 'No outlet') + ' · ' + pc.shift"></p>
+                                    <p class="text-[10px] text-slate-500 truncate" x-text="pc.transaction_date + '  ' + (pc.outlet_name || 'No outlet') + '  ' + pc.shift"></p>
                                 </div>
                                 <div class="flex items-center gap-2 ml-2">
                                     <span class="px-2 py-0.5 rounded-full text-[10px] font-bold"
                                           :class="pc.cash_lodgment_status === 'deposited' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'"
-                                          x-text="pc.cash_lodgment_status === 'deposited' ? '🏦 Deposited' : '⏳ Pending'"></span>
+                                          x-text="pc.cash_lodgment_status === 'deposited' ? ' Deposited' : ' Pending'"></span>
                                     <button x-show="pc.cash_lodgment_status === 'pending'" @click="linkCashToLodgment(pc)" class="px-2 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Create bank lodgment for this cash">
                                         <i data-lucide="arrow-right" class="w-3 h-3 inline"></i> Lodge
                                     </button>
@@ -478,9 +478,9 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                     Link to Pending Cash Sale
                                 </label>
                                 <select x-model="lodgmentForm.linked_cash_txn_id" @change="onCashLinkChange()" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-700 rounded-xl text-sm focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all">
-                                    <option value="">— No link (manual lodgment) —</option>
+                                    <option value=""> No link (manual lodgment) </option>
                                     <template x-for="pc in pendingCash" :key="pc.id">
-                                        <option :value="pc.id" x-text="pc.transaction_date + ' • ' + (pc.outlet_name || 'N/A') + ' • ₦' + parseFloat(pc.cash_amount).toLocaleString('en-NG', {minimumFractionDigits:2}) + ' (' + pc.cash_lodgment_status + ')'"></option>
+                                        <option :value="pc.id" x-text="pc.transaction_date + '  ' + (pc.outlet_name || 'N/A') + '  ' + parseFloat(pc.cash_amount).toLocaleString('en-NG', {minimumFractionDigits:2}) + ' (' + pc.cash_lodgment_status + ')'"></option>
                                     </template>
                                 </select>
                             </div>
@@ -492,7 +492,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                             <div><label class="text-xs font-semibold text-slate-600 mb-1 block">Date</label><input type="date" x-model="lodgmentForm.date" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"></div>
                             <div><label class="text-xs font-semibold text-slate-600 mb-1 block">Bank Name</label><input type="text" x-model="lodgmentForm.bank" placeholder="e.g. Access Bank" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"></div>
                             <div><label class="text-xs font-semibold text-slate-600 mb-1 block">Account Number</label><input type="text" x-model="lodgmentForm.account" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"></div>
-                            <div><label class="text-xs font-semibold text-slate-600 mb-1 block">Amount (₦)</label><input type="number" step="0.01" x-model="lodgmentForm.amount" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"></div>
+                            <div><label class="text-xs font-semibold text-slate-600 mb-1 block">Amount ()</label><input type="number" step="0.01" x-model="lodgmentForm.amount" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"></div>
                             <div><label class="text-xs font-semibold text-slate-600 mb-1 block">Reference</label><input type="text" x-model="lodgmentForm.reference" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"></div>
                             <button type="submit" :disabled="saving" class="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.02] transition-all text-sm disabled:opacity-50">Save Lodgment</button>
                         </form>
@@ -510,9 +510,9 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                             <td class="px-4 py-3 text-right font-bold text-emerald-600" x-text="fmt(l.amount)"></td>
                                             <td class="px-4 py-3 font-mono text-xs" x-text="l.reference_number"></td>
                                             <td class="px-4 py-3 text-center">
-                                                <span x-show="l.source === 'auto_pos'" class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold">⚡ POS</span>
-                                                <span x-show="l.source === 'auto_transfer'" class="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold">⚡ Transfer</span>
-                                                <span x-show="!l.source || l.source === 'manual'" class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold">✍️ Manual</span>
+                                                <span x-show="l.source === 'auto_pos'" class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold"> POS</span>
+                                                <span x-show="l.source === 'auto_transfer'" class="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold"> Transfer</span>
+                                                <span x-show="!l.source || l.source === 'manual'" class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold"> Manual</span>
                                             </td>
                                             <td class="px-4 py-3 text-center">
                                                 <span class="px-2 py-0.5 rounded-full text-xs font-bold" :class="l.status==='confirmed'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'" x-text="l.status"></span>
@@ -556,7 +556,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
                                         <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 rounded-full text-xs font-bold" :class="v.status==='resolved'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'" x-text="v.status"></span></td>
                                     </tr>
                                 </template>
-                                <tr x-show="variances.length === 0"><td colspan="7" class="px-4 py-12 text-center text-slate-400">No variances detected — looking good!</td></tr>
+                                <tr x-show="variances.length === 0"><td colspan="7" class="px-4 py-12 text-center text-slate-400">No variances detected  looking good!</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -609,20 +609,20 @@ $js_allowed_tabs = json_encode(array_values(array_filter($audit_tabs, function($
             </div>
             <div class="grid grid-cols-3 gap-2">
                 <div>
-                    <label class="text-[10px] font-bold text-blue-500 block mb-1">POS (₦)</label>
+                    <label class="text-[10px] font-bold text-blue-500 block mb-1">POS ()</label>
                     <input type="number" step="0.01" x-model="editForm.pos_amount" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl text-sm">
                 </div>
                 <div>
-                    <label class="text-[10px] font-bold text-emerald-500 block mb-1">Cash (₦)</label>
+                    <label class="text-[10px] font-bold text-emerald-500 block mb-1">Cash ()</label>
                     <input type="number" step="0.01" x-model="editForm.cash_amount" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm">
                 </div>
                 <div>
-                    <label class="text-[10px] font-bold text-violet-500 block mb-1">Transfer (₦)</label>
+                    <label class="text-[10px] font-bold text-violet-500 block mb-1">Transfer ()</label>
                     <input type="number" step="0.01" x-model="editForm.transfer_amount" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-800 rounded-xl text-sm">
                 </div>
             </div>
             <div>
-                <label class="text-[10px] font-bold text-amber-500 block mb-1">Declared Total (₦)</label>
+                <label class="text-[10px] font-bold text-amber-500 block mb-1">Declared Total ()</label>
                 <input type="number" step="0.01" x-model="editForm.declared_total" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-xl text-sm">
             </div>
             <div>
@@ -742,7 +742,7 @@ function auditApp() {
             this.$nextTick(() => lucide.createIcons());
         },
 
-        fmt(v) { return '₦' + parseFloat(v||0).toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2}); },
+        fmt(v) { return '' + parseFloat(v||0).toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2}); },
 
         init() {
             this.$watch('currentTab', (val) => { location.hash = val; setTimeout(() => lucide.createIcons(), 50); });
