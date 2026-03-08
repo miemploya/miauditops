@@ -427,10 +427,26 @@ function register_company_and_user_google($company_name, $email, $google_id, $fi
 // =====================================================
 
 /**
- * Get the active client ID from session
+ * Get the active client ID from session (validates access for non-admin users)
  */
 function get_active_client() {
-    return $_SESSION['active_client_id'] ?? null;
+    $client_id = $_SESSION['active_client_id'] ?? null;
+    
+    // Non-admin users: verify they're assigned to this client
+    if ($client_id && !is_admin_role()) {
+        $user_id = $_SESSION['user_id'] ?? 0;
+        $company_id = $_SESSION['company_id'] ?? 0;
+        if ($user_id && $company_id) {
+            $assigned = get_user_clients($user_id, $company_id);
+            if (!empty($assigned) && !in_array($client_id, $assigned)) {
+                // Switch to first assigned client
+                $_SESSION['active_client_id'] = $assigned[0];
+                return $assigned[0];
+            }
+        }
+    }
+    
+    return $client_id;
 }
 
 /**
@@ -525,22 +541,26 @@ function get_all_permissions() {
         'dashboard'        => ['label' => 'Dashboard',          'icon' => 'layout-dashboard', 'desc' => 'View the main dashboard overview'],
         'company_setup'    => ['label' => 'Company Setup',      'icon' => 'building-2',       'desc' => 'Manage clients and outlets'],
         'audit'            => ['label' => 'Daily Audit',        'icon' => 'clipboard-check',  'desc' => 'Sales entry, variance tracking'],
+        'station_audit'    => ['label' => 'Station Audit',      'icon' => 'fuel',             'desc' => 'Fuel station pump readings & sales'],
         'stock'            => ['label' => 'Stock Audit',        'icon' => 'package',           'desc' => 'Stock counts, wastage records'],
         'main_store'       => ['label' => 'Main Store',         'icon' => 'warehouse',         'desc' => 'Catalog, movements, deliveries'],
         'department_store' => ['label' => 'Department Store',   'icon' => 'store',             'desc' => 'Department-level stock tracking'],
         'finance'          => ['label' => 'Financial Control',  'icon' => 'trending-up',       'desc' => 'Revenue, expenses, P&L'],
         'requisitions'     => ['label' => 'Requisitions',       'icon' => 'file-text',         'desc' => 'Purchase requests & approvals'],
         'reports'          => ['label' => 'Reports',            'icon' => 'bar-chart-3',       'desc' => 'Audit trail, financial reports'],
+        'billing'          => ['label' => 'Billing',            'icon' => 'credit-card',       'desc' => 'Subscription and billing management'],
+        'trash'            => ['label' => 'Trash',              'icon' => 'trash-2',           'desc' => 'View and restore deleted records'],
+        'support'          => ['label' => 'Support Services',   'icon' => 'headphones',        'desc' => 'Contact support, submit tickets'],
         'settings'         => ['label' => 'Settings',           'icon' => 'settings',          'desc' => 'Company profile, users, categories'],
     ];
 }
 
 /**
- * Check if user role is admin-level (super_admin or business_owner)
+ * Check if user role is admin-level (super_admin, business_owner, or ceo)
  */
 function is_admin_role($role = null) {
     $role = $role ?? get_user_role();
-    return in_array($role, ['super_admin', 'business_owner']);
+    return in_array($role, ['super_admin', 'business_owner', 'ceo']);
 }
 
 /**
@@ -648,11 +668,13 @@ function get_clients_for_user($company_id, $user_id = null) {
  */
 function set_user_permissions($user_id, $permissions, $granted_by) {
     global $pdo;
+    // Deduplicate
+    $permissions = array_unique(array_filter($permissions));
     // Delete existing
     $stmt = $pdo->prepare("DELETE FROM user_permissions WHERE user_id = ?");
     $stmt->execute([$user_id]);
     // Insert new
-    $stmt = $pdo->prepare("INSERT INTO user_permissions (user_id, permission, granted_by) VALUES (?, ?, ?)");
+    $stmt = $pdo->prepare("INSERT IGNORE INTO user_permissions (user_id, permission, granted_by) VALUES (?, ?, ?)");
     foreach ($permissions as $perm) {
         $stmt->execute([$user_id, $perm, $granted_by]);
     }

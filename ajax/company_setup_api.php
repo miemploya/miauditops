@@ -39,12 +39,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'set_act
     
     // Verify client belongs to company
     $client = get_client($client_id, $company_id);
-    if ($client) {
-        set_active_client($client_id);
-        set_flash_message('success', 'Switched to client: ' . $client['name']);
-    } else {
+    if (!$client) {
         set_flash_message('error', 'Invalid client selected.');
+        redirect('../dashboard/' . basename($redirect));
+        exit;
     }
+
+    // Non-admin users can only access assigned clients
+    if (!is_admin_role()) {
+        $assigned = get_user_clients($user_id, $company_id);
+        if (!in_array($client_id, $assigned)) {
+            set_flash_message('error', 'You are not assigned to this client.');
+            redirect('../dashboard/' . basename($redirect));
+            exit;
+        }
+    }
+
+    set_active_client($client_id);
+    set_flash_message('success', 'Switched to client: ' . $client['name']);
     redirect('../dashboard/' . basename($redirect));
     exit;
 }

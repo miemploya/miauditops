@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * MIAUDITOPS  Filling Station Audit Module
  * 5 Tabs: System Sales, Pump Sales, Tank Dipping, Haulage, General Report
@@ -7,7 +7,7 @@ require_once '../includes/functions.php';
 require_once '../config/sector_config.php';
 require_login();
 require_subscription('station_audit');
-require_permission('audit');
+require_permission('station_audit');
 require_active_client();
 $company_id = $_SESSION['company_id'];
 $client_id  = get_active_client();
@@ -37,6 +37,13 @@ try { $pdo->exec("ALTER TABLE station_system_sales ADD COLUMN teller_proof_url V
 try { $pdo->exec("ALTER TABLE station_system_sales ADD COLUMN pos_proof_url VARCHAR(500) AFTER teller_proof_url"); } catch(Exception $e) {}
 try { $pdo->exec("ALTER TABLE station_system_sales ADD COLUMN pos_terminals_json TEXT AFTER pos_proof_url"); } catch(Exception $e) {}
 try { $pdo->exec("ALTER TABLE station_system_sales ADD COLUMN transfer_terminals_json TEXT AFTER pos_terminals_json"); } catch(Exception $e) {}
+// Settings table (deletion password, etc.)
+$pdo->exec("CREATE TABLE IF NOT EXISTS station_audit_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL,
+    setting_key VARCHAR(100) NOT NULL, setting_value TEXT,
+    updated_by INT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_company_key (company_id, setting_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_pump_tables (
     id INT AUTO_INCREMENT PRIMARY KEY, session_id INT NOT NULL, company_id INT NOT NULL,
     product VARCHAR(20) DEFAULT 'PMS', station_location VARCHAR(100),
@@ -68,9 +75,12 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_sections (
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_items (
     id INT AUTO_INCREMENT PRIMARY KEY, section_id INT NOT NULL, company_id INT NOT NULL,
     item_name VARCHAR(100), opening DECIMAL(12,2) DEFAULT 0, received DECIMAL(12,2) DEFAULT 0,
+    adjustment DECIMAL(12,2) DEFAULT 0, return_inward DECIMAL(12,2) DEFAULT 0,
     sold DECIMAL(12,2) DEFAULT 0, closing DECIMAL(12,2) DEFAULT 0,
     selling_price DECIMAL(12,2) DEFAULT 0, sort_order INT DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+try { $pdo->exec("ALTER TABLE station_lube_items ADD COLUMN adjustment DECIMAL(12,2) DEFAULT 0 AFTER received"); } catch(Exception $e) {}
+try { $pdo->exec("ALTER TABLE station_lube_items ADD COLUMN return_inward DECIMAL(12,2) DEFAULT 0 AFTER adjustment"); } catch(Exception $e) {}
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_store_items (
     id INT AUTO_INCREMENT PRIMARY KEY, session_id INT NOT NULL, company_id INT NOT NULL,
     item_name VARCHAR(100), opening DECIMAL(12,2) DEFAULT 0, received DECIMAL(12,2) DEFAULT 0,
@@ -91,15 +101,19 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_issue_log (
     product_name VARCHAR(150), counter_name VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-//  Lube product catalog (company-level, not session-scoped) 
+//  Lube product catalog (session-scoped: each session gets its own copy of prices) 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_products (
-    id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL, session_id INT NOT NULL DEFAULT 0,
     product_name VARCHAR(150) NOT NULL, unit VARCHAR(50) DEFAULT 'Litre',
     cost_price DECIMAL(12,2) DEFAULT 0, selling_price DECIMAL(12,2) DEFAULT 0,
     reorder_level DECIMAL(12,2) DEFAULT 0, is_active TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_prod (company_id, product_name)
+    UNIQUE KEY uk_prod (company_id, session_id, product_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+// Migration: add session_id for existing installs (existing rows become session_id=0 templates)
+try { $pdo->exec("ALTER TABLE station_lube_products ADD COLUMN session_id INT NOT NULL DEFAULT 0 AFTER company_id"); } catch(Exception $e) {}
+try { $pdo->exec("ALTER TABLE station_lube_products DROP INDEX uk_prod"); } catch(Exception $e) {}
+try { $pdo->exec("ALTER TABLE station_lube_products ADD UNIQUE KEY uk_prod (company_id, session_id, product_name)"); } catch(Exception $e) {}
 //  Lube suppliers (company-level) 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_suppliers (
     id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL,
@@ -150,9 +164,10 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_counter_stock_count_items (
     id INT AUTO_INCREMENT PRIMARY KEY, count_id INT NOT NULL, company_id INT NOT NULL,
     product_name VARCHAR(150), system_stock INT DEFAULT 0,
     physical_count INT DEFAULT 0, variance INT DEFAULT 0,
-    selling_price DECIMAL(12,2) DEFAULT 0,
+    cost_price DECIMAL(12,2) DEFAULT 0, selling_price DECIMAL(12,2) DEFAULT 0,
     sold_qty INT DEFAULT 0, sold_value DECIMAL(15,2) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+try { $pdo->exec("ALTER TABLE station_counter_stock_count_items ADD COLUMN cost_price DECIMAL(12,2) DEFAULT 0 AFTER variance"); } catch(Exception $e) {}
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_outlet_terminals (
     id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NOT NULL, outlet_id INT NOT NULL,
     terminal_name VARCHAR(150) NOT NULL, terminal_type ENUM('pos','transfer') NOT NULL,
@@ -327,6 +342,47 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         </div>
                     </div>
 
+                    <!-- Security Settings (CEO/Admin only) -->
+                    <template x-if="isAdminUser">
+                        <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden mt-6">
+                            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-red-500/10 to-transparent flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-lg shadow-red-500/30">
+                                        <i data-lucide="shield-check" class="w-5 h-5 text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-bold text-slate-900 dark:text-white text-sm">Security Settings</h3>
+                                        <p class="text-[10px] text-slate-400">Manage audit session deletion protection</p>
+                                    </div>
+                                </div>
+                                <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold"
+                                      :class="deletePasswordSet ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'">
+                                    <i :data-lucide="deletePasswordSet ? 'lock' : 'lock-open'" class="w-3 h-3"></i>
+                                    <span x-text="deletePasswordSet ? 'Password Protected' : 'No Password Set'"></span>
+                                </span>
+                            </div>
+                            <div class="px-6 py-5">
+                                <p class="text-xs text-slate-500 mb-4">Set a password to prevent unauthorized deletion of audit sessions. All users will need this password to delete any session.</p>
+                                <div class="flex items-end gap-3 flex-wrap">
+                                    <div class="flex-1 min-w-[200px]">
+                                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1" x-text="deletePasswordSet ? 'Reset Password' : 'Set Password'"></label>
+                                        <input type="password" x-model="deletePasswordInput" placeholder="Enter new password" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-red-400 outline-none">
+                                    </div>
+                                    <button @click="setDeletePassword(); $nextTick(()=>lucide.createIcons())" :disabled="!deletePasswordInput || deletePasswordInput.length < 4"
+                                            class="px-5 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2">
+                                        <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                        <span x-text="deletePasswordSet ? 'Reset Password' : 'Set Password'"></span>
+                                    </button>
+                                    <button x-show="deletePasswordSet" @click="removeDeletePassword(); $nextTick(()=>lucide.createIcons())"
+                                            class="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 rounded-lg transition-all flex items-center gap-2">
+                                        <i data-lucide="lock-open" class="w-3.5 h-3.5"></i> Remove Lock
+                                    </button>
+                                </div>
+                                <p x-show="deletePasswordInput && deletePasswordInput.length < 4 && deletePasswordInput.length > 0" class="text-[10px] text-red-500 mt-1">Password must be at least 4 characters</p>
+                            </div>
+                        </div>
+                    </template>
+
                 </div>
             </template>
 
@@ -378,7 +434,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                     <h3 class="font-bold text-slate-900 dark:text-white">System Sales</h3>
                                     <p class="text-xs text-slate-500">Declared POS, Cash, Transfer & Teller for this audit period</p>
                                 </div>
-                                <div class="p-6 space-y-4">
+                                <div class="p-4 space-y-3 overflow-y-auto flex-1">
                                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                         <div>
                                             <label class="text-[10px] font-bold text-blue-600 block mb-1">POS () <span class="text-[8px] text-blue-400 font-normal">auto from terminals</span></label>
@@ -586,7 +642,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                         <span class="text-[10px] font-bold uppercase text-blue-500 tracking-wide">POS</span>
                                     </div>
-                                    <p class="text-lg font-black text-blue-700 dark:text-blue-400" x-text="fmt(parseFloat(systemSales.pos_amount)||0)"></p>
+                                    <p class="text-sm font-black truncate text-blue-700 dark:text-blue-400" x-text="fmt(parseFloat(systemSales.pos_amount)||0)"></p>
                                     <div class="mt-1.5 h-1 rounded-full bg-blue-100 dark:bg-blue-900/30 overflow-hidden">
                                         <div class="h-full rounded-full bg-blue-500 transition-all" :style="'width:'+Math.min((parseFloat(systemSales.pos_amount)||0)/Math.max(systemSalesTotal,1)*100,100)+'%'"></div>
                                     </div>
@@ -600,7 +656,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                         <span class="text-[10px] font-bold uppercase text-emerald-500 tracking-wide">Cash</span>
                                     </div>
-                                    <p class="text-lg font-black text-emerald-700 dark:text-emerald-400" x-text="fmt(parseFloat(systemSales.cash_amount)||0)"></p>
+                                    <p class="text-sm font-black truncate text-emerald-700 dark:text-emerald-400" x-text="fmt(parseFloat(systemSales.cash_amount)||0)"></p>
                                     <div class="mt-1.5 h-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 overflow-hidden">
                                         <div class="h-full rounded-full bg-emerald-500 transition-all" :style="'width:'+Math.min((parseFloat(systemSales.cash_amount)||0)/Math.max(systemSalesTotal,1)*100,100)+'%'"></div>
                                     </div>
@@ -614,7 +670,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                         <span class="text-[10px] font-bold uppercase text-violet-500 tracking-wide">Transfer</span>
                                     </div>
-                                    <p class="text-lg font-black text-violet-700 dark:text-violet-400" x-text="fmt(parseFloat(systemSales.transfer_amount)||0)"></p>
+                                    <p class="text-sm font-black truncate text-violet-700 dark:text-violet-400" x-text="fmt(parseFloat(systemSales.transfer_amount)||0)"></p>
                                     <div class="mt-1.5 h-1 rounded-full bg-violet-100 dark:bg-violet-900/30 overflow-hidden">
                                         <div class="h-full rounded-full bg-violet-500 transition-all" :style="'width:'+Math.min((parseFloat(systemSales.transfer_amount)||0)/Math.max(systemSalesTotal,1)*100,100)+'%'"></div>
                                     </div>
@@ -628,7 +684,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                         </div>
                                         <span class="text-[10px] font-bold uppercase text-amber-500 tracking-wide">Teller</span>
                                     </div>
-                                    <p class="text-lg font-black text-amber-700 dark:text-amber-400" x-text="fmt(parseFloat(systemSales.teller_amount)||0)"></p>
+                                    <p class="text-sm font-black truncate text-amber-700 dark:text-amber-400" x-text="fmt(parseFloat(systemSales.teller_amount)||0)"></p>
                                     <div class="mt-1.5 h-1 rounded-full bg-amber-100 dark:bg-amber-900/30 overflow-hidden">
                                         <div class="h-full rounded-full bg-amber-500 transition-all" :style="'width:'+Math.min((parseFloat(systemSales.teller_amount)||0)/Math.max(systemSalesTotal,1)*100,100)+'%'"></div>
                                     </div>
@@ -1039,137 +1095,45 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                  </td>
                                                 <td class="px-4 py-2">
                                                     <select x-model="h.product" @change="h.tank_name = ''; h._lpg_mode='direct'" class="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
-                                                        <template x-for="p in products" :key="p"><option :value="p" x-text="p"></option></template>
+                                                        <option value="PMS">PMS</option>
+                                                        <option value="AGO">AGO</option>
+                                                        <option value="DPK">DPK</option>
+                                                        <option value="LPG">LPG</option>
                                                     </select>
                                                 </td>
                                                 <td class="px-4 py-2">
-                                                    <select x-model="h.tank_name" class="w-32 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold">
+                                                    <select x-model="h.tank_name"
+                                                        x-init="$nextTick(() => { $el.value = h.tank_name || '' })"
+                                                        class="w-32 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold">
                                                         <option value="">-- Select Tank --</option>
-                                                        <template x-for="tn in tanksForProduct(h.product)" :key="tn"><option :value="tn" x-text="tn"></option></template>
+                                                        <template x-for="tn in tanksForProduct(h.product)" :key="tn"><option :value="tn" x-text="tn" :selected="tn === h.tank_name"></option></template>
                                                     </select>
+                                                    <span x-show="h.tank_name" class="text-[9px] text-indigo-600 font-bold block mt-0.5" x-text="h.tank_name"></span>
                                                 </td>
 
-                                                <!-- Quantity cell  LPG gets discharge toggle, others get plain input -->
+                                                <!-- Quantity cell - compact inputs + Truck Gauge button -->
                                                 <td class="px-4 py-2" colspan="2">
-                                                    <template x-if="!isLPG(h.product)">
-                                                        <!-- Non-LPG: plain quantity + waybill -->
-                                                        <div class="flex items-center gap-2">
-                                                            <input type="number" step="0.01" x-model.number="h.quantity" placeholder="Qty" class="w-24 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono">
-                                                            <input type="number" step="0.01" x-model.number="h.waybill_qty" placeholder="Waybill" class="w-24 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono">
+                                                    <div class="flex items-center gap-2">
+                                                        <div class="flex flex-col gap-0.5">
+                                                            <span class="text-[8px] text-slate-400 font-bold uppercase" x-text="isLPG(h.product) ? 'QTY (MT)' : 'QTY (L)'"></span>
+                                                            <input type="number" :step="isLPG(h.product) ? 0.001 : 0.01" x-model.number="h.quantity" :placeholder="isLPG(h.product) ? 'MT' : 'Litres'" class="w-24 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono">
                                                         </div>
-                                                    </template>
-
-                                                    <template x-if="isLPG(h.product)">
-                                                        <div class="space-y-2">
-                                                            <!-- Mode toggle -->
-                                                            <div class="flex items-center gap-2">
-                                                                <button @click="h._lpg_mode='direct'"
-                                                                    :class="h._lpg_mode==='direct' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'"
-                                                                    class="px-2 py-0.5 rounded text-[9px] font-bold transition-all">Direct MT</button>
-                                                                <button @click="h._lpg_mode='discharge'"
-                                                                    :class="h._lpg_mode==='discharge' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'"
-                                                                    class="px-2 py-0.5 rounded text-[9px] font-bold transition-all">Truck Gauge</button>
-                                                            </div>
-
-                                                            <!-- Direct MT entry -->
-                                                            <template x-if="h._lpg_mode === 'direct'">
-                                                                <div class="flex items-center gap-2">
-                                                                    <div class="flex flex-col gap-0.5">
-                                                                        <div class="flex items-center gap-1">
-                                                                            <input type="number" step="0.001" x-model.number="h.quantity" placeholder="MT" class="w-20 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono">
-                                                                            <span class="text-[9px] text-indigo-500 font-bold">MT</span>
-                                                                        </div>
-                                                                        <span x-show="h.quantity > 0" class="text-[9px] text-indigo-600 font-mono bg-indigo-50 dark:bg-indigo-900/20 px-1 rounded" x-text="(h.quantity*1000).toLocaleString('en',{maximumFractionDigits:0})+' kg'"></span>
-                                                                    </div>
-                                                                    <div class="flex flex-col gap-0.5">
-                                                                        <div class="flex items-center gap-1">
-                                                                            <input type="number" step="0.001" x-model.number="h.waybill_qty" placeholder="Waybill MT" class="w-24 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono">
-                                                                            <span class="text-[9px] text-slate-400 font-bold">MT</span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </template>
-
-                                                            <!-- Discharge calculator -->
-                                                            <template x-if="h._lpg_mode === 'discharge'">
-                                                                <div class="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/40 space-y-2">
-                                                                    <p class="text-[9px] text-blue-700 dark:text-blue-300 font-bold">Truck discharge calculator  mirrors your standalone calculator</p>
-
-                                                                    <!-- Row 1: Truck config -->
-                                                                    <div class="flex items-center gap-2">
-                                                                        <div class="flex flex-col gap-0.5">
-                                                                            <span class="text-[8px] text-slate-500 font-bold uppercase">Storage Tank Capacity (kg)</span>
-                                                                            <input type="number" step="1" min="0" x-model.number="h._truck_cap_kg" placeholder="e.g. 18000"
-                                                                                class="w-24 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 rounded text-xs font-mono font-bold">
-                                                                        </div>
-                                                                        <div class="flex flex-col gap-0.5">
-                                                                            <span class="text-[8px] text-slate-500 font-bold uppercase">Max Fill %</span>
-                                                                            <div class="flex items-center gap-1">
-                                                                                <input type="number" step="0.1" min="1" max="100" x-model.number="h._truck_max_fill" placeholder="85"
-                                                                                    class="w-16 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-sky-300 dark:border-sky-700 rounded text-xs font-mono font-bold">
-                                                                                <span class="text-[9px] text-sky-600 font-bold">%</span>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <!-- Row 2: Gauge before / after -->
-                                                                    <div class="flex items-center gap-2">
-                                                                        <div class="flex flex-col gap-0.5">
-                                                                            <span class="text-[8px] text-slate-500 font-bold uppercase">Before Discharge %</span>
-                                                                            <div class="flex items-center gap-1">
-                                                                                <input type="number" step="0.01" min="0" max="100"
-                                                                                    x-model.number="h._truck_open_pct"
-                                                                                    @input="
-                                                                                        const kg = lpgDischargeKg({open_pct:h._truck_open_pct, close_pct:h._truck_close_pct, capacity_kg:h._truck_cap_kg, max_fill_percent:h._truck_max_fill});
-                                                                                        if(kg>0){ h.quantity = parseFloat((kg/1000).toFixed(4)); }
-                                                                                    "
-                                                                                    class="w-20 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 rounded text-xs font-mono">
-                                                                                <span class="text-[9px] text-slate-500 font-bold">%</span>
-                                                                            </div>
-                                                                            <span x-show="h._truck_cap_kg > 0" class="text-[9px] text-slate-400 font-mono" x-text="((h._truck_open_pct||0)/(h._truck_max_fill||100)*h._truck_cap_kg).toLocaleString('en',{maximumFractionDigits:0})+' kg'"></span>
-                                                                        </div>
-                                                                        <div class="flex flex-col gap-0.5">
-                                                                            <span class="text-[8px] text-slate-500 font-bold uppercase">After Discharge %</span>
-                                                                            <div class="flex items-center gap-1">
-                                                                                <input type="number" step="0.01" min="0" max="100"
-                                                                                    x-model.number="h._truck_close_pct"
-                                                                                    @input="
-                                                                                        const kg = lpgDischargeKg({open_pct:h._truck_open_pct, close_pct:h._truck_close_pct, capacity_kg:h._truck_cap_kg, max_fill_percent:h._truck_max_fill});
-                                                                                        if(kg>0){ h.quantity = parseFloat((kg/1000).toFixed(4)); }
-                                                                                    "
-                                                                                    class="w-20 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 rounded text-xs font-mono">
-                                                                                <span class="text-[9px] text-slate-500 font-bold">%</span>
-                                                                            </div>
-                                                                            <span x-show="h._truck_cap_kg > 0" class="text-[9px] text-slate-400 font-mono" x-text="((h._truck_close_pct||0)/(h._truck_max_fill||100)*h._truck_cap_kg).toLocaleString('en',{maximumFractionDigits:0})+' kg'"></span>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <!-- Row 3: Result -->
-                                                                    <div class="flex items-center gap-3 pt-1 border-t border-blue-200 dark:border-blue-800/40">
-                                                                        <div class="flex flex-col">
-                                                                            <span class="text-[8px] text-slate-500 font-bold uppercase">Discharged (kg)</span>
-                                                                            <span class="text-sm font-black font-mono text-emerald-600" x-text="lpgDischargeKg({open_pct:h._truck_open_pct, close_pct:h._truck_close_pct, capacity_kg:h._truck_cap_kg, max_fill_percent:h._truck_max_fill}).toLocaleString('en',{maximumFractionDigits:0})+' kg'"></span>
-                                                                        </div>
-                                                                        <div class="flex flex-col">
-                                                                            <span class="text-[8px] text-slate-500 font-bold uppercase">= MT (recorded)</span>
-                                                                            <span class="text-sm font-black font-mono text-indigo-600" x-text="(lpgDischargeKg({open_pct:h._truck_open_pct, close_pct:h._truck_close_pct, capacity_kg:h._truck_cap_kg, max_fill_percent:h._truck_max_fill})/1000).toFixed(4)+' MT'"></span>
-                                                                        </div>
-                                                                        <div class="flex flex-col">
-                                                                            <span class="text-[8px] text-slate-500 font-bold uppercase">Waybill MT</span>
-                                                                            <input type="number" step="0.001" x-model.number="h.waybill_qty" placeholder="Waybill"
-                                                                                class="w-20 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 rounded text-xs font-mono">
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </template>
+                                                        <div class="flex flex-col gap-0.5">
+                                                            <span class="text-[8px] text-slate-400 font-bold uppercase">Waybill</span>
+                                                            <input type="number" :step="isLPG(h.product) ? 0.001 : 0.01" x-model.number="h.waybill_qty" placeholder="Waybill" class="w-24 text-right px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono">
                                                         </div>
-                                                    </template>
+                                                        <button @click="openDischargeModal(hi)" class="mt-3 px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 rounded-lg text-[9px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all whitespace-nowrap flex items-center gap-1">
+                                                            <i data-lucide="gauge" class="w-3 h-3"></i> Truck Gauge
+                                                        </button>
+                                                    </div>
+                                                    <span x-show="isLPG(h.product) && h.quantity > 0" class="text-[9px] text-indigo-600 font-mono bg-indigo-50 dark:bg-indigo-900/20 px-1 rounded mt-0.5 inline-block" x-text="(h.quantity*1000).toLocaleString('en',{maximumFractionDigits:0})+' kg'"></span>
                                                 </td>
+
 
                                                 <!-- Diff cell -->
                                                 <td class="px-4 py-2 text-right font-bold font-mono text-xs" :class="((h.quantity||0)-(h.waybill_qty||0))===0?'text-emerald-600':'text-red-600'" x-text="((h.quantity||0)-(h.waybill_qty||0)).toLocaleString('en',{minimumFractionDigits:2})">
                                                 </td>
-                                                <td class="px-4 py-2 text-center"><button @click="haulage.splice(hi,1)" class="p-1 text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="w-3 h-3"></i></button></td>
+                                                <td class="px-4 py-2 text-center"><button @click="haulage.splice(hi,1); $nextTick(() => saveHaulage(true))" class="p-1 text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="w-3 h-3"></i></button></td>
                                             </tr>
                                         </template>
                                     </tbody>
@@ -1186,7 +1150,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                         <div class="space-y-4">
 
                             <!-- Header -->
-                            <div class="flex items-center justify-between">
+                            <div class="flex items-center justify-between flex-wrap gap-2">
                                 <div>
                                     <h3 class="font-bold text-lg text-slate-900 dark:text-white">Lubricant Audit</h3>
                                     <p class="text-xs text-slate-500">Store supplies counters  track inventory from source to point of sale</p>
@@ -1194,7 +1158,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             </div>
 
                             <!-- Sub-tab pills -->
-                            <div class="flex flex-wrap gap-2 p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 w-fit">
+                            <div class="flex flex-wrap gap-2 p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                                 <button @click="lubeSubTab='products'" :class="lubeSubTab==='products' ? 'bg-white dark:bg-slate-900 text-violet-600 shadow-sm border-violet-200' : 'text-slate-500 hover:bg-white/50 border-transparent'" class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all border">
                                     <i data-lucide="package" class="w-3.5 h-3.5"></i> Products
                                     <span x-show="lubeProducts.length > 0" class="ml-1 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[9px] font-black" x-text="lubeProducts.length"></span>
@@ -1229,9 +1193,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             <!--  PRODUCTS SUB-TAB  -->
                             <div x-show="lubeSubTab==='products'" x-transition>
                                 <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
-                                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-500/10 to-transparent flex items-center justify-between">
+                                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-500/10 to-transparent flex items-center justify-between flex-wrap">
                                         <div class="flex items-center gap-3">
-                                            <div class="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
+                                            <div class="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shrink-0">
                                                 <i data-lucide="package" class="w-4 h-4 text-white"></i>
                                             </div>
                                             <div>
@@ -1239,33 +1203,35 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <p class="text-[10px] text-slate-500" x-text="lubeProducts.length + ' product(s) registered'"></p>
                                             </div>
                                         </div>
-                                        <button @click="openLubeProductModal(); $nextTick(()=>lucide.createIcons())" class="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all">
+                                        <button @click="openLubeProductModal(); $nextTick(()=>lucide.createIcons())" class="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all ml-auto">
                                             <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Add Product
                                         </button>
                                     </div>
-                                    <div class="overflow-x-auto">
-                                        <table class="w-full text-sm">
+                                    <div class="overflow-x-auto -mx-px">
+                                        <table class="w-full text-sm min-w-[640px]">
                                             <thead class="bg-violet-50/50 dark:bg-violet-900/10">
                                                 <tr>
-                                                    <th class="px-4 py-2.5 text-left text-[10px] font-bold text-violet-700 uppercase">Product Name</th>
-                                                    <th class="px-4 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">Unit</th>
-                                                    <th class="px-4 py-2.5 text-right text-[10px] font-bold text-orange-600 uppercase">Cost Price</th>
-                                                    <th class="px-4 py-2.5 text-right text-[10px] font-bold text-emerald-600 uppercase">Selling Price</th>
-                                                    <th class="px-4 py-2.5 text-right text-[10px] font-bold text-blue-600 uppercase">Margin</th>
-                                                    <th class="px-4 py-2.5 text-right text-[10px] font-bold text-slate-500 uppercase">Reorder Lvl</th>
-                                                    <th class="px-4 py-2.5 text-center text-[10px] font-bold uppercase">Actions</th>
+                                                    <th class="px-3 py-2.5 text-left text-[10px] font-bold text-violet-700 uppercase">Product Name</th>
+                                                    <th class="px-3 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">Unit</th>
+                                                    <th class="px-3 py-2.5 text-right text-[10px] font-bold text-orange-600 uppercase">Cost Price</th>
+                                                    <th class="px-3 py-2.5 text-right text-[10px] font-bold text-emerald-600 uppercase">Selling Price</th>
+                                                    <th class="px-3 py-2.5 text-right text-[10px] font-bold text-blue-600 uppercase">Margin</th>
+                                                    <th class="px-3 py-2.5 text-right text-[10px] font-bold text-slate-500 uppercase">Reorder Lvl</th>
+                                                    <th class="px-3 py-2.5 text-center text-[10px] font-bold uppercase">Actions</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 <template x-for="p in lubeProducts" :key="p.id">
                                                     <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-violet-50/20 transition-colors">
-                                                        <td class="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200 text-xs" x-text="p.product_name"></td>
-                                                        <td class="px-4 py-2.5 text-center text-xs text-slate-500" x-text="p.unit"></td>
-                                                        <td class="px-4 py-2.5 text-right font-mono text-xs text-orange-600" x-text="'' + parseFloat(p.cost_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                        <td class="px-4 py-2.5 text-right font-mono text-xs text-emerald-600" x-text="'' + parseFloat(p.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                        <td class="px-4 py-2.5 text-right font-mono text-xs" :class="(p.selling_price - p.cost_price) >= 0 ? 'text-blue-600' : 'text-red-600'" x-text="'' + (parseFloat(p.selling_price||0) - parseFloat(p.cost_price||0)).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                        <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-500" x-text="parseFloat(p.reorder_level||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                        <td class="px-4 py-2.5 text-center">
+                                                        <td class="px-3 py-2.5 font-bold text-slate-800 dark:text-slate-200 text-xs" x-text="p.product_name"></td>
+                                                        <td class="px-3 py-2.5 text-center text-xs text-slate-500">
+                                                            <span class="inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-full text-[10px] font-semibold" x-text="p.unit || 'Litre'"></span>
+                                                        </td>
+                                                        <td class="px-3 py-2.5 text-right font-mono text-xs text-orange-600" x-text="'&#8358;' + parseFloat(p.cost_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-3 py-2.5 text-right font-mono text-xs text-emerald-600" x-text="'&#8358;' + parseFloat(p.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-3 py-2.5 text-right font-mono text-xs" :class="(p.selling_price - p.cost_price) >= 0 ? 'text-blue-600' : 'text-red-600'" x-text="'&#8358;' + (parseFloat(p.selling_price||0) - parseFloat(p.cost_price||0)).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-500" x-text="parseFloat(p.reorder_level||0).toLocaleString('en',{minimumFractionDigits:0})"></td>
+                                                        <td class="px-3 py-2.5 text-center">
                                                             <div class="flex items-center justify-center gap-1">
                                                                 <button @click="openLubeProductModal(p); $nextTick(()=>lucide.createIcons())" class="p-1.5 text-violet-500 hover:bg-violet-50 rounded-lg transition-all"><i data-lucide="pencil" class="w-3 h-3"></i></button>
                                                                 <button @click="deleteLubeProduct(p)" class="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-all"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
@@ -1441,12 +1407,12 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                 <template x-for="(si, sii) in lubeStoreItems" :key="sii">
                                                     <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-lime-50/30 dark:hover:bg-lime-900/5 transition-colors">
                                                         <td class="px-3 py-2.5 font-bold text-xs text-slate-800 dark:text-slate-200" x-text="si.item_name || ''"></td>
-                                                        <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-700" x-text="Math.round(si.opening || 0)"></td>
+                                                        <td class="px-1 py-1"><input type="number" step="1" min="0" x-model.number="si.opening" class="w-20 px-2 py-1.5 text-right font-mono text-xs text-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-lime-400 outline-none"></td>
                                                         <td class="px-3 py-2.5 text-right font-mono text-xs text-blue-600 font-bold" x-text="Math.round(si.received || 0)"></td>
                                                         <td class="px-3 py-2.5 text-right font-mono text-xs text-teal-600 font-bold" x-text="Math.round(si.return_out || 0)"></td>
                                                         <td class="px-3 py-2.5 text-right font-bold text-xs font-mono text-slate-700 bg-slate-50/50" x-text="Math.round(storeItemTotal(si))"></td>
                                                         <td class="px-3 py-2.5 text-right font-bold text-xs font-mono text-rose-600" x-text="Math.round(storeItemIssued(si))"></td>
-                                                        <td class="px-3 py-2.5 text-right font-mono text-xs font-bold" :class="(si.adjustment||0) > 0 ? 'text-indigo-600' : (si.adjustment||0) < 0 ? 'text-red-600' : 'text-slate-400'" x-text="Math.round(si.adjustment || 0)"></td>
+                                                        <td class="px-1 py-1"><input type="number" step="1" x-model.number="si.adjustment" class="w-20 px-2 py-1.5 text-right font-mono text-xs font-bold border border-indigo-200 dark:border-indigo-700 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-indigo-400 outline-none" :class="(si.adjustment||0) > 0 ? 'text-indigo-600' : (si.adjustment||0) < 0 ? 'text-red-600' : 'text-slate-400'"></td>
                                                         <td class="px-3 py-2.5 text-right font-bold text-xs font-mono bg-emerald-50/30" :class="storeItemClosing(si) < 0 ? 'text-red-600' : 'text-emerald-600'" x-text="Math.round(storeItemClosing(si))"></td>
                                                         <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-500" x-text="'' + parseFloat(si.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                         <td class="px-3 py-2.5 text-center">
@@ -1598,6 +1564,8 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             <th class="px-3 py-2 text-left text-[10px] font-bold text-lime-700 uppercase">Item</th>
                                                             <th class="px-3 py-2 text-right text-[10px] font-bold text-slate-500 uppercase">Opening</th>
                                                             <th class="px-3 py-2 text-right text-[10px] font-bold text-rose-600 uppercase">Received<br><span class="text-[8px] normal-case font-normal">(from store)</span></th>
+                                                            <th class="px-3 py-2 text-right text-[10px] font-bold text-violet-600 uppercase">Adj</th>
+                                                            <th class="px-3 py-2 text-right text-[10px] font-bold text-amber-600 uppercase">Return<br><span class="text-[8px] normal-case font-normal">(to store)</span></th>
                                                             <th class="px-3 py-2 text-right text-[10px] font-bold text-slate-700 uppercase bg-slate-50/50">Total</th>
                                                             <th class="px-3 py-2 text-right text-[10px] font-bold text-indigo-600 uppercase">Closing<br><span class="text-[8px] normal-case font-normal">(physical)</span></th>
                                                             <th class="px-3 py-2 text-right text-[10px] font-bold text-lime-700 uppercase">Sold<br><span class="text-[8px] normal-case font-normal">(computed)</span></th>
@@ -1611,8 +1579,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                 <td class="px-3 py-2.5 font-bold text-xs text-slate-800 dark:text-slate-200" x-text="it.item_name || ''"></td>
                                                                 <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-700" x-text="Math.round(it.opening || 0)"></td>
                                                                 <td class="px-3 py-2.5 text-right font-mono text-xs text-rose-600 font-bold" x-text="Math.round(it.received || 0)"></td>
-                                                                <td class="px-3 py-2.5 text-right font-bold text-xs font-mono text-slate-700 bg-slate-50/50" x-text="Math.round((it.opening||0)+(it.received||0))"></td>
-                                                                <td class="px-3 py-2.5 text-right font-mono text-xs font-bold text-indigo-700" x-text="Math.round(it.closing || 0)"></td>
+                                                                <td class="px-1 py-1"><input type="number" step="1" x-model.number="it.adjustment" class="w-16 px-2 py-1.5 text-right font-mono text-xs font-bold border border-violet-200 dark:border-violet-700 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-violet-400 outline-none" :class="(it.adjustment||0) > 0 ? 'text-violet-600' : (it.adjustment||0) < 0 ? 'text-red-600' : 'text-slate-400'"></td>
+                                                                <td class="px-1 py-1"><input type="number" step="1" min="0" x-model.number="it.return_inward" class="w-16 px-2 py-1.5 text-right font-mono text-xs font-bold border border-amber-200 dark:border-amber-700 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-amber-400 outline-none" :class="(it.return_inward||0) > 0 ? 'text-amber-600' : 'text-slate-400'"></td>
+                                                                <td class="px-3 py-2.5 text-right font-bold text-xs font-mono text-slate-700 bg-slate-50/50" x-text="Math.round((it.opening||0)+(it.received||0)+(it.adjustment||0))"></td>
+                                                                <td class="px-1 py-1"><input type="number" step="1" x-model.number="it.closing" class="w-16 px-2 py-1.5 text-right font-mono text-xs font-bold border border-indigo-200 dark:border-indigo-700 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-indigo-400 outline-none text-indigo-700"></td>
                                                                 <td class="px-3 py-2.5 text-right font-mono text-xs text-lime-700 font-bold" x-text="Math.round(counterItemSold(it))"></td>
                                                                 <td class="px-3 py-2.5 text-right font-mono text-xs text-slate-500" x-text="'' + parseFloat(it.selling_price||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                                 <td class="px-3 py-2.5 text-right font-bold text-emerald-600 text-xs font-mono" x-text="fmt(counterItemSold(it)*(it.selling_price||0))"></td>
@@ -1623,14 +1593,16 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             <td class="px-3 py-2 text-xs text-lime-700">Totals</td>
                                                             <td class="px-3 py-2 text-right font-mono text-xs" x-text="(ls.items||[]).reduce((s,i)=>parseFloat(i.opening||0)+s,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                             <td class="px-3 py-2 text-right font-mono text-xs text-rose-600" x-text="(ls.items||[]).reduce((s,i)=>parseFloat(i.received||0)+s,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
-                                                            <td class="px-3 py-2 text-right font-mono text-xs bg-slate-50/50" x-text="(ls.items||[]).reduce((s,i)=>parseFloat(i.opening||0)+parseFloat(i.received||0)+s,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-3 py-2 text-right font-mono text-xs text-violet-600" x-text="(ls.items||[]).reduce((s,i)=>parseFloat(i.adjustment||0)+s,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-3 py-2 text-right font-mono text-xs text-amber-600" x-text="(ls.items||[]).reduce((s,i)=>parseFloat(i.return_inward||0)+s,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-3 py-2 text-right font-mono text-xs bg-slate-50/50" x-text="(ls.items||[]).reduce((s,i)=>parseFloat(i.opening||0)+parseFloat(i.received||0)+parseFloat(i.adjustment||0)+s,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                             <td class="px-3 py-2 text-right font-mono text-xs text-indigo-700" x-text="(ls.items||[]).reduce((s,i)=>parseFloat(i.closing||0)+s,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                             <td class="px-3 py-2 text-right font-mono text-xs text-lime-700" x-text="(ls.items||[]).reduce((s,i)=>counterItemSold(i)+s,0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                             <td class="px-3 py-2"></td>
                                                             <td class="px-3 py-2 text-right font-mono text-xs text-emerald-700" x-text="fmt(lubeSectionAmount(ls))"></td>
                                                         </tr>
                                                         <tr x-show="(ls.items||[]).length === 0">
-                                                            <td colspan="8" class="px-4 py-6 text-center text-slate-400 text-xs italic">No products in Lube Store yet. Add products to the store first  they'll appear here automatically.</td>
+                                                            <td colspan="10" class="px-4 py-6 text-center text-slate-400 text-xs italic">No products in Lube Store yet. Add products to the store first — they'll appear here automatically.</td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
@@ -2139,7 +2111,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                                 <button @click="lubeIssueModal=false" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-red-100 transition-colors"><i data-lucide="x" class="w-4 h-4 text-slate-500"></i></button>
                             </div>
-                            <div class="p-6 space-y-4">
+                            <div class="p-4 space-y-3 overflow-y-auto flex-1">
                                 <!-- Mode toggle -->
                                 <div class="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl">
                                     <button @click="lubeIssueForm.mode='issue'" :class="lubeIssueForm.mode==='issue' ? 'bg-white dark:bg-slate-900 text-rose-600 shadow-sm' : 'text-slate-500'" class="flex-1 py-2 text-xs font-bold rounded-lg transition-all text-center">Issue to Counter</button>
@@ -2190,7 +2162,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                     </div>
                                     <div class="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl text-center">
                                         <p class="text-[10px] font-bold text-indigo-500 uppercase mb-1">Resulting Adjustment</p>
-                                        <p class="text-2xl font-black font-mono" :class="lubeIssueForm.adjustment_qty > 0 ? 'text-indigo-600' : lubeIssueForm.adjustment_qty < 0 ? 'text-red-600' : 'text-slate-400'" x-text="(lubeIssueForm.adjustment_qty >= 0 ? '+' : '') + lubeIssueForm.adjustment_qty"></p>
+                                        <p class="text-lg font-black font-mono" :class="lubeIssueForm.adjustment_qty > 0 ? 'text-indigo-600' : lubeIssueForm.adjustment_qty < 0 ? 'text-red-600' : 'text-slate-400'" x-text="(lubeIssueForm.adjustment_qty >= 0 ? '+' : '') + lubeIssueForm.adjustment_qty"></p>
                                     </div>
                                     <div class="flex gap-3">
                                         <button @click="lubeIssueModal=false" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
@@ -2216,21 +2188,21 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                                 <button @click="lubeProductModal=false" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-red-100 transition-colors"><i data-lucide="x" class="w-4 h-4 text-slate-500"></i></button>
                             </div>
-                            <div class="p-6 space-y-4">
+                            <div class="p-4 space-y-3 overflow-y-auto flex-1">
                                 <div>
                                     <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Product Name *</label>
                                     <input type="text" x-model="lubeProductForm.product_name" placeholder="e.g. Engine Oil 1L" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
                                 </div>
-                                <div class="grid grid-cols-2 gap-3">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Unit</label>
                                         <select x-model="lubeProductForm.unit" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
-                                            <option>Litre</option><option>Piece</option><option>Carton</option><option>Drum</option><option>Kg</option>
+                                            <option>Litre</option><option>Piece</option><option>Portion</option><option>Carton</option><option>Drum</option><option>Kg</option><option>Gallon</option><option>Pack</option><option>Bottle</option><option>Sachet</option>
                                         </select>
                                     </div>
                                     <div>
                                         <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Reorder Level</label>
-                                        <input type="number" step="0.01" x-model.number="lubeProductForm.reorder_level" placeholder="0.00" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
+                                        <input type="number" step="1" min="0" x-model.number="lubeProductForm.reorder_level" placeholder="0" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all">
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
@@ -2271,7 +2243,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                                 <button @click="lubeSupplierModal=false" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:bg-red-100 transition-colors"><i data-lucide="x" class="w-4 h-4 text-slate-500"></i></button>
                             </div>
-                            <div class="p-6 space-y-4">
+                            <div class="p-4 space-y-3 overflow-y-auto flex-1">
                                 <div>
                                     <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Supplier Name *</label>
                                     <input type="text" x-model="lubeSupplierForm.supplier_name" placeholder="e.g. Total Energies Nigeria" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all">
@@ -2372,7 +2344,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                             <select x-model="it.product_id" @change="fillGrnItemFromProduct(it)" class="w-32 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs focus:ring-1 focus:ring-blue-500">
                                                                 <option value="">Custom...</option>
                                                                 <template x-for="p in lubeProducts" :key="p.id">
-                                                                    <option :value="p.id" x-text="p.product_name"></option>
+                                                                    <option :value="String(p.id)" x-text="p.product_name"></option>
                                                                 </template>
                                                             </select>
                                                             <input x-show="!it.product_id" type="text" x-model="it.product_name" placeholder="Product name" class="mt-1 w-32 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs focus:ring-1 focus:ring-blue-500">
@@ -2695,38 +2667,92 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 
                             </div>
 
-                            <!--  Expense Description Summary History  -->
                             <div x-show="expenseDescriptionSummary.length > 0" class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
                                 <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-rose-500/10 to-transparent">
                                     <div class="flex items-center gap-2">
                                         <i data-lucide="history" class="w-4 h-4 text-rose-500"></i>
                                         <h3 class="font-bold text-slate-900 dark:text-white text-sm">Expense Summary by Description</h3>
-                                        <span class="ml-auto text-[10px] text-slate-400">All categories combined  descriptions auto-summed</span>
+                                        <span class="ml-auto text-[10px] text-slate-400">Click a row to expand &bull; Edit or delete individual entries</span>
                                     </div>
                                 </div>
-                                <div class="overflow-x-auto max-h-[300px] overflow-y-auto">
-                                    <table class="w-full text-sm">
-                                        <thead class="bg-slate-50 dark:bg-slate-800/50 sticky top-0">
-                                            <tr>
-                                                <th class="px-4 py-2.5 text-left text-xs font-bold text-slate-500">Description</th>
-                                                <th class="px-3 py-2.5 text-center text-xs font-bold text-slate-400 w-16">#</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-red-500 w-32">Total DR ()</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500 w-32">Total CR ()</th>
-                                                <th class="px-3 py-2.5 text-right text-xs font-bold text-slate-500 w-32">Balance ()</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <template x-for="row in expenseDescriptionSummary" :key="row.description">
-                                                <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-rose-50/50 dark:hover:bg-rose-900/10 transition-colors">
-                                                    <td class="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300" x-text="row.description"></td>
-                                                    <td class="px-3 py-2 text-center text-[10px] text-slate-400" x-text="row.count + 'x'"></td>
-                                                    <td class="px-3 py-2 text-right text-xs font-bold text-red-600" x-text="fmt(row.totalDebit)"></td>
-                                                    <td class="px-3 py-2 text-right text-xs font-bold text-emerald-600" x-text="fmt(row.totalCredit)"></td>
-                                                    <td class="px-3 py-2 text-right text-xs font-black" :class="(row.totalDebit - row.totalCredit) > 0 ? 'text-red-600' : 'text-emerald-600'" x-text="fmt(row.totalDebit - row.totalCredit)"></td>
-                                                </tr>
+                                <div class="max-h-[500px] overflow-y-auto">
+                                    <!-- Header row -->
+                                    <div class="grid grid-cols-[24px_1fr_50px_100px_100px_100px] gap-0 bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700">
+                                        <div class="px-1 py-2.5"></div>
+                                        <div class="px-3 py-2.5 text-left text-xs font-bold text-slate-500">Description</div>
+                                        <div class="px-2 py-2.5 text-center text-xs font-bold text-slate-400">#</div>
+                                        <div class="px-3 py-2.5 text-right text-xs font-bold text-red-500">Total DR (&#8358;)</div>
+                                        <div class="px-3 py-2.5 text-right text-xs font-bold text-emerald-500">Total CR (&#8358;)</div>
+                                        <div class="px-3 py-2.5 text-right text-xs font-bold text-slate-500">Balance (&#8358;)</div>
+                                    </div>
+
+                                    <!-- Summary rows -->
+                                    <template x-for="row in expenseDescriptionSummary" :key="row.description">
+                                        <div>
+                                            <!-- Summary row (clickable) -->
+                                            <div @click="row._expanded = !row._expanded; $nextTick(() => lucide.createIcons())" class="grid grid-cols-[24px_1fr_50px_100px_100px_100px] gap-0 border-b border-slate-100 dark:border-slate-800 hover:bg-rose-50/50 dark:hover:bg-rose-900/10 transition-colors cursor-pointer select-none items-center">
+                                                <div class="px-1 py-2 text-center">
+                                                    <i :data-lucide="row._expanded ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5 text-slate-400 inline-block"></i>
+                                                </div>
+                                                <div class="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 truncate" x-text="row.description"></div>
+                                                <div class="px-2 py-2 text-center text-[10px] text-slate-400" x-text="row.count + 'x'"></div>
+                                                <div class="px-3 py-2 text-right text-xs font-bold text-red-600" x-text="fmt(row.totalDebit)"></div>
+                                                <div class="px-3 py-2 text-right text-xs font-bold text-emerald-600" x-text="fmt(row.totalCredit)"></div>
+                                                <div class="px-3 py-2 text-right text-xs font-black" :class="(row.totalDebit - row.totalCredit) > 0 ? 'text-red-600' : 'text-emerald-600'" x-text="fmt(row.totalDebit - row.totalCredit)"></div>
+                                            </div>
+
+                                            <!-- Expanded entries -->
+                                            <template x-if="row._expanded">
+                                                <div>
+                                                    <template x-for="(entry, eIdx) in row.entries" :key="entry.id">
+                                                        <div class="bg-rose-50/30 dark:bg-rose-900/5 border-b border-rose-100/50 dark:border-slate-800/50 group">
+                                                            <!-- READ MODE -->
+                                                            <div x-show="!entry._editing" class="grid grid-cols-[24px_1fr_50px_100px_100px_100px] gap-0 items-center">
+                                                                <div class="px-1 py-1.5 text-center text-slate-200 dark:text-slate-700"><span class="text-[9px]">&#8627;</span></div>
+                                                                <div class="px-3 py-1.5">
+                                                                    <div class="flex items-center gap-2 flex-wrap">
+                                                                        <span class="font-mono text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded" x-text="entry.entry_date"></span>
+                                                                        <span class="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-1.5 py-0.5 rounded" x-text="entry.category_name"></span>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="px-2 py-1.5 text-center">
+                                                                    <span class="text-[9px] font-bold px-1 py-0.5 rounded-full" :class="entry.payment_method === 'cash' ? 'bg-blue-50 text-blue-500' : entry.payment_method === 'transfer' ? 'bg-violet-50 text-violet-500' : 'bg-slate-50 text-slate-400'" x-text="(entry.payment_method||'cash').charAt(0).toUpperCase() + (entry.payment_method||'cash').slice(1)"></span>
+                                                                </div>
+                                                                <div class="px-3 py-1.5 text-right text-[11px] font-semibold" :class="entry.debit > 0 ? 'text-red-500' : 'text-slate-200'" x-text="entry.debit > 0 ? fmt(entry.debit) : ''"></div>
+                                                                <div class="px-3 py-1.5 text-right text-[11px] font-semibold" :class="entry.credit > 0 ? 'text-emerald-500' : 'text-slate-200'" x-text="entry.credit > 0 ? fmt(entry.credit) : ''"></div>
+                                                                <div class="px-3 py-1.5 text-right">
+                                                                    <div class="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                                                                        <button @click.stop="toggleSummaryExpenseEdit(entry); $nextTick(() => lucide.createIcons())" class="p-1 text-slate-300 hover:text-blue-500 rounded" title="Edit"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+                                                                        <button @click.stop="deleteSummaryExpense(entry, row)" class="p-1 text-slate-300 hover:text-red-500 rounded" title="Delete"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <!-- EDIT MODE -->
+                                                            <div x-show="entry._editing" class="grid grid-cols-[24px_1fr_1fr_100px_100px_100px] gap-0 items-center">
+                                                                <div class="px-1 py-1 text-center text-blue-400"><span class="text-[9px]">&#9998;</span></div>
+                                                                <div class="px-1 py-1">
+                                                                    <input type="date" x-model="entry._edit.entry_date" class="w-full px-1.5 py-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 rounded text-[11px]">
+                                                                </div>
+                                                                <div class="px-1 py-1">
+                                                                    <select x-model="entry._edit.payment_method" class="w-full px-1 py-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 rounded text-[11px]">
+                                                                        <option value="cash">Cash</option><option value="transfer">Transfer</option><option value="pos">POS</option><option value="cheque">Cheque</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div class="px-1 py-1"><input type="number" step="0.01" x-model="entry._edit.debit" class="w-full px-1.5 py-1 bg-blue-50 dark:bg-slate-800 border border-red-200 rounded text-[11px] text-right font-bold text-red-600"></div>
+                                                                <div class="px-1 py-1"><input type="number" step="0.01" x-model="entry._edit.credit" class="w-full px-1.5 py-1 bg-blue-50 dark:bg-slate-800 border border-emerald-200 rounded text-[11px] text-right font-bold text-emerald-600"></div>
+                                                                <div class="px-1 py-1 text-center">
+                                                                    <div class="flex items-center gap-0.5 justify-end">
+                                                                        <button @click.stop="saveSummaryExpense(entry)" class="p-1 text-emerald-500 hover:text-emerald-700 rounded" title="Save"><i data-lucide="check" class="w-3.5 h-3.5"></i></button>
+                                                                        <button @click.stop="entry._editing = false" class="p-1 text-slate-400 hover:text-red-500 rounded" title="Cancel"><i data-lucide="x" class="w-3 h-3"></i></button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                </div>
                                             </template>
-                                        </tbody>
-                                    </table>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
 
@@ -3962,10 +3988,186 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
 <script>
     window.__SA_OUTLETS = <?php echo $js_outlets; ?>;
     window.__SA_SESSIONS = <?php echo $js_sessions; ?>;
-    window.__SA_USER = { name: <?php echo json_encode(trim(($current_user['first_name'] ?? '') . ' ' . ($current_user['last_name'] ?? '')), JSON_HEX_TAG | JSON_HEX_APOS); ?>, role: <?php echo json_encode($role_label ?? 'Auditor', JSON_HEX_TAG | JSON_HEX_APOS); ?> };
+    window.__SA_USER = { name: <?php echo json_encode(trim(($current_user['first_name'] ?? '') . ' ' . ($current_user['last_name'] ?? '')), JSON_HEX_TAG | JSON_HEX_APOS); ?>, role: <?php echo json_encode($role_label ?? 'Auditor', JSON_HEX_TAG | JSON_HEX_APOS); ?>, user_role: <?php echo json_encode($current_user['role'] ?? 'user', JSON_HEX_TAG | JSON_HEX_APOS); ?> };
     window.__SA_COMPANY = <?php echo json_encode($company['name'] ?? 'MIAUDITOPS', JSON_HEX_TAG | JSON_HEX_APOS); ?>;
     window.__NAIRA = '\u20A6';
 </script>
 <script src="station_audit_app.js?v=<?php echo filemtime(__DIR__ . '/station_audit_app.js'); ?>"></script>
+<!-- Truck Gauge Discharge Modal (free-floating, outside all tabs) -->
+<template x-if="showDischargeModal">
+    <div class="fixed inset-0 z-[9999] flex items-center justify-center" @keydown.escape.window="showDischargeModal = false">
+        <div class="absolute inset-0 bg-black/30" @click="showDischargeModal = false"></div>
+        <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-[380px]" @click.stop>
+
+            <!-- Header -->
+            <div class="flex items-center justify-between px-5 pt-5 pb-2">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                        <i data-lucide="gauge" class="w-5 h-5 text-blue-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-800 dark:text-white">Truck Gauge</h3>
+                        <p class="text-[11px] text-slate-400" x-text="isLPG(_dischargeProduct) ? 'Gauge readings in %' : 'Gauge readings in Litres'"></p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold" :class="{'bg-green-100 text-green-700':_dischargeProduct==='PMS','bg-orange-100 text-orange-700':_dischargeProduct==='AGO','bg-amber-100 text-amber-700':_dischargeProduct==='DPK','bg-purple-100 text-purple-700':_dischargeProduct==='LPG'}" x-text="_dischargeProduct"></span>
+                    <button @click="showDischargeModal = false" class="w-7 h-7 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="px-5 py-3 space-y-3">
+                <!-- LPG mode toggle: 3 options -->
+                <template x-if="isLPG(_dischargeProduct)">
+                    <div>
+                        <div class="flex rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 mb-3">
+                            <button @click="_dLpgMode='gauge'" class="flex-1 text-[10px] font-bold py-1.5 rounded-md transition-all" :class="_dLpgMode==='gauge' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'">Gauge %</button>
+                            <button @click="_dLpgMode='direct'" class="flex-1 text-[10px] font-bold py-1.5 rounded-md transition-all" :class="_dLpgMode==='direct' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'">Truck MT</button>
+                            <button @click="_dLpgMode='tank'" class="flex-1 text-[10px] font-bold py-1.5 rounded-md transition-all" :class="_dLpgMode==='tank' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'">Tank (Tons)</button>
+                        </div>
+
+                        <!-- Gauge mode: truck gauge % -->
+                        <div x-show="_dLpgMode==='gauge'" class="space-y-3">
+                            <div class="flex gap-3">
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Tank Capacity (kg)</label>
+                                    <input type="number" step="1" min="0" x-model.number="_dCapKg" placeholder="e.g. 18000" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                                <div class="w-20">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Max Fill %</label>
+                                    <input type="number" step="0.1" min="1" max="100" x-model.number="_dMaxFill" placeholder="85" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                            </div>
+                            <div class="flex gap-3">
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Before Discharge (%)</label>
+                                    <input type="number" step="0.01" min="0" x-model.number="_dBefore" placeholder="e.g. 75" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">After Discharge (%)</label>
+                                    <input type="number" step="0.01" min="0" x-model.number="_dAfter" placeholder="e.g. 10" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Direct MT mode: truck weighbridge -->
+                        <div x-show="_dLpgMode==='direct'" class="space-y-3">
+                            <div class="flex gap-3">
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Truck B/D (MT)</label>
+                                    <input type="number" step="0.0001" min="0" x-model.number="_dMTBefore" placeholder="e.g. 12.5000" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Truck A/D (MT)</label>
+                                    <input type="number" step="0.0001" min="0" x-model.number="_dMTAfter" placeholder="e.g. 10.0000" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tank mode: direct ton readings -->
+                        <div x-show="_dLpgMode==='tank'" class="space-y-3">
+                            <div class="flex gap-3">
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Tank B/D (Tons)</label>
+                                    <input type="number" step="0.0001" min="0" x-model.number="_dTankBefore" placeholder="e.g. 3.2000" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Tank A/D (Tons)</label>
+                                    <input type="number" step="0.0001" min="0" x-model.number="_dTankAfter" placeholder="e.g. 5.7000" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                            </div>
+                        </div>
+                                <div class="w-20">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Max Fill %</label>
+                                    <input type="number" step="0.1" min="1" max="100" x-model.number="_dStationMaxFill" placeholder="85" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                            </div>
+                            <div class="flex gap-3">
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Tank Gauge B/D (%)</label>
+                                    <input type="number" step="0.01" min="0" x-model.number="_dTankBefore" placeholder="e.g. 20" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Tank Gauge A/D (%)</label>
+                                    <input type="number" step="0.01" min="0" x-model.number="_dTankAfter" placeholder="e.g. 55" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                            </div>
+                        </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Non-LPG: Tank Dip / Truck Gauge toggle -->
+                <template x-if="!isLPG(_dischargeProduct)">
+                    <div>
+                        <div class="flex rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 mb-3">
+                            <button @click="_dFuelMode='tank'" class="flex-1 text-[10px] font-bold py-1.5 rounded-md transition-all" :class="_dFuelMode==='tank' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'">Tank Dip (L)</button>
+                            <button @click="_dFuelMode='truck'" class="flex-1 text-[10px] font-bold py-1.5 rounded-md transition-all" :class="_dFuelMode==='truck' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'">Truck Gauge (L)</button>
+                        </div>
+
+                        <!-- Tank Dip: station tank B/D and A/D in litres -->
+                        <div x-show="_dFuelMode==='tank'" class="flex gap-3">
+                            <div class="flex-1">
+                                <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Tank B/D (L)</label>
+                                <input type="number" step="0.01" min="0" x-model.number="_dBefore" placeholder="e.g. 5000" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Tank A/D (L)</label>
+                                <input type="number" step="0.01" min="0" x-model.number="_dAfter" placeholder="e.g. 38000" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Truck Gauge: truck compartment B/D and A/D in litres -->
+                        <div x-show="_dFuelMode==='truck'" class="flex gap-3">
+                            <div class="flex-1">
+                                <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Truck B/D (L)</label>
+                                <input type="number" step="0.01" min="0" x-model.number="_dTruckLBefore" placeholder="e.g. 33000" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Truck A/D (L)</label>
+                                <input type="number" step="0.01" min="0" x-model.number="_dTruckLAfter" placeholder="e.g. 500" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Result (Qty Delivered) -->
+                <div class="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 text-center border border-emerald-100 dark:border-emerald-800/40">
+                    <span class="text-[10px] font-bold text-emerald-500 uppercase block mb-0.5">Qty Delivered</span>
+                    <!-- Non-LPG Tank Dip: A/D - B/D -->
+                    <template x-if="!isLPG(_dischargeProduct) && _dFuelMode==='tank'">
+                        <span class="text-base font-black font-mono text-emerald-700 dark:text-emerald-400" x-text="Math.abs((_dAfter||0)-(_dBefore||0)).toLocaleString('en',{minimumFractionDigits:2})+' L'"></span>
+                    </template>
+                    <!-- Non-LPG Truck Gauge: B/D - A/D -->
+                    <template x-if="!isLPG(_dischargeProduct) && _dFuelMode==='truck'">
+                        <span class="text-base font-black font-mono text-emerald-700 dark:text-emerald-400" x-text="Math.abs((_dTruckLBefore||0)-(_dTruckLAfter||0)).toLocaleString('en',{minimumFractionDigits:2})+' L'"></span>
+                    </template>
+                    <!-- LPG Gauge -->
+                    <template x-if="isLPG(_dischargeProduct) && _dLpgMode==='gauge'">
+                        <span class="text-base font-black font-mono text-emerald-700 dark:text-emerald-400" x-text="lpgDischargeKg({open_pct:_dBefore,close_pct:_dAfter,capacity_kg:_dCapKg,max_fill_percent:_dMaxFill}).toLocaleString('en',{maximumFractionDigits:0})+' kg  ('+(lpgDischargeKg({open_pct:_dBefore,close_pct:_dAfter,capacity_kg:_dCapKg,max_fill_percent:_dMaxFill})/1000).toFixed(4)+' MT)'"></span>
+                    </template>
+                    <!-- LPG Truck MT -->
+                    <template x-if="isLPG(_dischargeProduct) && _dLpgMode==='direct'">
+                        <span class="text-base font-black font-mono text-emerald-700 dark:text-emerald-400" x-text="Math.abs(((_dMTBefore||0)-(_dMTAfter||0))*1000).toLocaleString('en',{maximumFractionDigits:0})+' kg  ('+Math.abs((_dMTBefore||0)-(_dMTAfter||0)).toFixed(4)+' MT)'"></span>
+                    </template>
+                    <!-- LPG Tank (Tons) -->
+                    <template x-if="isLPG(_dischargeProduct) && _dLpgMode==='tank'">
+                        <span class="text-base font-black font-mono text-emerald-700 dark:text-emerald-400" x-text="(Math.abs((_dTankAfter||0)-(_dTankBefore||0))*1000).toLocaleString('en',{maximumFractionDigits:0})+' kg  ('+Math.abs((_dTankAfter||0)-(_dTankBefore||0)).toFixed(4)+' MT)'"></span>
+                    </template>
+                </div>
+            </div>
+            <!-- Footer -->
+            <div class="flex items-center justify-between px-5 py-3 border-t border-slate-100 dark:border-slate-800">
+                <span class="text-[10px] text-slate-400"><i data-lucide="info" class="w-3 h-3 inline"></i> After - Before = Qty</span>
+                <button @click="applyDischarge()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors">Apply</button>
+            </div>
+
+        </div>
+    </div>
+</template>
 </body>
 </html>

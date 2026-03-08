@@ -60,6 +60,8 @@ try {
     try { $pdo->exec("ALTER TABLE products ADD COLUMN selling_unit_price DECIMAL(15,2) DEFAULT 0.00 AFTER yield_per_unit"); } catch (Exception $ignore) {}
     // Parent product link for derivative products (e.g., "Ciroc Shot" → parent = "Ciroc")
     try { $pdo->exec("ALTER TABLE products ADD COLUMN parent_product_id INT DEFAULT NULL AFTER selling_unit_price"); } catch (Exception $ignore) {}
+    // Pack/pieces tracking: pack_size = how many pieces in 1 pack (0 = not applicable)
+    try { $pdo->exec("ALTER TABLE products ADD COLUMN pack_size INT DEFAULT 0 AFTER parent_product_id"); } catch (Exception $ignore) {}
 
     // Add selling_unit + yield columns to department_stock (per-department override)
     try { $pdo->exec("ALTER TABLE department_stock ADD COLUMN selling_unit VARCHAR(30) DEFAULT NULL AFTER selling_price"); } catch (Exception $ignore) {}
@@ -68,6 +70,22 @@ try {
     // Adjustment columns for damage/write-off/error corrections
     try { $pdo->exec("ALTER TABLE department_stock ADD COLUMN adjustment_add INT DEFAULT 0 AFTER qty_sold"); } catch (Exception $ignore) {}
     try { $pdo->exec("ALTER TABLE department_stock ADD COLUMN adjustment_sub INT DEFAULT 0 AFTER adjustment_add"); } catch (Exception $ignore) {}
+
+    // === Migrate quantity columns from INT to DECIMAL(10,2) for fractional support ===
+    try { $pdo->exec("ALTER TABLE products MODIFY opening_stock DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE products MODIFY current_stock DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE supplier_deliveries MODIFY quantity DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE stock_movements MODIFY quantity DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE wastage_log MODIFY quantity DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE physical_counts MODIFY system_count DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE physical_counts MODIFY physical_count DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock MODIFY opening_stock DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock MODIFY added DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock MODIFY return_in DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock MODIFY transfer_out DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock MODIFY qty_sold DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock MODIFY adjustment_add DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE department_stock MODIFY adjustment_sub DECIMAL(10,2) DEFAULT 0"); } catch (Exception $ignore) {}
 
 } catch (Exception $e) { error_log('Stock migration: ' . $e->getMessage()); }
 
@@ -221,11 +239,12 @@ try {
             $unit     = clean_input($_POST['unit'] ?? 'pcs');
             $cost     = floatval($_POST['unit_cost'] ?? 0);
             $price    = floatval($_POST['selling_price'] ?? 0);
-            $stock    = intval($_POST['opening_stock'] ?? 0);
+            $stock    = floatval($_POST['opening_stock'] ?? 0);
             $reorder  = intval($_POST['reorder_level'] ?? 10);
             $selling_unit       = clean_input($_POST['selling_unit'] ?? '');
             $yield_per_unit     = max(1, intval($_POST['yield_per_unit'] ?? 1));
             $selling_unit_price = floatval($_POST['selling_unit_price'] ?? 0);
+            $pack_size          = max(0, intval($_POST['pack_size'] ?? 0));
             // If no selling unit specified, reset yield to 1 and shot price to 0
             if (empty($selling_unit)) { $yield_per_unit = 1; $selling_unit_price = 0; }
 
@@ -242,8 +261,8 @@ try {
                 $sku = 'P' . $initials . rand(100, 999);
             }
             
-            $stmt = $pdo->prepare("INSERT INTO products (company_id, client_id, name, sku, category, unit, selling_unit, yield_per_unit, selling_unit_price, unit_cost, selling_price, current_stock, reorder_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $name, $sku, $category, $unit, $selling_unit ?: null, $yield_per_unit, $selling_unit_price, $cost, $price, $stock, $reorder]);
+            $stmt = $pdo->prepare("INSERT INTO products (company_id, client_id, name, sku, category, unit, selling_unit, yield_per_unit, selling_unit_price, unit_cost, selling_price, current_stock, reorder_level, pack_size) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $name, $sku, $category, $unit, $selling_unit ?: null, $yield_per_unit, $selling_unit_price, $cost, $price, $stock, $reorder, $pack_size]);
             $pid = $pdo->lastInsertId();
             
             log_audit($company_id, $user_id, 'product_added', 'stock', $pid, "Product '$name' added with stock $stock" . ($selling_unit ? ", sells as $yield_per_unit {$selling_unit}s" : ''));
@@ -266,7 +285,7 @@ try {
         case 'receive_delivery':
             $product_id = intval($_POST['product_id'] ?? 0);
             $supplier   = clean_input($_POST['supplier'] ?? '');
-            $qty        = intval($_POST['quantity'] ?? 0);
+            $qty        = floatval($_POST['quantity'] ?? 0);
             $cost       = floatval($_POST['unit_cost'] ?? 0);
             $invoice    = clean_input($_POST['invoice_number'] ?? '');
             $date       = $_POST['delivery_date'] ?? date('Y-m-d');
@@ -281,8 +300,8 @@ try {
             $stmt->execute([$qty, $cost, $product_id, $company_id]);
             
             // Log movement
-            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,'in',?,'delivery',?,?)");
-            $stmt->execute([$company_id, $client_id, $product_id, $qty, "Delivery from $supplier", $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,'in',?,'delivery',?,?,?)");
+            $stmt->execute([$company_id, $client_id, $product_id, $qty, "Delivery from $supplier", $user_id, $date . ' ' . date('H:i:s')]);
             
             $pdo->commit();
             log_audit($company_id, $user_id, 'delivery_received', 'stock', $product_id, "$qty units from $supplier");
@@ -291,7 +310,7 @@ try {
 
         case 'update_delivery':
             $delivery_id = intval($_POST['delivery_id'] ?? 0);
-            $new_qty     = intval($_POST['quantity'] ?? 0);
+            $new_qty     = floatval($_POST['quantity'] ?? 0);
             $new_cost    = floatval($_POST['unit_cost'] ?? 0);
             $new_supplier = clean_input($_POST['supplier_name'] ?? '');
             $new_invoice  = clean_input($_POST['invoice_number'] ?? '');
@@ -311,7 +330,7 @@ try {
                 break;
             }
             
-            $qty_diff = $new_qty - intval($old['quantity']);
+            $qty_diff = $new_qty - floatval($old['quantity']);
             $product_id = $old['product_id'];
             
             $pdo->beginTransaction();
@@ -353,7 +372,7 @@ try {
             }
 
             $product_id = $del['product_id'];
-            $del_qty    = intval($del['quantity']);
+            $del_qty    = floatval($del['quantity']);
 
             // Snapshot to trash
             move_to_trash($pdo, $company_id, 'delivery', $delivery_id, ($del['supplier_name'] ?? 'Delivery') . ' — ' . ($del['delivery_date'] ?? ''), $del, $user_id);
@@ -376,7 +395,7 @@ try {
         case 'issue_to_department':
             $department_id = intval($_POST['department_id'] ?? 0);
             $product_id    = intval($_POST['product_id'] ?? 0);
-            $qty           = intval($_POST['quantity'] ?? 0);
+            $qty           = floatval($_POST['quantity'] ?? 0);
             $issue_date    = $_POST['issue_date'] ?? date('Y-m-d');
             $transfer_mode = trim($_POST['transfer_mode'] ?? 'unit'); // 'unit' or 'selling_unit'
             
@@ -502,7 +521,7 @@ try {
         case 'add_dept_product':
             $dept_id = intval($_POST['department_id'] ?? 0);
             $prod_id = intval($_POST['product_id'] ?? 0);
-            $opening = intval($_POST['opening_stock'] ?? 0);
+            $opening = floatval($_POST['opening_stock'] ?? 0);
             $price   = floatval($_POST['selling_price'] ?? 0);
             $date    = $_POST['stock_date'] ?? date('Y-m-d');
             
@@ -679,7 +698,7 @@ try {
 
         case 'issue_kitchen_product':
             $product_id = intval($_POST['product_id'] ?? 0);
-            $quantity = intval($_POST['quantity'] ?? 0);
+            $quantity = floatval($_POST['quantity'] ?? 0);
             $dest_dept_id = intval($_POST['destination_dept_id'] ?? 0);
             $stock_date = $_POST['stock_date'] ?? date('Y-m-d');
 
@@ -729,7 +748,7 @@ try {
                     $stmt->execute([$deduction, $kitchen_id, $ing['ingredient_product_id'], $stock_date, $company_id, $client_id]);
 
                     // Log the deduction
-                    $stmt_mv = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,'out',?,'kitchen_consumption',?,?)");
+                    $stmt_mv = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,'out',?,'kitchen_consumption',?,?,?)");
                     $stmt_mv->execute([$company_id, $client_id, $ing['ingredient_product_id'], $deduction, 
                         "Consumed for {$quantity}x {$kitchen_product['name']} issued to dept #$dest_dept_id", $user_id]);
                 }
@@ -756,8 +775,8 @@ try {
             $dest_name_q->execute([$dest_dept_id]);
             $dest_name = $dest_name_q->fetchColumn() ?: "Dept #$dest_dept_id";
 
-            $stmt_mv = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,'out',?,'kitchen_issue',?,?)");
-            $stmt_mv->execute([$company_id, $client_id, $product_id, $quantity, "Issued {$quantity}x {$kitchen_product['name']} to $dest_name on $stock_date", $user_id]);
+            $stmt_mv = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,'out',?,'kitchen_issue',?,?,?)");
+            $stmt_mv->execute([$company_id, $client_id, $product_id, $quantity, "Issued {$quantity}x {$kitchen_product['name']} to $dest_name on $stock_date", $user_id, $stock_date . ' ' . date('H:i:s')]);
 
             log_audit($company_id, $user_id, 'kitchen_product_issued', 'stock', $product_id, "Issued {$quantity}x {$kitchen_product['name']} to $dest_name");
             echo json_encode(['success' => true, 'message' => "Issued $quantity {$kitchen_product['name']} to $dest_name"]);
@@ -805,7 +824,7 @@ try {
 
         case 'log_wastage':
             $product_id = intval($_POST['product_id'] ?? 0);
-            $qty        = intval($_POST['quantity'] ?? 0);
+            $qty        = floatval($_POST['quantity'] ?? 0);
             $reason     = clean_input($_POST['reason'] ?? '');
             $date       = $_POST['date'] ?? date('Y-m-d');
             
@@ -817,8 +836,8 @@ try {
             $stmt = $pdo->prepare("UPDATE products SET current_stock = current_stock - ? WHERE id = ? AND company_id = ? AND current_stock >= ?");
             $stmt->execute([$qty, $product_id, $company_id, $qty]);
             
-            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,'out',?,'wastage',?,?)");
-            $stmt->execute([$company_id, $client_id, $product_id, $qty, $reason, $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,'out',?,'wastage',?,?,?)");
+            $stmt->execute([$company_id, $client_id, $product_id, $qty, $reason, $user_id, $date . ' ' . date('H:i:s')]);
             
             $pdo->commit();
             log_audit($company_id, $user_id, 'wastage_logged', 'stock', $product_id, "$qty units wasted: $reason");
@@ -827,8 +846,8 @@ try {
             
         case 'save_count':
             $product_id   = intval($_POST['product_id'] ?? 0);
-            $system_count = intval($_POST['system_count'] ?? 0);
-            $physical_count = intval($_POST['physical_count'] ?? 0);
+            $system_count = floatval($_POST['system_count'] ?? 0);
+            $physical_count = floatval($_POST['physical_count'] ?? 0);
             $date         = $_POST['date'] ?? date('Y-m-d');
             $notes        = clean_input($_POST['notes'] ?? '');
             
@@ -844,8 +863,8 @@ try {
             $diff = $physical_count - $system_count;
             if ($diff != 0) {
                 $type = $diff > 0 ? 'adjustment_in' : 'adjustment_out';
-                $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,?,?,?,?,?)");
-                $stmt->execute([$company_id, $client_id, $product_id, $type, abs($diff), 'physical_count', "Adjusted from $system_count to $physical_count", $user_id]);
+                $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([$company_id, $client_id, $product_id, $type, abs($diff), 'physical_count', "Adjusted from $system_count to $physical_count", $user_id, $date . ' ' . date('H:i:s')]);
             }
             
             $pdo->commit();
@@ -855,10 +874,11 @@ try {
 
         case 'stock_adjustment':
             $product_id = intval($_POST['product_id'] ?? 0);
-            $qty        = intval($_POST['quantity'] ?? 0);
+            $qty        = floatval($_POST['quantity'] ?? 0);
             $type       = clean_input($_POST['type'] ?? 'adjustment_out');
             $reason     = clean_input($_POST['reason'] ?? 'other');
             $notes      = clean_input($_POST['notes'] ?? '');
+            $stock_date = $_POST['stock_date'] ?? date('Y-m-d');
             
             if ($qty <= 0) {
                 echo json_encode(['success' => false, 'message' => 'Quantity must be greater than 0']);
@@ -879,8 +899,8 @@ try {
             
             // Record the movement
             $full_notes = $reason ? "[$reason] $notes" : $notes;
-            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $product_id, $type, $qty, 'manual_adjustment', $full_notes, $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $product_id, $type, $qty, 'manual_adjustment', $full_notes, $user_id, $stock_date . ' ' . date('H:i:s')]);
             
             $pdo->commit();
             log_audit($company_id, $user_id, 'stock_adjustment', 'stock', $product_id, "$type: $qty units ($reason) - $notes");
@@ -890,7 +910,7 @@ try {
         case 'dept_stock_adjustment':
             $department_id = intval($_POST['department_id'] ?? 0);
             $product_id    = intval($_POST['product_id'] ?? 0);
-            $qty           = intval($_POST['quantity'] ?? 0);
+            $qty           = floatval($_POST['quantity'] ?? 0);
             $direction     = clean_input($_POST['direction'] ?? 'subtract'); // 'add' or 'subtract'
             $reason        = clean_input($_POST['reason'] ?? 'damage');
             $notes         = clean_input($_POST['notes'] ?? '');
@@ -943,8 +963,8 @@ try {
             
             // Log movement
             $full_notes = "[$reason] Dept adjustment: $notes";
-            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,?,?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $product_id, $mv_type, $qty, 'dept_adjustment', $full_notes, $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $product_id, $mv_type, $qty, 'dept_adjustment', $full_notes, $user_id, $stock_date . ' ' . date('H:i:s')]);
             
             $pdo->commit();
             log_audit($company_id, $user_id, 'dept_stock_adjustment', 'department_stock', $ds_id, "$direction: $qty units ($reason) - $notes");
@@ -953,7 +973,7 @@ try {
             
         case 'stock_out':
             $product_id = intval($_POST['product_id'] ?? 0);
-            $qty        = intval($_POST['quantity'] ?? 0);
+            $qty        = floatval($_POST['quantity'] ?? 0);
             $reason     = clean_input($_POST['reason'] ?? 'sales');
             $notes      = clean_input($_POST['notes'] ?? '');
             
@@ -968,8 +988,8 @@ try {
                 break;
             }
             
-            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,'out',?,?,?,?)");
-            $stmt->execute([$company_id, $client_id, $product_id, $qty, $reason, $notes, $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,'out',?,?,?,?,?)");
+            $stmt->execute([$company_id, $client_id, $product_id, $qty, $reason, $notes, $user_id, ($_POST['stock_date'] ?? date('Y-m-d')) . ' ' . date('H:i:s')]);
             
             $pdo->commit();
             log_audit($company_id, $user_id, 'stock_out', 'stock', $product_id, "$qty units out: $reason");
@@ -979,7 +999,7 @@ try {
         case 'recall_delivery':
             $delivery_id = intval($_POST['delivery_id'] ?? 0);
             $product_id  = intval($_POST['product_id'] ?? 0);
-            $qty         = intval($_POST['quantity'] ?? 0);
+            $qty         = floatval($_POST['quantity'] ?? 0);
             $notes       = clean_input($_POST['notes'] ?? '');
             
             if ($qty <= 0) {
@@ -1000,14 +1020,21 @@ try {
             }
             
             // Record a return_outward stock movement
-            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,'return_outward',?,'recall',?,?)");
-            $stmt->execute([$company_id, $client_id, $product_id, $qty, $notes ? $notes : "Recall from delivery #$delivery_id", $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,'return_outward',?,'recall',?,?,?)");
+            $stmt->execute([$company_id, $client_id, $product_id, $qty, $notes ? $notes : "Recall from delivery #$delivery_id", $user_id, ($_POST['stock_date'] ?? date('Y-m-d')) . ' ' . date('H:i:s')]);
             
             $pdo->commit();
             log_audit($company_id, $user_id, 'recall_delivery', 'stock', $product_id, "$qty units returned outward (delivery #$delivery_id)");
             echo json_encode(['success' => true]);
             break;
             
+        case 'reset_all_opening':
+            $stmt = $pdo->prepare("UPDATE products SET opening_stock = 0 WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL");
+            $stmt->execute([$company_id, $client_id]);
+            log_audit($company_id, $user_id, 'reset_all_opening', 'stock', 0, "All opening stock reset to 0");
+            echo json_encode(['success' => true]);
+            break;
+
         case 'create_department':
             $name        = clean_input($_POST['name'] ?? '');
             $outlet_id   = intval($_POST['outlet_id'] ?? 0);
@@ -1079,17 +1106,18 @@ try {
             $category      = trim($_POST['category'] ?? '');  // raw, not htmlspecialchars
             $unit_cost     = floatval($_POST['unit_cost'] ?? 0);
             $selling_price = floatval($_POST['selling_price'] ?? 0);
-            $opening_stock = intval($_POST['opening_stock'] ?? 0);
-            $current_stock = intval($_POST['current_stock'] ?? 0);
+            $opening_stock = floatval($_POST['opening_stock'] ?? 0);
+            $current_stock = floatval($_POST['current_stock'] ?? 0);
             $reorder_level = intval($_POST['reorder_level'] ?? 10);
+            $pack_size     = max(0, intval($_POST['pack_size'] ?? 0));
             
             if (!$pid || !$name) {
                 echo json_encode(['success' => false, 'message' => 'Product ID and name are required']);
                 break;
             }
             
-            $stmt = $pdo->prepare("UPDATE products SET name=?, sku=?, category=?, unit_cost=?, selling_price=?, opening_stock=?, current_stock=?, reorder_level=?, updated_at=NOW() WHERE id=? AND company_id=? AND client_id=?");
-            $stmt->execute([$name, $sku, $category, $unit_cost, $selling_price, $opening_stock, $current_stock, $reorder_level, $pid, $company_id, $client_id]);
+            $stmt = $pdo->prepare("UPDATE products SET name=?, sku=?, category=?, unit_cost=?, selling_price=?, opening_stock=?, current_stock=?, reorder_level=?, pack_size=?, updated_at=NOW() WHERE id=? AND company_id=? AND client_id=?");
+            $stmt->execute([$name, $sku, $category, $unit_cost, $selling_price, $opening_stock, $current_stock, $reorder_level, $pack_size, $pid, $company_id, $client_id]);
             
             log_audit($company_id, $user_id, 'product_updated', 'stock', $pid, "Product '$name' updated, stock=$current_stock");
             echo json_encode(['success' => true]);
@@ -1098,7 +1126,7 @@ try {
         case 'add_dept_product':
             $dept_id    = intval($_POST['department_id'] ?? 0);
             $product_id = intval($_POST['product_id'] ?? 0);
-            $opening    = intval($_POST['opening_stock'] ?? 0);
+            $opening    = floatval($_POST['opening_stock'] ?? 0);
             $sell_price = floatval($_POST['selling_price'] ?? 0);
             $stock_date = $_POST['stock_date'] ?? date('Y-m-d');
             $dept_selling_unit   = clean_input($_POST['selling_unit'] ?? '');
@@ -1130,8 +1158,8 @@ try {
             $ds_id          = intval($_POST['id'] ?? 0);
             $dept_id_post   = intval($_POST['department_id'] ?? 0);
             $prod_id_post   = intval($_POST['product_id'] ?? 0);
-            $opening        = intval($_POST['opening_stock'] ?? 0);
-            $added          = intval($_POST['added'] ?? 0);
+            $opening        = floatval($_POST['opening_stock'] ?? 0);
+            $added          = floatval($_POST['added'] ?? 0);
             $return_in      = intval($_POST['return_in'] ?? 0);
             $transfer_out   = intval($_POST['transfer_out'] ?? 0);
             $transfer_to_main = intval($_POST['transfer_to_main'] ?? 0);
@@ -1227,11 +1255,11 @@ try {
                     $upd->execute([$main_delta, $src_product_id, $company_id, $client_id]);
                     
                     // Log the movement
-                    $stmt_mv = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by) VALUES (?,?,?,'in',?,'dept_return',?,?)");
+                    $stmt_mv = $pdo->prepare("INSERT INTO stock_movements (company_id, client_id, product_id, type, quantity, reference_type, notes, performed_by, created_at) VALUES (?,?,?,'in',?,'dept_return',?,?,?)");
                     $dept_name_q = $pdo->prepare("SELECT name FROM stock_departments WHERE id = ?");
                     $dept_name_q->execute([$src_dept_id]);
                     $dept_nm = $dept_name_q->fetchColumn() ?: "Dept #$src_dept_id";
-                    $stmt_mv->execute([$company_id, $client_id, $src_product_id, $main_delta, "Returned from $dept_nm on $stock_date", $user_id]);
+                    $stmt_mv->execute([$company_id, $client_id, $src_product_id, $main_delta, "Returned from $dept_nm on $stock_date", $user_id, $stock_date . ' ' . date('H:i:s')]);
                     
                     log_audit($company_id, $user_id, 'dept_to_main_transfer', 'stock', $src_product_id, "Dept return to main store: $main_delta units from dept $src_dept_id on $stock_date");
                 }

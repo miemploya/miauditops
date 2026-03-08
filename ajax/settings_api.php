@@ -87,7 +87,7 @@ try {
             $pdo->beginTransaction();
 
             $hash = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $pdo->prepare("INSERT INTO users (company_id, first_name, last_name, email, phone, password, role, department, is_active) VALUES (?,?,?,?,?,?,?,?,1)");
+            $stmt = $pdo->prepare("INSERT INTO users (company_id, first_name, last_name, email, phone, password, role, department, is_active, email_verified_at) VALUES (?,?,?,?,?,?,?,?,1, NOW())");
             $stmt->execute([$company_id, $first, $last, $email, $phone, $hash, $role, $dept]);
             $new_user_id = $pdo->lastInsertId();
 

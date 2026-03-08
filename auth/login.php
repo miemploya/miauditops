@@ -77,8 +77,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
                     $user = $stmt->fetch();
                     
                     if ($user && password_verify($password, $user['password'])) {
-                        // Check email verification
-                        if (empty($user['google_id']) && empty($user['email_verified_at'])) {
+                        // Only require verification for self-registered users (those with a pending verification token)
+                        if (empty($user['google_id']) && empty($user['email_verified_at']) && !empty($user['verification_token'])) {
                             $error = 'Please verify your email before signing in.';
                             $show_resend = true;
                             $resend_email = $email;
@@ -111,8 +111,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
                 } elseif (count($matches) === 1) {
                     $user = $matches[0];
                     if (password_verify($password, $user['password'])) {
-                        // Check email verification
-                        if (empty($user['google_id']) && empty($user['email_verified_at'])) {
+                        // Only require verification for self-registered users (those with a pending verification token)
+                        if (empty($user['google_id']) && empty($user['email_verified_at']) && !empty($user['verification_token'])) {
                             $error = 'Please verify your email before signing in.';
                             $show_resend = true;
                             $resend_email = $email;

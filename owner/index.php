@@ -94,9 +94,14 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                 <h2 class="text-lg font-bold" x-text="{ dashboard:'Dashboard', companies:'Companies', users:'Users', subscriptions:'Subscriptions', pricing:'Pricing', messages:'Messages', support:'Support Tickets', deleted:'Deleted Accounts' }[tab] || 'Dashboard'"></h2>
                 <p class="text-xs text-slate-500">MIAUDITOPS Platform Management</p>
             </div>
-            <button @click="loadStats()" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all" title="Refresh">
-                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-            </button>
+            <div class="flex items-center gap-3">
+                <button @click="createModal=true; $nextTick(()=>lucide.createIcons())" class="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl text-sm shadow-lg shadow-emerald-600/30 hover:scale-[1.02] transition-all flex items-center gap-2">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i> Create Account
+                </button>
+                <button @click="loadStats()" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all" title="Refresh">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                </button>
+            </div>
         </header>
 
         <div class="p-6">
@@ -299,6 +304,12 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                             <div class="flex items-center gap-3 flex-wrap">
                                 <span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase" :class="subBadge(c.sub_status)" x-text="c.sub_status || 'unset'"></span>
                                 <span class="text-xs text-slate-400" x-show="c.expires_at" x-text="'Exp: ' + (c.expires_at || '')"></span>
+                                <!-- Quick Extend Buttons -->
+                                <div class="flex items-center gap-1">
+                                    <button @click="extendExpiry(c.id, 30, c)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all" title="Extend 30 days">+30d</button>
+                                    <button @click="extendExpiry(c.id, 60, c)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-all" title="Extend 60 days">+60d</button>
+                                    <button @click="extendExpiry(c.id, 90, c)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-all" title="Extend 90 days">+90d</button>
+                                </div>
                                 <button @click="openSubModal(c)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-red-600/20 hover:text-red-400 transition-all flex items-center gap-1">
                                     <i data-lucide="edit-3" class="w-3 h-3"></i> Manage
                                 </button>
@@ -835,6 +846,126 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
         </div>
     </div>
 
+    <!-- ═══ Create Account Modal ═══ -->
+    <div x-show="createModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="createModal=false">
+        <div class="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-lg p-6 mx-4 max-h-[90vh] overflow-y-auto" @click.stop>
+            <div class="flex items-center justify-between mb-5">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                        <i data-lucide="user-plus" class="w-4 h-4 text-white"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold">Create New Account</h3>
+                        <p class="text-[11px] text-slate-400">Set up a new company with admin access</p>
+                    </div>
+                </div>
+                <button @click="createModal=false" class="p-1 text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+
+            <!-- Company Name -->
+            <div class="mb-4">
+                <label class="block text-xs font-semibold text-slate-400 mb-1">Company / Business Name</label>
+                <input type="text" x-model="createForm.company_name" placeholder="e.g. Acme Industries" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all">
+            </div>
+
+            <!-- Admin Name -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">First Name</label>
+                    <input type="text" x-model="createForm.first_name" placeholder="John" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Last Name</label>
+                    <input type="text" x-model="createForm.last_name" placeholder="Doe" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all">
+                </div>
+            </div>
+
+            <!-- Email -->
+            <div class="mb-4">
+                <label class="block text-xs font-semibold text-slate-400 mb-1">Admin Email</label>
+                <input type="email" x-model="createForm.email" placeholder="admin@company.com" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all">
+            </div>
+
+            <!-- Password -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Password</label>
+                    <input type="password" x-model="createForm.password" placeholder="Min. 6 characters" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Confirm Password</label>
+                    <input type="password" x-model="createForm.confirm_password" placeholder="Re-enter" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all">
+                </div>
+            </div>
+
+            <div class="h-px bg-slate-800 my-5"></div>
+
+            <!-- Subscription Config -->
+            <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Subscription Configuration</p>
+
+            <!-- Plan Selection -->
+            <div class="grid grid-cols-3 gap-2 mb-4">
+                <button @click="createForm.plan_name='starter'" class="p-3 rounded-xl border text-center transition-all text-xs font-bold" :class="createForm.plan_name==='starter' ? 'bg-slate-500/20 border-slate-400 text-white ring-2 ring-slate-500/40' : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-500'">
+                    <i data-lucide="rocket" class="w-4 h-4 mx-auto mb-1"></i>
+                    Starter
+                    <p class="text-[9px] text-slate-500 mt-0.5 font-normal">Free Forever</p>
+                </button>
+                <button @click="createForm.plan_name='professional'" class="p-3 rounded-xl border text-center transition-all text-xs font-bold" :class="createForm.plan_name==='professional' ? 'bg-violet-500/20 border-violet-400 text-violet-300 ring-2 ring-violet-500/40' : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-violet-500'">
+                    <i data-lucide="briefcase" class="w-4 h-4 mx-auto mb-1"></i>
+                    Professional
+                    <p class="text-[9px] text-slate-500 mt-0.5 font-normal">Most Popular</p>
+                </button>
+                <button @click="createForm.plan_name='enterprise'" class="p-3 rounded-xl border text-center transition-all text-xs font-bold" :class="createForm.plan_name==='enterprise' ? 'bg-amber-500/20 border-amber-400 text-amber-300 ring-2 ring-amber-500/40' : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-amber-500'">
+                    <i data-lucide="crown" class="w-4 h-4 mx-auto mb-1"></i>
+                    Enterprise
+                    <p class="text-[9px] text-slate-500 mt-0.5 font-normal">Full Power</p>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3 mb-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Billing Cycle</label>
+                    <select x-model="createForm.billing_cycle" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500">
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="annual">Annual</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Status</label>
+                    <select x-model="createForm.status" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500">
+                        <option value="active">Active</option>
+                        <option value="trial">Trial</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Expires At</label>
+                    <input type="date" x-model="createForm.expires_at" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500">
+                </div>
+            </div>
+
+            <!-- Plan Info -->
+            <div class="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 mb-5">
+                <p class="text-xs text-blue-300">
+                    <i data-lucide="info" class="w-3 h-3 inline-block mr-1"></i>
+                    A verification email will be sent to the admin. The company code will be shown after creation.
+                </p>
+            </div>
+
+            <!-- Error -->
+            <p x-show="createError" class="text-red-400 text-xs mb-3" x-text="createError"></p>
+
+            <!-- Actions -->
+            <div class="flex justify-end gap-3">
+                <button @click="createModal=false" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancel</button>
+                <button @click="submitCreateAccount()" :disabled="createSaving" class="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl text-sm shadow-lg shadow-emerald-600/30 hover:scale-[1.02] transition-all disabled:opacity-50 flex items-center gap-2">
+                    <i data-lucide="user-plus" class="w-4 h-4"></i>
+                    <span x-text="createSaving ? 'Creating...' : 'Create Account'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
 <script>
 function ownerApp() {
     return {
@@ -862,6 +993,11 @@ function ownerApp() {
         broadcastSending: false,
         deletedCompanies: [],
         deletedSearch: '',
+        // Create Account state
+        createModal: false,
+        createSaving: false,
+        createError: '',
+        createForm: { company_name: '', first_name: '', last_name: '', email: '', password: '', confirm_password: '', plan_name: 'starter', billing_cycle: 'monthly', status: 'trial', expires_at: '' },
 
         async init() {
             await this.loadStats();
@@ -1168,6 +1304,63 @@ function ownerApp() {
 
         async updateTicketStatus(id, status) {
             await this.api('update_ticket_status', { ticket_id: id, status });
+        },
+
+        // ── Create Account ──
+        async submitCreateAccount() {
+            this.createError = '';
+            const f = this.createForm;
+            if (!f.company_name.trim() || !f.first_name.trim() || !f.last_name.trim() || !f.email.trim() || !f.password) {
+                this.createError = 'All fields are required.';
+                return;
+            }
+            if (f.password.length < 6) {
+                this.createError = 'Password must be at least 6 characters.';
+                return;
+            }
+            if (f.password !== f.confirm_password) {
+                this.createError = 'Passwords do not match.';
+                return;
+            }
+            this.createSaving = true;
+            const r = await this.api('create_account', {
+                company_name: f.company_name,
+                first_name: f.first_name,
+                last_name: f.last_name,
+                email: f.email,
+                password: f.password,
+                plan_name: f.plan_name,
+                billing_cycle: f.billing_cycle,
+                status: f.status,
+                expires_at: f.expires_at
+            });
+            this.createSaving = false;
+            if (r.success) {
+                this.createModal = false;
+                alert('✓ ' + r.message);
+                this.createForm = { company_name: '', first_name: '', last_name: '', email: '', password: '', confirm_password: '', plan_name: 'starter', billing_cycle: 'monthly', status: 'trial', expires_at: '' };
+                this.loadStats();
+                this.loadCompanies();
+            } else {
+                this.createError = r.message || 'Account creation failed.';
+            }
+        },
+
+        // ── Extend Expiry ──
+        async extendExpiry(companyId, days, companyObj) {
+            const name = companyObj?.name || 'this company';
+            if (!confirm(`Extend expiry for "${name}" by ${days} days?`)) return;
+            const r = await this.api('extend_expiry', { company_id: companyId, days });
+            if (r.success) {
+                alert('✓ ' + r.message);
+                // Update local data
+                if (companyObj) {
+                    companyObj.expires_at = r.new_expires_at;
+                    companyObj.sub_status = r.new_status;
+                }
+            } else {
+                alert('✗ ' + (r.message || 'Failed to extend expiry.'));
+            }
         }
     };
 }

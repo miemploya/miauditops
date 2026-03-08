@@ -10,6 +10,9 @@ function stationAudit() {
         sessionFilterQuarter: '',
         trashItems: [],
         showTrash: false,
+        deletePasswordSet: false,
+        deletePasswordInput: '',
+        get isAdminUser() { const r = (window.__SA_USER || {}).user_role || ''; return r === 'business_owner' || r === 'super_admin'; },
         get sessionYears() {
             const years = [...new Set(this.sessions.map(s => s.date_from?.slice(0, 4)).filter(Boolean))];
             return years.sort().reverse();
@@ -65,6 +68,23 @@ function stationAudit() {
         systemSales: { pos_amount: 0, cash_amount: 0, transfer_amount: 0, teller_amount: 0, notes: '', teller_proof_url: '', pos_proof_url: '', denomination_json: '', pos_terminals_json: '', transfer_terminals_json: '' },
         pumpTables: [],
         haulage: [],
+        showDischargeModal: false,
+        _dischargeIdx: -1,
+        _dischargeProduct: 'PMS',
+        _dBefore: 0,
+        _dAfter: 0,
+        _dCapKg: 0,
+        _dMaxFill: 100,
+        _dLpgMode: 'gauge',
+        _dMTBefore: 0,
+        _dMTAfter: 0,
+        _dTankBefore: 0,
+        _dTankAfter: 0,
+        _dStationCapTons: 0,
+        _dStationMaxFill: 100,
+        _dFuelMode: 'tank',
+        _dTruckLBefore: 0,
+        _dTruckLAfter: 0,
         expenseCategories: [],
         activeExpenseCatId: null,
         newExpenseCatName: '',
@@ -138,6 +158,38 @@ function stationAudit() {
         init() {
             this.$watch('currentTab', val => localStorage.setItem('sa_currentTab', val));
             this.$watch('lubeSubTab', val => localStorage.setItem('sa_lubeSubTab', val));
+            this.checkDeletePassword();
+
+            // ── Auto-Save: debounced save on any input change ──
+            this.$nextTick(() => {
+                const el = this.$el;
+                if (!el) return;
+                el.addEventListener('input', (e) => {
+                    // Skip inputs inside modals (those have explicit save buttons)
+                    if (e.target.closest('[x-show*="Modal"], [x-show*="modal"], .modal')) return;
+                    // Skip search/filter inputs
+                    if (e.target.type === 'search' || (e.target.placeholder && /search|filter/i.test(e.target.placeholder))) return;
+
+                    const tab = this.currentTab;
+                    if (tab === 'sales') {
+                        this.autoSave('systemSales', () => this.saveSystemSales());
+                    } else if (tab === 'lube') {
+                        const subTab = this.lubeSubTab;
+                        if (subTab === 'store') {
+                            this.autoSave('lubeStore', () => this.saveLubeStoreItems());
+                        }
+                        // Counter items auto-save per section
+                        if (subTab === 'counters') {
+                            const secEl = e.target.closest('[data-section-id]');
+                            if (secEl) {
+                                const sid = secEl.dataset.sectionId;
+                                const sec = this.lubeSections.find(s => s.id == sid);
+                                if (sec) this.autoSave('counter_' + sid, () => this.saveLubeItems(sec));
+                            }
+                        }
+                    }
+                });
+            });
         },
 
         // Computed
@@ -183,17 +235,22 @@ function stationAudit() {
 
                 const isLpg = this.isLPG(prod);
 
+                // Compute 'added' dynamically from live haulage array
+                const haulageAdded = this.haulage
+                    .filter(h => (h.product || 'PMS') === prod)
+                    .reduce((s, h) => s + (parseFloat(h.quantity) || 0), 0);
+
                 let opening, added, closing;
 
                 if (isLpg) {
                     // For LPG: convert % readings to kg using capacity_kg per tank
                     opening = (firstPt.tanks || []).reduce((s, t) => s + this.lpgKgOpen(t), 0);
-                    added = sorted.reduce((s, pt) => (pt.tanks || []).reduce((s2, t) => s2 + this.lpgKgAdded(t), s), 0);
+                    added = haulageAdded > 0 ? haulageAdded * 1000 : sorted.reduce((s, pt) => (pt.tanks || []).reduce((s2, t) => s2 + this.lpgKgAdded(t), s), 0);
                     closing = (lastPt.tanks || []).reduce((s, t) => s + this.lpgKgClose(t), 0);
                 } else {
-                    // For PMS/AGO/DPK etc: raw litre values
+                    // For PMS/AGO/DPK etc: raw litre values from haulage
                     opening = (firstPt.tanks || []).reduce((s, t) => s + parseFloat(t.opening || 0), 0);
-                    added = sorted.reduce((s, pt) => (pt.tanks || []).reduce((s2, t) => s2 + parseFloat(t.added || 0), s), 0);
+                    added = haulageAdded;
                     closing = (lastPt.tanks || []).reduce((s, t) => s + parseFloat(t.closing || 0), 0);
                 }
 
@@ -307,12 +364,32 @@ function stationAudit() {
             return this.pumpTables.reduce((sum, pt) => sum + this.pumpTableLitres(pt), 0);
         },
         get lubeStoreTotalValue() {
-            return this.lubeStoreItems.reduce((sum, si) => sum + (this.storeItemClosing(si) * (parseFloat(si.selling_price) || 0)), 0);
+            let total = 0;
+            // Store stock count: use latest period's closing × cost_price
+            const storeCounts = (this.lubeStockCounts || []).slice().sort((a, b) => (b.date_to || '').localeCompare(a.date_to || ''));
+            if (storeCounts.length > 0) {
+                (storeCounts[0].items || []).forEach(it => {
+                    const closing = parseInt(it.physical_count || 0);
+                    const cp = parseFloat(it.cost_price || 0);
+                    total += closing * cp;
+                });
+            }
+            // Counter stock counts: for each counter, use latest period's closing × cost_price
+            for (const sid of Object.keys(this.counterStockCounts || {})) {
+                const counts = (this.counterStockCounts[sid] || []).slice().sort((a, b) => (b.date_to || '').localeCompare(a.date_to || ''));
+                if (counts.length > 0) {
+                    (counts[0].items || []).forEach(it => {
+                        const closing = parseInt(it.physical_count || 0);
+                        const cp = parseFloat(it.cost_price || 0);
+                        total += closing * cp;
+                    });
+                }
+            }
+            return total;
         },
         get monthCloseout() {
             const systemSales = this.totalPumpSales;
             const bankDeposit = parseFloat(this.systemSales.teller_amount) || 0;
-            const totalBalance = systemSales - bankDeposit;
 
             // Expenses by category
             const expenseLines = this.expenseCategories.map(cat => ({
@@ -326,6 +403,7 @@ function stationAudit() {
             const lubeUnsold = this.lubeStoreTotalValue;
             const receivables = this.totalDebtors;
 
+            const totalBalance = systemSales - bankDeposit;
             const expectedTotal = totalExpenses + posTransferSales + cashAtHand + lubeUnsold + receivables;
             const surplus = expectedTotal - totalBalance;
 
@@ -416,6 +494,7 @@ function stationAudit() {
             } else { this.toast(r.message || 'Upload failed', false); }
         },
         toast(msg, ok = true) {
+            if (this._silent) return; // suppress during auto-save
             const t = document.createElement('div');
             t.className = 'fixed bottom-6 right-6 z-50 px-6 py-3 rounded-xl text-sm font-bold text-white shadow-xl transition-opacity';
             t.style.background = ok ? 'linear-gradient(135deg,#10b981,#059669)' : 'linear-gradient(135deg,#ef4444,#dc2626)';
@@ -423,12 +502,39 @@ function stationAudit() {
             document.body.appendChild(t);
             setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
         },
+
+        // ── Auto-Save System ──
+        _silent: false,
+        _autoSaveTimers: {},
+        _autoSaving: false,
+        autoSave(key, fn, delay = 2000) {
+            clearTimeout(this._autoSaveTimers[key]);
+            this._autoSaveTimers[key] = setTimeout(async () => {
+                if (this._autoSaving || this.saving) return; // skip if already saving
+                this._autoSaving = true;
+                this._silent = true;
+                try { await fn(); } catch (e) { console.error('Auto-save error (' + key + '):', e); }
+                this._silent = false;
+                this._autoSaving = false;
+            }, delay);
+        },
         async api(action, data = {}, method = 'POST') {
             const fd = new FormData();
             fd.append('action', action);
-            Object.entries(data).forEach(([k, v]) => fd.append(k, typeof v === 'object' ? JSON.stringify(v) : v));
-            const res = await fetch('../ajax/station_audit_api.php', { method, body: fd });
-            return res.json();
+            Object.entries(data).forEach(([k, v]) => {
+                if (v === null || v === undefined) v = 0;
+                fd.append(k, typeof v === 'object' ? JSON.stringify(v) : v);
+            });
+            try {
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), 30000);
+                const res = await fetch('../ajax/station_audit_api.php', { method, body: fd, signal: ctrl.signal });
+                clearTimeout(timer);
+                return await res.json();
+            } catch (e) {
+                console.error('API error (' + action + '):', e);
+                return { success: false, message: e.name === 'AbortError' ? 'Request timed out. Please try again.' : 'Network error: ' + e.message };
+            }
         },
 
         // Actions
@@ -467,18 +573,54 @@ function stationAudit() {
         async deleteSession(sessionId, outletName) {
             console.log('deleteSession called', sessionId, outletName);
             if (!confirm(`Delete audit session for "${outletName || 'this station'}"?\n\nThis will permanently remove ALL data (sales, expenses, debtors, etc.) for this session.`)) return;
+            let deletePassword = '';
+            if (this.deletePasswordSet) {
+                deletePassword = prompt('Enter the deletion password to proceed:');
+                if (deletePassword === null) return; // cancelled
+                if (!deletePassword) { this.toast('Password is required to delete a session', false); return; }
+            }
             try {
-                const r = await this.api('delete_session', { session_id: sessionId });
+                const payload = { session_id: sessionId };
+                if (deletePassword) payload.delete_password = deletePassword;
+                const r = await this.api('delete_session', payload);
                 console.log('deleteSession response', r);
                 if (r.success) {
                     this.sessions = this.sessions.filter(s => s.id != sessionId);
                     if (this.activeSession == sessionId) { this.activeSession = null; this.sessionData = null; this._updateHash(); }
                     this.toast('Audit session deleted');
-                } else { this.toast(r.message || 'Failed to delete session', false); }
+                } else {
+                    if (r.password_required) this.toast('Incorrect deletion password', false);
+                    else this.toast(r.message || 'Failed to delete session', false);
+                }
             } catch (err) {
                 console.error('deleteSession error', err);
                 this.toast('Error deleting session: ' + err.message, false);
             }
+        },
+
+        // ── Deletion Password Management ──
+        async checkDeletePassword() {
+            try {
+                const r = await this.api('check_delete_password', {});
+                if (r.success) this.deletePasswordSet = !!r.has_password;
+            } catch (e) { /* silent */ }
+        },
+        async setDeletePassword() {
+            if (!this.deletePasswordInput || this.deletePasswordInput.length < 4) return;
+            const r = await this.api('set_delete_password', { password: this.deletePasswordInput });
+            if (r.success) {
+                this.deletePasswordSet = true;
+                this.deletePasswordInput = '';
+                this.toast('Deletion password set successfully');
+            } else { this.toast(r.message || 'Failed to set password', false); }
+        },
+        async removeDeletePassword() {
+            if (!confirm('Remove the deletion password? Anyone will be able to delete sessions without a password.')) return;
+            const r = await this.api('remove_delete_password', {});
+            if (r.success) {
+                this.deletePasswordSet = false;
+                this.toast('Deletion password removed');
+            } else { this.toast(r.message || 'Failed to remove password', false); }
         },
         async loadTrash() {
             try {
@@ -554,7 +696,18 @@ function stationAudit() {
                     }
                 }
                 this.pumpTables = (r.pump_tables || []).map(pt => ({ ...pt, _editing: false, _tankOpen: false, readings: pt.readings || [], tanks: pt.tanks || [] }));
-                this.haulage = r.haulage || [];
+                this.haulage = (r.haulage || []).map(h => ({
+                    ...h,
+                    product: h.product || 'PMS',
+                    tank_name: h.tank_name || '',
+                    quantity: parseFloat(h.quantity) || 0,
+                    waybill_qty: parseFloat(h.waybill_qty) || 0,
+                    _lpg_mode: h._lpg_mode || 'direct',
+                    _truck_cap_kg: h._truck_cap_kg || 0,
+                    _truck_max_fill: h._truck_max_fill || 100,
+                    _truck_open_pct: h._truck_open_pct || 0,
+                    _truck_close_pct: h._truck_close_pct || 0,
+                }));
                 this.expenseCategories = (r.expense_categories || []).map(c => ({ ...c, ledger: c.ledger || [] }));
                 if (this.expenseCategories.length && !this.activeExpenseCatId) this.activeExpenseCatId = this.expenseCategories[0].id;
                 this.debtorAccounts = (r.debtor_accounts || []).map(a => ({ ...a, ledger: a.ledger || [] }));
@@ -731,9 +884,9 @@ function stationAudit() {
             // Build terminal JSONs
             this.systemSales.pos_terminals_json = JSON.stringify(this.posTerminals);
             this.systemSales.transfer_terminals_json = JSON.stringify(this.transferTerminals);
-            this.saving = true;
+            if (!this._silent) this.saving = true;
             const r = await this.api('save_system_sales', { ...this.systemSales, session_id: this.activeSession });
-            this.saving = false;
+            if (!this._silent) this.saving = false;
             r.success ? this.toast('System sales saved') : this.toast(r.message, false);
         },
         async createPumpTable() {
@@ -917,26 +1070,103 @@ function stationAudit() {
                 delivery_date: new Date().toISOString().slice(0, 10),
                 tank_name: '', product: 'PMS',
                 quantity: 0, waybill_qty: 0,
-                // LPG discharge fields (ignored for non-LPG products)
-                _lpg_mode: 'direct',      // 'direct' | 'discharge'
-                _truck_cap_kg: 0,         // truck tank capacity in kg
-                _truck_max_fill: 100,     // truck configured max fill %
-                _truck_open_pct: 0,       // gauge % before discharge
-                _truck_close_pct: 0,      // gauge % after discharge
+                _lpg_mode: 'direct',
+                _truck_cap_kg: 0,
+                _truck_max_fill: 100,
+                _truck_open_pct: 0,
+                _truck_close_pct: 0,
             });
             this.$nextTick(() => lucide.createIcons());
         },
-        async saveHaulage() {
+        openDischargeModal(hi) {
+            const h = this.haulage[hi];
+            if (!h) return;
+            this._dischargeIdx = hi;
+            this._dischargeProduct = h.product;
+            this._dBefore = h._truck_open_pct || 0;
+            this._dAfter = h._truck_close_pct || 0;
+            this._dLpgMode = 'gauge';
+            this._dMTBefore = 0;
+            this._dMTAfter = 0;
+            this._dTankBefore = 0;
+            this._dTankAfter = 0;
+            this._dStationCapTons = 0;
+            this._dStationMaxFill = 100;
+            // For LPG tank mode: load saved station tank config
+            if (this.isLPG(h.product)) {
+                const tkey = 'lpg_station_tank_' + (this.sessionData?.session?.outlet_id || 'default');
+                try {
+                    const tsaved = JSON.parse(localStorage.getItem(tkey) || '{}');
+                    this._dStationCapTons = tsaved.capacity_tons || 0;
+                    this._dStationMaxFill = tsaved.max_fill || 100;
+                } catch (e) { }
+            }
+            this._dFuelMode = 'tank';
+            this._dTruckLBefore = 0;
+            this._dTruckLAfter = 0;
+            // For LPG: load saved tank config from localStorage (per outlet)
+            if (this.isLPG(h.product)) {
+                const key = 'lpg_truck_' + (this.sessionData?.session?.outlet_id || 'default');
+                try {
+                    const saved = JSON.parse(localStorage.getItem(key) || '{}');
+                    this._dCapKg = h._truck_cap_kg || saved.capacity_kg || 0;
+                    this._dMaxFill = h._truck_max_fill || saved.max_fill || 100;
+                } catch (e) {
+                    this._dCapKg = h._truck_cap_kg || 0;
+                    this._dMaxFill = h._truck_max_fill || 100;
+                }
+            } else {
+                this._dCapKg = h._truck_cap_kg || 0;
+                this._dMaxFill = h._truck_max_fill || 100;
+            }
+            this.showDischargeModal = true;
+            this.$nextTick(() => lucide.createIcons());
+        },
+        applyDischarge() {
+            const h = this.haulage[this._dischargeIdx];
+            if (!h) return;
+            h._truck_open_pct = this._dBefore;
+            h._truck_close_pct = this._dAfter;
+            h._truck_cap_kg = this._dCapKg;
+            h._truck_max_fill = this._dMaxFill;
+            if (this.isLPG(this._dischargeProduct)) {
+                if (this._dLpgMode === 'direct') {
+                    const mt = Math.abs((this._dMTBefore || 0) - (this._dMTAfter || 0));
+                    h.quantity = parseFloat(mt.toFixed(4));
+                } else if (this._dLpgMode === 'tank') {
+                    // Station tank: direct ton readings, A/D - B/D = qty in tons (MT)
+                    const tons = Math.abs((this._dTankAfter || 0) - (this._dTankBefore || 0));
+                    h.quantity = parseFloat(tons.toFixed(4));
+                } else {
+                    const kg = this.lpgDischargeKg({ open_pct: this._dBefore, close_pct: this._dAfter, capacity_kg: this._dCapKg, max_fill_percent: this._dMaxFill });
+                    if (kg > 0) h.quantity = parseFloat((kg / 1000).toFixed(4));
+                }
+                // Save LPG tank config to localStorage for next time
+                const key = 'lpg_truck_' + (this.sessionData?.session?.outlet_id || 'default');
+                try { localStorage.setItem(key, JSON.stringify({ capacity_kg: this._dCapKg, max_fill: this._dMaxFill })); } catch (e) { }
+            } else {
+                if (this._dFuelMode === 'truck') {
+                    h.quantity = Math.abs(parseFloat(((this._dTruckLBefore || 0) - (this._dTruckLAfter || 0)).toFixed(2)));
+                } else {
+                    h.quantity = Math.abs(parseFloat(((this._dAfter || 0) - (this._dBefore || 0)).toFixed(2)));
+                }
+            }
+            this.showDischargeModal = false;
+            this.$nextTick(() => lucide.createIcons());
+        },
+        async saveHaulage(skipValidation) {
             // Validate: every row must match an existing pump table period
-            const unmatched = this.haulage.filter(h => !this.pumpTableForDelivery(h.product, h.delivery_date));
-            if (unmatched.length > 0) {
-                const products = [...new Set(unmatched.map(h => h.product))].join(', ');
-                this.toast(
-                    `${unmatched.length} delivery(ies) for [${products}] have no matching rate period. ` +
-                    `Go to Pump Sales  create or adjust a period that covers the delivery date(s) first.`,
-                    false
-                );
-                return;
+            if (!skipValidation) {
+                const unmatched = this.haulage.filter(h => !this.pumpTableForDelivery(h.product, h.delivery_date));
+                if (unmatched.length > 0) {
+                    const products = [...new Set(unmatched.map(h => h.product))].join(', ');
+                    this.toast(
+                        `${unmatched.length} delivery(ies) for [${products}] have no matching rate period. ` +
+                        `Go to Pump Sales  create or adjust a period that covers the delivery date(s) first.`,
+                        false
+                    );
+                    return;
+                }
             }
             this.saving = true;
             const r = await this.api('save_haulage', { session_id: this.activeSession, entries: this.haulage });
@@ -1037,19 +1267,84 @@ function stationAudit() {
                 this.toast('Entry deleted');
             } else { this.toast(r.message, false); }
         },
-        // Aggregate expense entries by description across ALL categories
+        // Aggregate expense entries by description across ALL categories (with individual entries for expand)
         get expenseDescriptionSummary() {
             const map = {};
             this.expenseCategories.forEach(cat => {
                 (cat.ledger || []).forEach(e => {
                     const desc = (e.description || '(No description)').trim();
-                    if (!map[desc]) map[desc] = { description: desc, totalDebit: 0, totalCredit: 0, count: 0 };
+                    if (!map[desc]) map[desc] = { description: desc, totalDebit: 0, totalCredit: 0, count: 0, entries: [], _expanded: false };
                     map[desc].totalDebit += parseFloat(e.debit) || 0;
                     map[desc].totalCredit += parseFloat(e.credit) || 0;
                     map[desc].count++;
+                    map[desc].entries.push({
+                        id: e.id,
+                        entry_date: e.entry_date,
+                        description: e.description,
+                        debit: parseFloat(e.debit) || 0,
+                        credit: parseFloat(e.credit) || 0,
+                        payment_method: e.payment_method || 'cash',
+                        category_name: cat.category_name,
+                        category_id: cat.id,
+                        _editing: false,
+                        _edit: {}
+                    });
                 });
             });
             return Object.values(map).sort((a, b) => (b.totalDebit - b.totalCredit) - (a.totalDebit - a.totalCredit));
+        },
+        toggleSummaryExpenseEdit(entry) {
+            if (entry._editing) {
+                entry._editing = false;
+            } else {
+                entry._editing = true;
+                entry._edit = {
+                    entry_date: entry.entry_date,
+                    debit: entry.debit,
+                    credit: entry.credit,
+                    description: entry.description || '',
+                    payment_method: entry.payment_method || 'cash'
+                };
+            }
+        },
+        async saveSummaryExpense(entry) {
+            const e = entry._edit;
+            this.saving = true;
+            const r = await this.api('update_expense_entry', {
+                entry_id: entry.id,
+                entry_date: e.entry_date,
+                description: e.description,
+                debit: e.debit,
+                credit: e.credit,
+                payment_method: e.payment_method
+            });
+            this.saving = false;
+            if (r.success) {
+                // Update the actual ledger entry in the category
+                const cat = this.expenseCategories.find(c => c.id == entry.category_id);
+                if (cat) {
+                    const ledgerEntry = (cat.ledger || []).find(le => le.id == entry.id);
+                    if (ledgerEntry) {
+                        ledgerEntry.entry_date = e.entry_date;
+                        ledgerEntry.description = e.description;
+                        ledgerEntry.debit = e.debit;
+                        ledgerEntry.credit = e.credit;
+                        ledgerEntry.payment_method = e.payment_method;
+                    }
+                }
+                entry._editing = false;
+                this.toast('Entry updated');
+            } else { this.toast(r.message, false); }
+        },
+        async deleteSummaryExpense(entry, row) {
+            if (!confirm('Delete this expense entry?')) return;
+            const r = await this.api('delete_expense_entry', { entry_id: entry.id });
+            if (r.success) {
+                // Remove from the actual category ledger
+                const cat = this.expenseCategories.find(c => c.id == entry.category_id);
+                if (cat) cat.ledger = (cat.ledger || []).filter(le => le.id != entry.id);
+                this.toast('Entry deleted');
+            } else { this.toast(r.message, false); }
         },
         async deleteExpenseCategory(catId) {
             if (!confirm('Delete this expense category and all entries?')) return;
@@ -1239,14 +1534,18 @@ function stationAudit() {
         },
         async saveLubeStoreItems() {
             this.saving = true;
-            const r = await this.api('save_lube_store_items', { session_id: this.activeSession, items: this.lubeStoreItems });
-            this.saving = false;
-            if (r.success) {
-                // Update IDs from server response
-                if (r.ids) r.ids.forEach((id, i) => { if (this.lubeStoreItems[i]) this.lubeStoreItems[i].id = id; });
-                this.lubeStoreItems.forEach(si => si._editing = false);
-                this.toast('Lube store saved (' + r.count + ' items)');
-            } else { this.toast(r.message, false); }
+            try {
+                const r = await this.api('save_lube_store_items', { session_id: this.activeSession, items: this.lubeStoreItems });
+                if (r.success) {
+                    if (r.ids) r.ids.forEach((id, i) => { if (this.lubeStoreItems[i]) this.lubeStoreItems[i].id = id; });
+                    this.lubeStoreItems.forEach(si => si._editing = false);
+                    this.toast('Lube store saved (' + r.count + ' items)');
+                } else { this.toast(r.message || 'Save failed', false); }
+            } catch (e) {
+                this.toast('Save failed: ' + e.message, false);
+            } finally {
+                this.saving = false;
+            }
         },
         removeLubeStoreItem(idx) {
             this.lubeStoreItems.splice(idx, 1);
@@ -1379,15 +1678,15 @@ function stationAudit() {
             });
         },
         async saveLubeItems(ls) {
-            this.saving = true;
+            if (!this._silent) this.saving = true;
             const r = await this.api('save_lube_items', { section_id: ls.id, items: ls.items });
-            this.saving = false;
+            if (!this._silent) this.saving = false;
             if (r.success) { ls._editing = false; this.toast('Counter items saved'); }
             else { this.toast(r.message, false); }
         },
-        // Sold = what has gone from the counter (Opening + Received  Closing)
+        // Sold = what has gone from the counter (Opening + Received + Adjustment - Return Inward - Closing)
         counterItemSold(it) {
-            return Math.max(0, parseFloat(it.opening || 0) + parseFloat(it.received || 0) - parseFloat(it.closing || 0));
+            return Math.max(0, parseFloat(it.opening || 0) + parseFloat(it.received || 0) + parseFloat(it.adjustment || 0) - parseFloat(it.return_inward || 0) - parseFloat(it.closing || 0));
         },
         lubeSectionAmount(ls) {
             return (ls.items || []).reduce((sum, it) => sum + (this.counterItemSold(it) * (it.selling_price || 0)), 0);
@@ -1467,8 +1766,14 @@ function stationAudit() {
         },
         async saveLubeProduct() {
             if (!this.lubeProductForm.product_name) { this.toast('Product name required', false); return; }
+            // Coerce null/NaN numeric fields to 0 (Alpine x-model.number returns null on empty)
+            const f = this.lubeProductForm;
+            f.cost_price = parseFloat(f.cost_price) || 0;
+            f.selling_price = parseFloat(f.selling_price) || 0;
+            f.reorder_level = parseFloat(f.reorder_level) || 0;
             this.saving = true;
-            const r = await this.api('save_lube_product', this.lubeProductForm);
+            f.session_id = this.activeSession;
+            const r = await this.api('save_lube_product', f);
             this.saving = false;
             if (r.success) {
                 await this.loadLubeData();
@@ -1478,7 +1783,7 @@ function stationAudit() {
         },
         async deleteLubeProduct(p) {
             if (!confirm('Delete product "' + p.product_name + '"?')) return;
-            const r = await this.api('delete_lube_product', { id: p.id });
+            const r = await this.api('delete_lube_product', { id: p.id, session_id: this.activeSession });
             if (r.success) { this.lubeProducts = this.lubeProducts.filter(x => x.id !== p.id); this.toast('Product deleted'); }
             else { this.toast(r.message, false); }
         },
@@ -1509,7 +1814,20 @@ function stationAudit() {
 
         //  GRN methods 
         openLubeGrnModal(g = null) {
-            this.lubeGrnForm = g ? { ...g, items: (g.items || []).map(i => ({ ...i, total_cost: parseFloat(i.total_cost || i.line_total || 0) || (parseFloat(i.quantity || 0) * parseFloat(i.cost_price || 0)) })) }
+            this.lubeGrnForm = g ? {
+                ...g, items: (g.items || []).map(i => {
+                    let item = { ...i, total_cost: parseFloat(i.total_cost || i.line_total || 0) || (parseFloat(i.quantity || 0) * parseFloat(i.cost_price || 0)) };
+                    // Coerce product_id to string for x-model match, and resolve by name if ID not found in current session
+                    let pid = item.product_id ? String(item.product_id) : '';
+                    if (pid && !this.lubeProducts.find(p => String(p.id) === pid)) {
+                        // Product ID doesn't exist in this session's catalog — match by name
+                        const match = this.lubeProducts.find(p => p.product_name === item.product_name);
+                        pid = match ? String(match.id) : '';
+                    }
+                    item.product_id = pid;
+                    return item;
+                })
+            }
                 : { id: 0, supplier_id: '', grn_number: 'GRN-' + Date.now().toString().slice(-6), grn_date: new Date().toISOString().slice(0, 10), invoice_number: '', notes: '', items: [] };
             this.lubeGrnModal = true;
             this.$nextTick(() => lucide.createIcons());
@@ -1733,7 +2051,7 @@ function stationAudit() {
         //  Load company-level lube data 
         async loadLubeData() {
             const [rp, rs, rg, rsc] = await Promise.all([
-                this.api('get_lube_products', {}, 'POST'),
+                this.api('get_lube_products', { session_id: this.activeSession }, 'POST'),
                 this.api('get_lube_suppliers', {}, 'POST'),
                 this.api('get_lube_grns', { session_id: this.activeSession }, 'POST'),
                 this.api('get_lube_stock_counts', { session_id: this.activeSession }, 'POST'),
@@ -2756,7 +3074,7 @@ function stationAudit() {
             const debtorPieItems = this.debtorAccounts
                 .filter(a => this.debtorBalance(a) !== 0)
                 .map(a => ({
-                    label: a.account_name || a.name,
+                    label: a.customer_name || a.account_name || a.name || 'Unknown',
                     value: Math.abs(this.debtorBalance(a)),
                     display: fmt(Math.abs(this.debtorBalance(a)))
                 }));
@@ -2766,15 +3084,29 @@ function stationAudit() {
                 label: h.product, value: h.quantity, display: fmtL(h.quantity) + ' L'
             }));
 
-            // 5. Lubricant (Counter + Main Store)
+            // 5. Lubricant — list each outstanding product from stock counts at cost
             const lubePieItems = [];
-            // Add each counter section
-            counters.filter(ls => (ls.items || []).length > 0).forEach(ls => {
-                const val = this.lubeSectionAmount(ls);
-                if (val > 0) lubePieItems.push({ label: ls.name || 'Counter', value: val, display: fmt(val) });
-            });
-            // Add Main Store
-            if (lubeTotal > 0) lubePieItems.push({ label: 'Main Store', value: lubeTotal, display: fmt(lubeTotal) });
+            // Store stock count products (latest period)
+            const _storeSC = (this.lubeStockCounts || []).slice().sort((a, b) => (b.date_to || '').localeCompare(a.date_to || ''));
+            if (_storeSC.length > 0) {
+                (_storeSC[0].items || []).forEach(it => {
+                    const qty = parseInt(it.physical_count || 0);
+                    const cp = parseFloat(it.cost_price || 0);
+                    if (qty > 0 && cp > 0) lubePieItems.push({ label: (it.product_name || 'Unknown') + ' (Store)', value: qty * cp, display: fmt(qty * cp) });
+                });
+            }
+            // Counter stock count products (latest period per counter)
+            for (const sid of Object.keys(this.counterStockCounts || {})) {
+                const _csc = (this.counterStockCounts[sid] || []).slice().sort((a, b) => (b.date_to || '').localeCompare(a.date_to || ''));
+                if (_csc.length > 0) {
+                    const ctrName = (this.lubeSections.find(s => s.id == sid) || {}).name || 'Counter';
+                    (_csc[0].items || []).forEach(it => {
+                        const qty = parseInt(it.physical_count || 0);
+                        const cp = parseFloat(it.cost_price || 0);
+                        if (qty > 0 && cp > 0) lubePieItems.push({ label: (it.product_name || 'Unknown') + ' (' + ctrName + ')', value: qty * cp, display: fmt(qty * cp) });
+                    });
+                }
+            }
 
             // 6. Fund Allocation
             const fundPieItems = [

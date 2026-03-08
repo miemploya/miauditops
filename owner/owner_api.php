@@ -503,6 +503,124 @@ switch ($action) {
         break;
 
 
+    // ── Create Account (Company + Admin User) ──
+    case 'create_account':
+        require_once '../config/subscription_plans.php';
+        require_once '../includes/functions.php';
+
+        $company_name = trim($_POST['company_name'] ?? '');
+        $first_name   = trim($_POST['first_name'] ?? '');
+        $last_name    = trim($_POST['last_name'] ?? '');
+        $email        = trim($_POST['email'] ?? '');
+        $password     = $_POST['password'] ?? '';
+        $plan_name    = $_POST['plan_name'] ?? 'starter';
+        $billing_cycle = $_POST['billing_cycle'] ?? 'monthly';
+        $status       = $_POST['status'] ?? 'trial';
+        $expires_at   = trim($_POST['expires_at'] ?? '');
+
+        // Validation
+        if (empty($company_name) || empty($first_name) || empty($last_name) || empty($email) || empty($password)) {
+            echo json_encode(['success' => false, 'message' => 'All fields are required.']);
+            break;
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid email address.']);
+            break;
+        }
+        if (strlen($password) < 6) {
+            echo json_encode(['success' => false, 'message' => 'Password must be at least 6 characters.']);
+            break;
+        }
+
+        // Check for existing email
+        $check = $pdo->prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL");
+        $check->execute([$email]);
+        if ($check->fetch()) {
+            echo json_encode(['success' => false, 'message' => 'An account with this email already exists.']);
+            break;
+        }
+
+        // Validate plan
+        if (!in_array($plan_name, ['starter', 'professional', 'enterprise'])) $plan_name = 'starter';
+        if (!in_array($billing_cycle, ['monthly', 'quarterly', 'annual'])) $billing_cycle = 'monthly';
+
+        try {
+            $result = register_company_and_user($company_name, $email, $password, $first_name, $last_name, $plan_name, $billing_cycle);
+            $company_id = $result['company_id'];
+
+            // Auto-verify: owner-created accounts skip email verification
+            $pdo->prepare("UPDATE users SET email_verified_at = NOW(), verification_token = NULL WHERE id = ?")
+                ->execute([$result['user_id']]);
+
+            // Override subscription status and expiry if owner specified them
+            $updates = [];
+            $params = [];
+            if (in_array($status, ['active', 'trial', 'expired', 'suspended'])) {
+                $updates[] = 'status = ?';
+                $params[] = $status;
+            }
+            if (!empty($expires_at)) {
+                $updates[] = 'expires_at = ?';
+                $params[] = $expires_at;
+            }
+            if (!empty($updates)) {
+                $params[] = $company_id;
+                $pdo->prepare("UPDATE company_subscriptions SET " . implode(', ', $updates) . " WHERE company_id = ?")
+                    ->execute($params);
+            }
+
+            echo json_encode([
+                'success' => true,
+                'message' => "Account created successfully. Company code: {$result['code']}",
+                'company_code' => $result['code'],
+                'company_id' => $company_id
+            ]);
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Account creation failed: ' . $e->getMessage()]);
+        }
+        break;
+
+    // ── Extend Subscription Expiry ──
+    case 'extend_expiry':
+        $company_id = (int)($_POST['company_id'] ?? 0);
+        $days       = (int)($_POST['days'] ?? 0);
+
+        if (!$company_id || $days < 1) {
+            echo json_encode(['success' => false, 'message' => 'Company ID and days are required.']);
+            break;
+        }
+
+        // Fetch current expiry
+        $sub = $pdo->prepare("SELECT expires_at, status FROM company_subscriptions WHERE company_id = ? ORDER BY id DESC LIMIT 1");
+        $sub->execute([$company_id]);
+        $row = $sub->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            echo json_encode(['success' => false, 'message' => 'No subscription found for this company.']);
+            break;
+        }
+
+        // Extend from current expiry (if future) or from today (if past/null)
+        $base_date = (!empty($row['expires_at']) && strtotime($row['expires_at']) > time())
+            ? $row['expires_at']
+            : date('Y-m-d');
+        $new_expiry = date('Y-m-d', strtotime("$base_date +{$days} days"));
+
+        // If status was expired/suspended, set back to active
+        $new_status = in_array($row['status'], ['expired', 'suspended']) ? 'active' : $row['status'];
+
+        $pdo->prepare("UPDATE company_subscriptions SET expires_at = ?, status = ? WHERE company_id = ? ORDER BY id DESC LIMIT 1")
+            ->execute([$new_expiry, $new_status, $company_id]);
+
+        echo json_encode([
+            'success' => true,
+            'message' => "Expiry extended by {$days} days to {$new_expiry}.",
+            'new_expires_at' => $new_expiry,
+            'new_status' => $new_status
+        ]);
+        break;
+
+
     default:
         echo json_encode(['success' => false, 'message' => 'Unknown action']);
 }

@@ -93,7 +93,7 @@ $page_title = $dept['name'];
 // Logic: Fetch product details + Left Join today's stock + Subquery for Prior Balance (Opening)
 $stmt = $pdo->prepare("
     SELECT 
-        p.id as product_id, p.name as product_name, p.sku, p.category, p.unit_cost, p.selling_price as master_price, p.parent_product_id, p.selling_unit,
+        p.id as product_id, p.name as product_name, p.sku, p.category, p.unit_cost, p.selling_price as master_price, p.parent_product_id, p.selling_unit, COALESCE(p.pack_size, 0) as pack_size,
         ds.id, ds.opening_stock, ds.added, ds.return_in, ds.transfer_out, ds.transfer_to_main, ds.qty_sold, ds.selling_price,
         COALESCE(ds.adjustment_add, 0) as adjustment_add, COALESCE(ds.adjustment_sub, 0) as adjustment_sub,
         (
@@ -509,19 +509,19 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                     <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Total Added</p>
-                    <p class="text-xl font-black text-blue-600" x-text="stock.reduce((s,r)=>s+parseInt(r.added||0),0)"></p>
+                    <p class="text-xl font-black text-blue-600" x-text="stock.reduce((s,r)=>s+parseFloat(r.added||0),0)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60" x-show="!isKitchen">
                     <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Total Sold</p>
-                    <p class="text-xl font-black text-emerald-600" x-text="stock.reduce((s,r)=>s+parseInt(r.qty_sold||0),0)"></p>
+                    <p class="text-xl font-black text-emerald-600" x-text="stock.reduce((s,r)=>s+parseFloat(r.qty_sold||0),0)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60" x-show="isKitchen">
                     <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Issued to Depts</p>
-                    <p class="text-xl font-black text-amber-600" x-text="stock.reduce((s,r)=>s+parseInt(r.transfer_out||0),0)"></p>
+                    <p class="text-xl font-black text-amber-600" x-text="stock.reduce((s,r)=>s+parseFloat(r.transfer_out||0),0)"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60" x-show="!isKitchen">
                     <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Revenue</p>
-                    <p class="text-xl font-black text-amber-600" x-text="'₦'+stock.reduce((s,r)=>s+parseInt(r.qty_sold||0)*parseFloat(r.selling_price||0),0).toLocaleString()"></p>
+                    <p class="text-xl font-black text-amber-600" x-text="'₦'+stock.reduce((s,r)=>s+parseFloat(r.qty_sold||0)*parseFloat(r.selling_price||0),0).toLocaleString()"></p>
                 </div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60" x-show="isKitchen">
                     <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Total Closing</p>
@@ -551,7 +551,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                             <?= $recipe_emoji ?> <?= $recipe_label ?> Catalog
                         </button>
                     </template>
-                    <button @click="activeTab = 'count'" :class="activeTab === 'count' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+                    <button @click="showDateConfirmModal = true" :class="activeTab === 'count' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
                         Stock Count
                     </button>
                     <button @click="activeTab = 'recon'" :class="activeTab === 'recon' ? 'border-purple-500 text-purple-600 dark:text-purple-400' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
@@ -632,26 +632,26 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                 <tr x-show="isExpanded(group.category)" x-transition class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                                     <td class="px-3 py-3 text-center text-xs text-slate-400 font-mono" x-text="r._sn"></td>
                                     <td class="px-3 py-3 font-semibold text-sm">
-                                        <template x-if="r.parent_product_id && parseInt(r.parent_product_id) > 0">
+                                        <template x-if="r.parent_product_id && parseFloat(r.parent_product_id) > 0">
                                             <span x-html="(() => { const su = (r.selling_unit || '').charAt(0).toUpperCase() + (r.selling_unit || '').slice(1); const idx = r.product_name.lastIndexOf(' ' + su); if (idx > 0) return r.product_name.substring(0, idx) + ' <span class=\'text-red-500 font-bold\'>' + su + '</span>'; return r.product_name; })()"></span>
                                         </template>
-                                        <template x-if="!r.parent_product_id || parseInt(r.parent_product_id) === 0">
+                                        <template x-if="!r.parent_product_id || parseFloat(r.parent_product_id) === 0">
                                             <span x-text="r.product_name"></span>
                                         </template>
                                     </td>
                                     <td class="px-3 py-3 font-mono text-xs text-slate-500" x-text="r.sku || '—'"></td>
                                     <td class="px-3 py-3 text-xs text-slate-500" x-text="r.category || '—'"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm" x-text="int(r.opening_stock)"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm text-blue-600" x-text="int(r.added)"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm text-emerald-600" x-text="int(r.adjustment_add)" :class="int(r.adjustment_add) > 0 ? 'font-bold' : ''"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm text-red-600" x-text="int(r.adjustment_sub)" :class="int(r.adjustment_sub) > 0 ? 'font-bold' : ''"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm text-cyan-600" x-show="!isKitchen" x-text="int(r.return_in)"></td>
-                                    <td class="px-3 py-3 text-right font-bold text-sm" x-text="getTotal(r)"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm text-rose-600" x-show="!isKitchen" x-text="int(r.transfer_out)"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm text-amber-600 font-bold" x-show="isKitchen" x-text="int(r.transfer_out)"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm text-orange-600" x-text="int(r.transfer_to_main)"></td>
-                                    <td class="px-3 py-3 text-right font-mono text-sm text-amber-600" x-show="!isKitchen" x-text="int(r.qty_sold)"></td>
-                                    <td class="px-3 py-3 text-right font-bold text-sm" :class="getClosing(r) <= 0 ? 'text-red-600' : 'text-emerald-600'" x-text="getClosing(r)"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm" x-text="fmtQty(int(r.opening_stock), r.pack_size)"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-blue-600" x-text="fmtQty(int(r.added), r.pack_size)"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-emerald-600" x-text="fmtQty(int(r.adjustment_add), r.pack_size)" :class="int(r.adjustment_add) > 0 ? 'font-bold' : ''"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-red-600" x-text="fmtQty(int(r.adjustment_sub), r.pack_size)" :class="int(r.adjustment_sub) > 0 ? 'font-bold' : ''"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-cyan-600" x-show="!isKitchen" x-text="fmtQty(int(r.return_in), r.pack_size)"></td>
+                                    <td class="px-3 py-3 text-right font-bold text-sm" x-text="fmtQty(getTotal(r), r.pack_size)"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-rose-600" x-show="!isKitchen" x-text="fmtQty(int(r.transfer_out), r.pack_size)"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-amber-600 font-bold" x-show="isKitchen" x-text="fmtQty(int(r.transfer_out), r.pack_size)"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-orange-600" x-text="fmtQty(int(r.transfer_to_main), r.pack_size)"></td>
+                                    <td class="px-3 py-3 text-right font-mono text-sm text-amber-600" x-show="!isKitchen" x-text="fmtQty(int(r.qty_sold), r.pack_size)"></td>
+                                    <td class="px-3 py-3 text-right font-bold text-sm" :class="getClosing(r) <= 0 ? 'text-red-600' : 'text-emerald-600'" x-text="fmtQty(getClosing(r), r.pack_size)"></td>
                                     <td class="px-3 py-3 text-right font-mono text-sm text-indigo-600" x-show="!isKitchen" x-text="'₦'+parseFloat(r.selling_price||0).toLocaleString()"></td>
                                     <td class="px-3 py-3 text-right font-bold text-sm text-purple-600" x-show="!isKitchen" x-text="'₦'+(int(r.qty_sold)*parseFloat(r.selling_price||0)).toLocaleString()"></td>
                                     <td class="px-3 py-3 text-center">
@@ -756,10 +756,10 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                     <td class="px-3 py-3 text-center text-xs text-slate-400 font-mono" x-text="r._sn"></td>
                                     <td class="px-3 py-3 font-semibold text-sm">
                                         <div>
-                                            <template x-if="r.parent_product_id && parseInt(r.parent_product_id) > 0">
+                                            <template x-if="r.parent_product_id && parseFloat(r.parent_product_id) > 0">
                                                 <span x-html="(() => { const su = (r.selling_unit || '').charAt(0).toUpperCase() + (r.selling_unit || '').slice(1); const idx = r.product_name.lastIndexOf(' ' + su); if (idx > 0) return r.product_name.substring(0, idx) + ' <span class=\'text-red-500 font-bold\'>' + su + '</span>'; return r.product_name; })()"></span>
                                             </template>
-                                            <template x-if="!r.parent_product_id || parseInt(r.parent_product_id) === 0">
+                                            <template x-if="!r.parent_product_id || parseFloat(r.parent_product_id) === 0">
                                                 <span x-text="r.product_name"></span>
                                             </template>
                                         </div>
@@ -1168,7 +1168,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                         <!-- Quantity -->
                         <div>
                             <label class="text-[11px] font-semibold mb-1.5 block text-slate-500">Quantity (Plates) *</label>
-                            <input type="number" x-model.number="issueForm.quantity" min="1" :max="getPortionsAvailable(issueProduct?.id)" required class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-center text-lg font-bold">
+                            <input type="number" step="any" x-model.number="issueForm.quantity" min="1" :max="getPortionsAvailable(issueProduct?.id)" required class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-center text-lg font-bold">
                             <p class="text-[10px] mt-1 text-slate-400">Max available: <span class="font-bold" x-text="getPortionsAvailable(issueProduct?.id)"></span> plates</p>
                         </div>
 
@@ -1225,20 +1225,20 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                     <td class="px-4 py-2.5 border-t border-slate-100 dark:border-slate-800">
                                         <span class="px-2 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 text-[10px] font-bold rounded-full" x-text="r.dept_name"></span>
                                     </td>
-                                    <td class="px-4 py-2.5 text-center font-bold text-slate-500 border-t border-slate-100 dark:border-slate-800" x-text="parseInt(r.opening || 0)"></td>
-                                    <td class="px-4 py-2.5 text-center font-bold text-blue-600 border-t border-slate-100 dark:border-slate-800" x-text="parseInt(r.issued || 0)"></td>
-                                    <td class="px-4 py-2.5 text-center font-bold text-emerald-600 border-t border-slate-100 dark:border-slate-800" x-text="parseInt(r.sold || 0)"></td>
-                                    <td class="px-4 py-2.5 text-center font-bold text-amber-600 border-t border-slate-100 dark:border-slate-800" x-text="parseInt(r.returned || 0)"></td>
+                                    <td class="px-4 py-2.5 text-center font-bold text-slate-500 border-t border-slate-100 dark:border-slate-800" x-text="parseFloat(r.opening || 0)"></td>
+                                    <td class="px-4 py-2.5 text-center font-bold text-blue-600 border-t border-slate-100 dark:border-slate-800" x-text="parseFloat(r.issued || 0)"></td>
+                                    <td class="px-4 py-2.5 text-center font-bold text-emerald-600 border-t border-slate-100 dark:border-slate-800" x-text="parseFloat(r.sold || 0)"></td>
+                                    <td class="px-4 py-2.5 text-center font-bold text-amber-600 border-t border-slate-100 dark:border-slate-800" x-text="parseFloat(r.returned || 0)"></td>
                                     <td class="px-4 py-2.5 text-center border-t border-slate-100 dark:border-slate-800">
                                         <span class="px-2 py-0.5 rounded-full text-[10px] font-bold"
-                                            :class="parseInt(r.closing || 0) > 0 ? 'bg-indigo-100 text-indigo-600' : 'bg-red-100 text-red-600'"
-                                            x-text="parseInt(r.closing || 0)"></span>
+                                            :class="parseFloat(r.closing || 0) > 0 ? 'bg-indigo-100 text-indigo-600' : 'bg-red-100 text-red-600'"
+                                            x-text="parseFloat(r.closing || 0)"></span>
                                     </td>
-                                    <td class="px-4 py-2.5 text-right font-bold text-emerald-600 border-t border-slate-100 dark:border-slate-800" x-text="'₦' + (parseInt(r.sold || 0) * parseFloat(r.selling_price || 0)).toLocaleString()"></td>
-                                    <td class="px-4 py-2.5 text-right font-bold text-rose-500 border-t border-slate-100 dark:border-slate-800" x-text="'₦' + ((parseInt(r.opening || 0) + parseInt(r.issued || 0)) * parseFloat(r.unit_cost || 0)).toLocaleString()"></td>
+                                    <td class="px-4 py-2.5 text-right font-bold text-emerald-600 border-t border-slate-100 dark:border-slate-800" x-text="'₦' + (parseFloat(r.sold || 0) * parseFloat(r.selling_price || 0)).toLocaleString()"></td>
+                                    <td class="px-4 py-2.5 text-right font-bold text-rose-500 border-t border-slate-100 dark:border-slate-800" x-text="'₦' + ((parseFloat(r.opening || 0) + parseFloat(r.issued || 0)) * parseFloat(r.unit_cost || 0)).toLocaleString()"></td>
                                     <td class="px-4 py-2.5 text-right font-bold border-t border-slate-100 dark:border-slate-800" 
-                                        :class="(parseInt(r.sold || 0) * parseFloat(r.selling_price || 0)) - ((parseInt(r.opening || 0) + parseInt(r.issued || 0)) * parseFloat(r.unit_cost || 0)) >= 0 ? 'text-purple-600' : 'text-red-600'"
-                                        x-text="'₦' + ((parseInt(r.sold || 0) * parseFloat(r.selling_price || 0)) - ((parseInt(r.opening || 0) + parseInt(r.issued || 0)) * parseFloat(r.unit_cost || 0))).toLocaleString()"></td>
+                                        :class="(parseFloat(r.sold || 0) * parseFloat(r.selling_price || 0)) - ((parseFloat(r.opening || 0) + parseFloat(r.issued || 0)) * parseFloat(r.unit_cost || 0)) >= 0 ? 'text-purple-600' : 'text-red-600'"
+                                        x-text="'₦' + ((parseFloat(r.sold || 0) * parseFloat(r.selling_price || 0)) - ((parseFloat(r.opening || 0) + parseFloat(r.issued || 0)) * parseFloat(r.unit_cost || 0))).toLocaleString()"></td>
                                 </tr>
                             </template>
                             <tr x-show="reconciliation.length === 0">
@@ -1250,14 +1250,14 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                             <!-- Totals row -->
                             <tr x-show="reconciliation.length > 0" class="bg-slate-50 dark:bg-slate-800/60 font-bold">
                                 <td colspan="2" class="px-4 py-3 text-right text-xs uppercase text-slate-500 border-t-2 border-slate-200 dark:border-slate-700">TOTALS</td>
-                                <td class="px-4 py-3 text-center text-slate-500 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseInt(r.opening || 0), 0)"></td>
-                                <td class="px-4 py-3 text-center text-blue-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseInt(r.issued || 0), 0)"></td>
-                                <td class="px-4 py-3 text-center text-emerald-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseInt(r.sold || 0), 0)"></td>
-                                <td class="px-4 py-3 text-center text-amber-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseInt(r.returned || 0), 0)"></td>
-                                <td class="px-4 py-3 text-center text-indigo-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseInt(r.closing || 0), 0)"></td>
-                                <td class="px-4 py-3 text-right text-emerald-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="'₦' + reconciliation.reduce((s,r) => s + parseInt(r.sold || 0) * parseFloat(r.selling_price || 0), 0).toLocaleString()"></td>
-                                <td class="px-4 py-3 text-right text-rose-500 border-t-2 border-slate-200 dark:border-slate-700" x-text="'₦' + reconciliation.reduce((s,r) => s + (parseInt(r.opening || 0) + parseInt(r.issued || 0)) * parseFloat(r.unit_cost || 0), 0).toLocaleString()"></td>
-                                <td class="px-4 py-3 text-right text-purple-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="'₦' + (reconciliation.reduce((s,r) => s + parseInt(r.sold || 0) * parseFloat(r.selling_price || 0), 0) - reconciliation.reduce((s,r) => s + (parseInt(r.opening || 0) + parseInt(r.issued || 0)) * parseFloat(r.unit_cost || 0), 0)).toLocaleString()"></td>
+                                <td class="px-4 py-3 text-center text-slate-500 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseFloat(r.opening || 0), 0)"></td>
+                                <td class="px-4 py-3 text-center text-blue-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseFloat(r.issued || 0), 0)"></td>
+                                <td class="px-4 py-3 text-center text-emerald-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseFloat(r.sold || 0), 0)"></td>
+                                <td class="px-4 py-3 text-center text-amber-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseFloat(r.returned || 0), 0)"></td>
+                                <td class="px-4 py-3 text-center text-indigo-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="reconciliation.reduce((s,r) => s + parseFloat(r.closing || 0), 0)"></td>
+                                <td class="px-4 py-3 text-right text-emerald-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="'₦' + reconciliation.reduce((s,r) => s + parseFloat(r.sold || 0) * parseFloat(r.selling_price || 0), 0).toLocaleString()"></td>
+                                <td class="px-4 py-3 text-right text-rose-500 border-t-2 border-slate-200 dark:border-slate-700" x-text="'₦' + reconciliation.reduce((s,r) => s + (parseFloat(r.opening || 0) + parseFloat(r.issued || 0)) * parseFloat(r.unit_cost || 0), 0).toLocaleString()"></td>
+                                <td class="px-4 py-3 text-right text-purple-600 border-t-2 border-slate-200 dark:border-slate-700" x-text="'₦' + (reconciliation.reduce((s,r) => s + parseFloat(r.sold || 0) * parseFloat(r.selling_price || 0), 0) - reconciliation.reduce((s,r) => s + (parseFloat(r.opening || 0) + parseFloat(r.issued || 0)) * parseFloat(r.unit_cost || 0), 0)).toLocaleString()"></td>
                             </tr>
                         </tbody>
                     </table>
@@ -1431,7 +1431,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="text-[11px] font-semibold mb-1 block text-slate-500">Opening Stock</label>
-                                <input type="number" x-model="addForm.opening_stock" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
+                                <input type="number" step="any" x-model="addForm.opening_stock" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
                             </div>
                             <div>
                                 <label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Price (₦) <span class="text-[9px]" x-text="addForm._selling_unit ? '(per ' + addForm._selling_unit + ')' : ''"></span></label>
@@ -1511,26 +1511,36 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                             <div class="grid grid-cols-3 gap-2 mb-2">
                                 <div>
                                     <label class="text-[10px] font-bold mb-0.5 block text-slate-500">Opening</label>
-                                    <input type="number" x-model.number="editForm.opening_stock" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
+                                    <template x-if="!(editForm.pack_size > 0)">
+                                        <input type="number" step="any" x-model.number="editForm.opening_stock" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
+                                    </template>
+                                    <template x-if="editForm.pack_size > 0">
+                                        <div class="flex items-center gap-1">
+                                            <input type="number" min="0" x-model.number="editForm._open_packs" @input="editForm.opening_stock = (editForm._open_packs||0)*editForm.pack_size + (editForm._open_pcs||0)" placeholder="0" class="w-1/2 px-1.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
+                                            <span class="text-[8px] font-bold text-slate-400">pk</span>
+                                            <input type="number" min="0" step="any" x-model.number="editForm._open_pcs" @input="editForm.opening_stock = (editForm._open_packs||0)*editForm.pack_size + (editForm._open_pcs||0)" placeholder="0" class="w-1/2 px-1.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
+                                            <span class="text-[8px] font-bold text-slate-400">pcs</span>
+                                        </div>
+                                    </template>
                                 </div>
                                 <div>
                                     <label class="text-[10px] font-bold mb-0.5 block text-blue-500">Added</label>
-                                    <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold text-blue-600" x-text="parseInt(editForm.added)||0"></div>
+                                    <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold text-blue-600" x-text="parseFloat(editForm.added)||0"></div>
                                 </div>
                                 <div>
                                     <label class="text-[10px] font-bold mb-0.5 block text-cyan-500">Inter-Dep TRF</label>
-                                    <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold text-cyan-600" x-text="parseInt(editForm.return_in)||0"></div>
+                                    <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold text-cyan-600" x-text="parseFloat(editForm.return_in)||0"></div>
                                 </div>
                             </div>
                             <div class="grid grid-cols-3 gap-2 mb-2">
                                 <div>
                                     <label class="text-[10px] font-bold mb-0.5 block text-slate-700 dark:text-slate-300">Total</label>
                                     <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold"
-                                         x-text="(parseInt(editForm.opening_stock)||0)+(parseInt(editForm.added)||0)+(parseInt(editForm.return_in)||0)"></div>
+                                         x-text="fmtQty((parseFloat(editForm.opening_stock)||0)+(parseFloat(editForm.added)||0)+(parseFloat(editForm.return_in)||0), editForm.pack_size)"></div>
                                 </div>
                                 <div>
                                     <label class="text-[10px] font-bold mb-0.5 block text-amber-600">Qty Sold</label>
-                                    <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold text-amber-600" x-text="parseInt(editForm.qty_sold)||0"></div>
+                                    <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold text-amber-600" x-text="fmtQty(parseFloat(editForm.qty_sold)||0, editForm.pack_size)"></div>
                                 </div>
                                 <div></div>
                             </div>
@@ -1540,11 +1550,11 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                 <div class="grid grid-cols-2 gap-2">
                                     <div>
                                         <label class="text-[10px] font-bold mb-0.5 block text-rose-500">To Department</label>
-                                        <input type="number" x-model.number="editForm.transfer_out" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 rounded-lg text-sm text-center font-semibold text-rose-600">
+                                        <input type="number" step="any" x-model.number="editForm.transfer_out" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 rounded-lg text-sm text-center font-semibold text-rose-600">
                                     </div>
                                     <div>
                                         <label class="text-[10px] font-bold mb-0.5 block text-orange-500">To Main Store</label>
-                                        <input type="number" x-model.number="editForm.transfer_to_main" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-orange-300 dark:border-orange-700 rounded-lg text-sm text-center font-semibold text-orange-600">
+                                        <input type="number" step="any" x-model.number="editForm.transfer_to_main" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-orange-300 dark:border-orange-700 rounded-lg text-sm text-center font-semibold text-orange-600">
                                     </div>
                                 </div>
                             </div>
@@ -1563,12 +1573,12 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                                     <label class="text-[10px] font-bold mb-0.5 block text-emerald-600">Closing</label>
                                     <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold"
                                          :class="editClosing() <= 0 ? 'text-red-600' : 'text-emerald-600'"
-                                         x-text="editClosing()"></div>
+                                         x-text="fmtQty(editClosing(), editForm.pack_size)"></div>
                                 </div>
                                 <div>
                                     <label class="text-[10px] font-bold mb-0.5 block text-purple-600">Amount</label>
                                     <div class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold text-purple-600"
-                                         x-text="'₦'+((parseInt(editForm.qty_sold)||0)*parseFloat(editForm.selling_price||0)).toLocaleString()"></div>
+                                         x-text="'₦'+((parseFloat(editForm.qty_sold)||0)*parseFloat(editForm.selling_price||0)).toLocaleString()"></div>
                                 </div>
                             </div>
                         </div>
@@ -1630,7 +1640,7 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                         <!-- Quantity -->
                         <div>
                             <label class="text-[10px] font-bold mb-1.5 block text-slate-500">Quantity *</label>
-                            <input type="number" x-model.number="adjustForm.quantity" min="1" required
+                            <input type="number" step="any" x-model.number="adjustForm.quantity" min="1" required
                                 class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
                                 placeholder="Enter quantity">
                         </div>
@@ -1660,6 +1670,84 @@ $js_product_categories = json_encode($product_categories, JSON_HEX_TAG | JSON_HE
                 </div>
             </div>
 
+            <!-- ===== Date Confirmation Modal ===== -->
+            <div x-show="showDateConfirmModal" x-transition.opacity class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" @click.self="showDateConfirmModal = false">
+                <div x-show="showDateConfirmModal" x-transition.scale.90 class="w-full max-w-md glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-2xl overflow-hidden">
+                    <!-- Header -->
+                    <div class="px-6 py-5 bg-gradient-to-r from-amber-500/20 via-orange-500/10 to-transparent border-b border-amber-200 dark:border-amber-800">
+                        <div class="flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/30 animate-pulse">
+                                <i data-lucide="calendar-clock" class="w-6 h-6 text-white"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg text-slate-900 dark:text-white">⚠️ Confirm Stock Count Date</h3>
+                                <p class="text-xs text-amber-700 dark:text-amber-400 font-medium">Please verify the date BEFORE you start counting</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-6 space-y-5">
+                        <!-- Warning Message -->
+                        <div class="p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800 rounded-xl">
+                            <p class="text-sm text-red-800 dark:text-red-300 font-semibold flex items-center gap-2">
+                                <i data-lucide="alert-triangle" class="w-5 h-5 text-red-500 shrink-0"></i>
+                                Posting to the wrong date will cause incorrect records. Always verify!
+                            </p>
+                        </div>
+
+                        <!-- Current Date Display -->
+                        <div class="text-center">
+                            <p class="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2">You are about to count for:</p>
+                            <div class="inline-flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-2 border-indigo-300 dark:border-indigo-700 rounded-2xl">
+                                <i data-lucide="calendar" class="w-8 h-8 text-indigo-600"></i>
+                                <div>
+                                    <p class="text-2xl font-black text-indigo-700 dark:text-indigo-300" x-text="new Date(dateConfirmValue).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'})"></p>
+                                    <p class="text-xs font-bold mt-0.5" :class="dateConfirmValue === todayStr ? 'text-emerald-600' : 'text-amber-600'" x-text="dateConfirmValue === todayStr ? '✅ This is TODAY' : '📅 This is NOT today'"></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Quick Date Buttons -->
+                        <div>
+                            <p class="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2">Quick select:</p>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" @click="dateConfirmValue = getYesterdayStr()"
+                                    :class="dateConfirmValue === getYesterdayStr() ? 'ring-2 ring-amber-500 border-amber-400 bg-amber-50 dark:bg-amber-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'"
+                                    class="flex items-center gap-2 px-4 py-3 border rounded-xl text-left transition-all">
+                                    <i data-lucide="arrow-left" class="w-4 h-4 text-amber-500"></i>
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-700 dark:text-slate-200">Yesterday</p>
+                                        <p class="text-[10px] text-slate-400" x-text="new Date(getYesterdayStr()).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})"></p>
+                                    </div>
+                                </button>
+                                <button type="button" @click="dateConfirmValue = todayStr"
+                                    :class="dateConfirmValue === todayStr ? 'ring-2 ring-emerald-500 border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'"
+                                    class="flex items-center gap-2 px-4 py-3 border rounded-xl text-left transition-all">
+                                    <i data-lucide="calendar-check" class="w-4 h-4 text-emerald-500"></i>
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-700 dark:text-slate-200">Today</p>
+                                        <p class="text-[10px] text-slate-400" x-text="new Date(todayStr).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})"></p>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Custom Date -->
+                        <div>
+                            <label class="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1.5 block">Or pick another date:</label>
+                            <input type="date" x-model="dateConfirmValue" class="w-full px-4 py-3 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-center focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex gap-3 pt-1">
+                            <button type="button" @click="showDateConfirmModal = false" class="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 font-bold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
+                            <button type="button" @click="confirmDateAndCount()" class="flex-1 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 hover:scale-[1.02] transition-all text-sm flex items-center justify-center gap-2">
+                                <i data-lucide="check-circle" class="w-4 h-4"></i> Confirm & Start Counting
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
 </div>
@@ -1672,7 +1760,7 @@ function deptStoreApp() {
         departments: <?php echo $js_departments; ?>,
         isKitchen: <?php echo $js_is_kitchen; ?>,
         isRestaurant: <?php echo $js_is_restaurant; ?>,
-        activeTab: 'inventory', // 'inventory' or 'count'
+        activeTab: new URLSearchParams(window.location.search).get('tab') || 'inventory', // 'inventory' or 'count'
         search: '',
         categoryFilter: '',
         expandedGroups: {},
@@ -1688,6 +1776,8 @@ function deptStoreApp() {
         editForm: { id:'', product_id:'', product_name:'', opening_stock:0, added:0, return_in:0, transfer_out:0, qty_sold:0, selling_price:0, transfer_destination:'', adjustment_add:0, adjustment_sub:0 },
         adjustModal: false,
         adjustForm: { product_id:'', product_name:'', direction:'subtract', reason:'damage', quantity:1, notes:'' },
+        showDateConfirmModal: false,
+        dateConfirmValue: '<?php echo $stock_date; ?>',
         countedProducts: [],
         dirtyProducts: [],
         showCountGuide: false,
@@ -1714,7 +1804,18 @@ function deptStoreApp() {
             return this.availableProducts;
         },
 
-        int(v) { return parseInt(v) || 0; },
+        int(v) { return parseFloat(v) || 0; },
+        fmtQty(qty, packSize) {
+            qty = parseFloat(qty) || 0;
+            packSize = parseInt(packSize) || 0;
+            if (!packSize || packSize <= 0) return qty % 1 === 0 ? qty : qty.toFixed(1);
+            const packs = Math.floor(qty / packSize);
+            const pcs = +(qty % packSize).toFixed(1);
+            if (packs && pcs) return packs + 'pk ' + pcs + 'pcs';
+            if (packs) return packs + 'pk';
+            if (pcs) return pcs + 'pcs';
+            return '0';
+        },
         toggleGroup(cat) {
             if (this.expandedGroups[cat] === undefined) this.expandedGroups[cat] = true;
             else this.expandedGroups[cat] = !this.expandedGroups[cat];
@@ -1724,8 +1825,8 @@ function deptStoreApp() {
         getTotal(r) { return this.int(r.opening_stock) + this.int(r.added) + this.int(r.return_in) + this.int(r.adjustment_add); },
         getClosing(r) { return this.getTotal(r) - this.int(r.transfer_out) - this.int(r.transfer_to_main) - this.int(r.qty_sold) - this.int(r.adjustment_sub); },
         editClosing() {
-            const t = (parseInt(this.editForm.opening_stock)||0)+(parseInt(this.editForm.added)||0)+(parseInt(this.editForm.return_in)||0)+(parseInt(this.editForm.adjustment_add)||0);
-            return t - (parseInt(this.editForm.transfer_out)||0) - (parseInt(this.editForm.transfer_to_main)||0) - (parseInt(this.editForm.qty_sold)||0) - (parseInt(this.editForm.adjustment_sub)||0);
+            const t = (parseFloat(this.editForm.opening_stock)||0)+(parseFloat(this.editForm.added)||0)+(parseFloat(this.editForm.return_in)||0)+(parseFloat(this.editForm.adjustment_add)||0);
+            return t - (parseFloat(this.editForm.transfer_out)||0) - (parseFloat(this.editForm.transfer_to_main)||0) - (parseFloat(this.editForm.qty_sold)||0) - (parseFloat(this.editForm.adjustment_sub)||0);
         },
 
         // Stock Count Helpers
@@ -1737,7 +1838,7 @@ function deptStoreApp() {
         getAdjustedSystemTotal(r) { return this.getSystemTotal(r) + this.getNetAdjustment(r); },
         getPhysicalClosing(r) { return this.getAdjustedSystemTotal(r) - this.int(r.qty_sold); },
         setPhysicalClosing(r, val) {
-            const closing = parseInt(val) || 0;
+            const closing = parseFloat(val) || 0;
             const adjustedTotal = this.getAdjustedSystemTotal(r);
             const sold = adjustedTotal - closing;
             r.qty_sold = sold; // Update local model
@@ -1819,6 +1920,21 @@ function deptStoreApp() {
         goToDate() {
             window.location.href = 'department_store.php?dept_id=<?php echo $dept_id; ?>&stock_date=' + this.stockDate;
         },
+        getYesterdayStr() {
+            const d = new Date();
+            d.setDate(d.getDate() - 1);
+            return d.toISOString().split('T')[0];
+        },
+        confirmDateAndCount() {
+            // If user selected a different date, navigate to it first
+            if (this.dateConfirmValue !== this.stockDate) {
+                window.location.href = 'department_store.php?dept_id=<?php echo $dept_id; ?>&stock_date=' + this.dateConfirmValue + '&tab=count';
+                return;
+            }
+            this.showDateConfirmModal = false;
+            this.activeTab = 'count';
+            this.$nextTick(() => lucide.createIcons());
+        },
 
         get uniqueCategories() {
             return [...new Set(this.stock.map(r => r.category).filter(Boolean))];
@@ -1851,14 +1967,17 @@ function deptStoreApp() {
                 id: r.id,
                 product_id: r.product_id,
                 product_name: r.product_name,
-                opening_stock: parseInt(r.opening_stock || 0),
-                added: parseInt(r.added || 0),
-                return_in: parseInt(r.return_in || 0),
-                transfer_out: parseInt(r.transfer_out || 0),
-                transfer_to_main: parseInt(r.transfer_to_main || 0),
-                qty_sold: parseInt(r.qty_sold || 0),
+                opening_stock: parseFloat(r.opening_stock || 0),
+                added: parseFloat(r.added || 0),
+                return_in: parseFloat(r.return_in || 0),
+                transfer_out: parseFloat(r.transfer_out || 0),
+                transfer_to_main: parseFloat(r.transfer_to_main || 0),
+                qty_sold: parseFloat(r.qty_sold || 0),
                 selling_price: parseFloat(r.selling_price || 0),
-                transfer_destination: ''
+                transfer_destination: '',
+                pack_size: parseInt(r.pack_size || 0),
+                _open_packs: parseInt(r.pack_size || 0) > 0 ? Math.floor((parseFloat(r.opening_stock||0)) / parseInt(r.pack_size)) : 0,
+                _open_pcs: parseInt(r.pack_size || 0) > 0 ? +((parseFloat(r.opening_stock||0)) % parseInt(r.pack_size)).toFixed(1) : 0
             };
             this.editModal = true;
         },
@@ -1894,9 +2013,9 @@ function deptStoreApp() {
                 const row = this.stock.find(s => s.product_id == this.adjustForm.product_id);
                 if (row) {
                     if (this.adjustForm.direction === 'add') {
-                        row.adjustment_add = (parseInt(row.adjustment_add) || 0) + this.adjustForm.quantity;
+                        row.adjustment_add = (parseFloat(row.adjustment_add) || 0) + this.adjustForm.quantity;
                     } else {
-                        row.adjustment_sub = (parseInt(row.adjustment_sub) || 0) + this.adjustForm.quantity;
+                        row.adjustment_sub = (parseFloat(row.adjustment_sub) || 0) + this.adjustForm.quantity;
                     }
                 }
                 this.adjustModal = false;
@@ -1933,9 +2052,9 @@ function deptStoreApp() {
                     this.addForm._default_price = parseFloat(prod.selling_unit_price || prod.selling_price || 0);
                     this.addForm._hasSellingUnit = true;
                     this.addForm.selling_unit = prod.selling_unit;
-                    this.addForm.yield_per_unit = parseInt(prod.yield_per_unit || 1);
+                    this.addForm.yield_per_unit = parseFloat(prod.yield_per_unit || 1);
                     this.addForm._selling_unit = prod.selling_unit;
-                    this.addForm._yield_per_unit = parseInt(prod.yield_per_unit || 1);
+                    this.addForm._yield_per_unit = parseFloat(prod.yield_per_unit || 1);
                     this.addForm._store_unit = prod.unit || 'unit';
                 } else {
                     this.addForm.selling_price = parseFloat(prod.selling_price || 0);
@@ -2159,7 +2278,7 @@ function deptStoreApp() {
 
             // Pre-populate countedProducts from existing stock data (items with an id = already in DB)
             this.stock.forEach(r => {
-                if (r.id && parseInt(r.id) > 0) {
+                if (r.id && parseFloat(r.id) > 0) {
                     if (!this.countedProducts.includes(r.product_id)) {
                         this.countedProducts.push(r.product_id);
                     }

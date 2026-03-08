@@ -36,7 +36,7 @@ try {
 } catch (Exception $e) { error_log('Stock migration: ' . $e->getMessage()); }
 
 // === Date filter (default = today) ===
-$stock_date = $_GET['stock_date'] ?? date('Y-m-d');
+$stock_date = $_GET['stock_date'] ?? date('Y-m-d', strtotime('-1 day'));
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $stock_date)) $stock_date = date('Y-m-d');
 
 // Products (scoped by client — product definitions are date-independent)
@@ -359,7 +359,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                 </p>
                             </div>
                             <div class="flex items-center justify-between">
-                                <div class="text-xs text-slate-400"><span class="font-semibold">Reorder Level:</span> <input type="number" x-model="catalogForm.reorder_level" class="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center inline-block"></div>
+                                <div class="text-xs text-slate-400"><span class="font-semibold">Reorder Level:</span> <input type="number" step="any" x-model="catalogForm.reorder_level" class="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center inline-block"> &nbsp; <span class="font-semibold">Pack Size:</span> <input type="number" min="0" x-model.number="catalogForm.pack_size" placeholder="0" class="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center inline-block" title="How many pieces in 1 pack (0 = no packs)"></div>
                                 <button type="submit" class="px-8 py-2.5 bg-gradient-to-r from-indigo-500 to-violet-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/30 hover:scale-[1.02] transition-all text-sm"><i data-lucide="plus" class="w-4 h-4 inline mr-1"></i> Create Product</button>
                             </div>
                         </form>
@@ -537,6 +537,9 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                             <div><h3 class="font-bold text-slate-900 dark:text-white text-sm">Product Inventory</h3><p class="text-xs text-slate-500" x-text="filteredProducts.length + ' products'"></p></div>
                         </div>
                         <div class="flex items-center gap-2">
+                            <button @click="if(confirm('⚠️ Reset ALL product opening stock to 0?\n\nThis will set every product\'s opening_stock to 0. This action cannot be undone.')) resetAllOpening()" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-500 to-rose-600 text-white text-xs font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Reset all opening stock to 0">
+                                <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset Opening
+                            </button>
                             <select x-model="categoryFilter" class="px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
                                 <option value="">All Categories</option>
                                 <template x-for="c in uniqueCategories" :key="c"><option :value="c" x-text="c"></option></template>
@@ -629,26 +632,26 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                         <td class="px-3 py-3 text-sm font-semibold whitespace-nowrap text-slate-700 dark:text-slate-200" x-text="p.name"></td>
                                         <td class="px-3 py-3 font-mono text-xs text-slate-500" x-text="p.sku || '—'"></td>
                                         <td class="px-3 py-3 text-xs text-slate-500" x-text="p.category || '—'"></td>
-                                        <td class="px-2 py-3 text-right font-mono text-sm" x-text="getOpening(p.id)"></td>
-                                        <td class="px-2 py-3 text-right font-mono text-sm text-blue-600" x-text="getPurchase(p.id)"></td>
+                                        <td class="px-2 py-3 text-right font-mono text-sm" x-text="fmtQty(getOpening(p.id), p.pack_size)"></td>
+                                        <td class="px-2 py-3 text-right font-mono text-sm text-blue-600" x-text="fmtQty(getPurchase(p.id), p.pack_size)"></td>
                                         <!-- Return In: collapsed = summary, expanded = per-dept -->
-                                        <td x-show="!showReturnIn && departments.length > 0" class="px-2 py-3 text-right font-mono text-xs text-cyan-600 border-l border-r border-slate-50 dark:border-slate-800 bg-cyan-50/20 cursor-pointer" @click="showReturnIn = true" x-text="getTotalReturnIn(p.id)"></td>
+                                        <td x-show="!showReturnIn && departments.length > 0" class="px-2 py-3 text-right font-mono text-xs text-cyan-600 border-l border-r border-slate-50 dark:border-slate-800 bg-cyan-50/20 cursor-pointer" @click="showReturnIn = true" x-text="fmtQty(getTotalReturnIn(p.id), p.pack_size)"></td>
                                         <template x-if="showReturnIn">
                                             <template x-for="dept in departments" :key="'r_'+dept.id+'_'+p.id">
-                                                <td class="px-2 py-3 text-right font-mono text-xs text-cyan-600 border-l border-slate-50 dark:border-slate-800" x-text="getReturnIn(p.id, dept.id)"></td>
+                                                <td class="px-2 py-3 text-right font-mono text-xs text-cyan-600 border-l border-slate-50 dark:border-slate-800" x-text="fmtQty(getReturnIn(p.id, dept.id), p.pack_size)"></td>
                                             </template>
                                         </template>
-                                        <td class="px-2 py-3 text-right font-bold text-sm bg-slate-50/50 dark:bg-slate-800/30" x-text="getTotal(p.id)"></td>
+                                        <td class="px-2 py-3 text-right font-bold text-sm bg-slate-50/50 dark:bg-slate-800/30" x-text="fmtQty(getTotal(p.id), p.pack_size)"></td>
                                         <!-- Dept Req: collapsed = summary, expanded = per-dept -->
-                                        <td x-show="!showDeptReq && departments.length > 0" class="px-2 py-3 text-right font-mono text-xs text-rose-600 border-l border-r border-slate-50 dark:border-slate-800 bg-rose-50/20 cursor-pointer" @click="showDeptReq = true" x-text="getTotalDeptReq(p.id)"></td>
+                                        <td x-show="!showDeptReq && departments.length > 0" class="px-2 py-3 text-right font-mono text-xs text-rose-600 border-l border-r border-slate-50 dark:border-slate-800 bg-rose-50/20 cursor-pointer" @click="showDeptReq = true" x-text="fmtQty(getTotalDeptReq(p.id), p.pack_size)"></td>
                                         <template x-if="showDeptReq">
                                             <template x-for="dept in departments" :key="'d_'+dept.id+'_'+p.id">
-                                                <td class="px-2 py-3 text-right font-mono text-xs text-rose-600 border-l border-slate-50 dark:border-slate-800" x-text="getDeptReqFor(p.id, dept.id)"></td>
+                                                <td class="px-2 py-3 text-right font-mono text-xs text-rose-600 border-l border-slate-50 dark:border-slate-800" x-text="fmtQty(getDeptReqFor(p.id, dept.id), p.pack_size)"></td>
                                             </template>
                                         </template>
-                                        <td class="px-2 py-3 text-right font-mono text-sm text-orange-600" x-text="getReturnOutward(p.id)"></td>
-                                        <td class="px-2 py-3 text-right font-mono text-sm text-amber-600" x-text="getAdjustment(p.id)"></td>
-                                        <td class="px-2 py-3 text-right font-bold text-sm bg-emerald-50/30 dark:bg-emerald-900/5" :class="getClosing(p.id) <= parseInt(p.reorder_level) ? 'text-red-600' : 'text-emerald-600'" x-text="getClosing(p.id)"></td>
+                                        <td class="px-2 py-3 text-right font-mono text-sm text-orange-600" x-text="fmtQty(getReturnOutward(p.id), p.pack_size)"></td>
+                                        <td class="px-2 py-3 text-right font-mono text-sm text-amber-600" x-text="fmtQty(getAdjustment(p.id), p.pack_size)"></td>
+                                        <td class="px-2 py-3 text-right font-bold text-sm bg-emerald-50/30 dark:bg-emerald-900/5" :class="getClosing(p.id) <= parseFloat(p.reorder_level) ? 'text-red-600' : 'text-emerald-600'" x-text="fmtQty(getClosing(p.id), p.pack_size)"></td>
                                         <td class="px-2 py-3 text-center">
                                             <div class="inline-flex items-center gap-1">
                                                 <button @click.stop="openEditProduct(p)" class="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Update Stock">
@@ -701,7 +704,8 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                         <div class="grid grid-cols-3 gap-4">
                             <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Unit Cost (₦)</label><input type="number" step="0.01" x-model="editCatalogForm.unit_cost" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
                             <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Selling Price (₦) <span class="text-[9px] text-slate-400">(per store unit)</span></label><input type="number" step="0.01" x-model="editCatalogForm.selling_price" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Reorder Level</label><input type="number" x-model="editCatalogForm.reorder_level" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Reorder Level</label><input type="number" step="any" x-model="editCatalogForm.reorder_level" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Pack Size <span class="text-slate-400">(0 = no packs)</span></label><input type="number" min="0" x-model.number="editCatalogForm.pack_size" placeholder="e.g. 5 = 1pk has 5pcs" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
                         </div>
                         <!-- Shot / Selling Unit Conversion (Edit) -->
                         <div class="mt-4">
@@ -745,7 +749,8 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                         </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Category</label><input type="text" x-model="editForm.category" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Reorder Level</label><input type="number" x-model="editForm.reorder_level" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Reorder Level</label><input type="number" step="any" x-model="editForm.reorder_level" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Pack Size <span class="text-slate-400">(0 = no packs)</span></label><input type="number" min="0" x-model.number="editForm.pack_size" placeholder="e.g. 5" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
                         </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div><label class="text-[11px] font-semibold mb-1 block text-slate-400">Unit Cost (₦) <span class="text-[9px] text-slate-400">🔒</span></label><input type="number" step="0.01" x-model="editForm.unit_cost" readonly class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-400 cursor-not-allowed"></div>
@@ -757,7 +762,19 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                             <div class="grid grid-cols-3 gap-3 mb-3">
                                 <div>
                                     <label class="text-[10px] font-bold mb-1 block text-slate-700 dark:text-slate-300">Opening Stock</label>
-                                    <input type="number" x-model.number="editForm.raw_opening" class="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
+                                    <!-- Single input for products without pack_size -->
+                                    <template x-if="!(editForm.pack_size > 0)">
+                                        <input type="number" step="any" x-model.number="editForm.raw_opening" class="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
+                                    </template>
+                                    <!-- Dual pack+pieces inputs for products with pack_size -->
+                                    <template x-if="editForm.pack_size > 0">
+                                        <div class="flex items-center gap-1.5">
+                                            <input type="number" min="0" x-model.number="editForm._open_packs" @input="editForm.raw_opening = (editForm._open_packs || 0) * editForm.pack_size + (editForm._open_pcs || 0)" placeholder="0" class="w-1/2 px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold">
+                                            <span class="text-[9px] font-bold text-slate-400">pk</span>
+                                            <input type="number" min="0" step="any" x-model.number="editForm._open_pcs" @input="editForm.raw_opening = (editForm._open_packs || 0) * editForm.pack_size + (editForm._open_pcs || 0)" placeholder="0" class="w-1/2 px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-bold">
+                                            <span class="text-[9px] font-bold text-slate-400">pcs</span>
+                                        </div>
+                                    </template>
                                 </div>
                                 <div>
                                     <label class="text-[10px] font-bold mb-1 block text-slate-700 dark:text-slate-300">Total (Calc)</label>
@@ -765,7 +782,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                 </div>
                                 <div>
                                     <label class="text-[10px] font-bold mb-1 block text-amber-600">Adjustment (+/-)</label>
-                                    <input type="number" x-model.number="editForm.adjustment" class="w-full px-2.5 py-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-center font-bold text-amber-600 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all" placeholder="0">
+                                    <input type="number" step="any" x-model.number="editForm.adjustment" class="w-full px-2.5 py-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-center font-bold text-amber-600 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all" placeholder="0">
                                 </div>
                             </div>
                             <!-- Issue to Department -->
@@ -780,7 +797,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                             </select>
                                         </div>
                                         <div>
-                                            <input type="number" x-model.number="editForm.issue_dept_qty" min="0" placeholder="Qty" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-800 rounded-lg text-xs text-center font-bold">
+                                            <input type="number" step="any" x-model.number="editForm.issue_dept_qty" min="0" placeholder="Qty" class="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-800 rounded-lg text-xs text-center font-bold">
                                         </div>
                                     </div>
                                     <!-- Transfer Mode: Bottle vs Shot -->
@@ -916,7 +933,19 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                                     </select>
                                                 </td>
                                                 <td class="px-3 py-2">
-                                                    <input type="number" x-model.number="line.quantity" min="1" required placeholder="0" class="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
+                                                    <!-- Single input when no pack_size -->
+                                                    <template x-if="!( (products.find(p=>p.id==line.product_id)||{}).pack_size > 0 )">
+                                                        <input type="number" step="any" x-model.number="line.quantity" min="1" required placeholder="0" class="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
+                                                    </template>
+                                                    <!-- Dual packs+pieces when product has pack_size -->
+                                                    <template x-if="(products.find(p=>p.id==line.product_id)||{}).pack_size > 0">
+                                                        <div class="flex items-center gap-1">
+                                                            <input type="number" min="0" x-model.number="line._packs" @input="line.quantity = ((line._packs||0) * (products.find(p=>p.id==line.product_id)||{pack_size:1}).pack_size) + (line._pcs||0)" placeholder="0" class="w-1/2 px-1.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
+                                                            <span class="text-[8px] font-bold text-slate-400">pk</span>
+                                                            <input type="number" min="0" step="any" x-model.number="line._pcs" @input="line.quantity = ((line._packs||0) * (products.find(p=>p.id==line.product_id)||{pack_size:1}).pack_size) + (line._pcs||0)" placeholder="0" class="w-1/2 px-1.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
+                                                            <span class="text-[8px] font-bold text-slate-400">pcs</span>
+                                                        </div>
+                                                    </template>
                                                 </td>
                                                 <td class="px-3 py-2">
                                                     <input type="number" step="0.01" x-model.number="line.total_amount" min="0" required placeholder="0.00" class="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-center font-semibold">
@@ -944,7 +973,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                     </div>
                                     <div class="flex flex-col">
                                         <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Weight/Qty</span>
-                                        <span class="text-lg font-black text-slate-900 dark:text-white" x-text="grnForm.lines.reduce((s,l) => s + (parseInt(l.quantity)||0), 0)"></span>
+                                        <span class="text-lg font-black text-slate-900 dark:text-white" x-text="grnForm.lines.reduce((s,l) => s + (parseFloat(l.quantity)||0), 0)"></span>
                                     </div>
                                     <div class="flex flex-col">
                                         <span class="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Grand Total</span>
@@ -985,10 +1014,10 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                     <td class="px-4 py-3 font-mono text-xs text-slate-500" x-text="d.invoice_number || '—'"></td>
                                     <td class="px-4 py-3 text-center">
                                         <div class="flex items-center justify-center gap-1.5">
-                                            <button @click="editDeliveryForm = { delivery_id: d.id, product_name: d.product_name, quantity: parseInt(d.quantity), unit_cost: parseFloat(d.unit_cost), supplier_name: d.supplier_name, invoice_number: d.invoice_number || '' }; editDeliveryModal = true; $nextTick(() => lucide.createIcons())" class="inline-flex items-center gap-1 px-2 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Edit Delivery">
+                                            <button @click="editDeliveryForm = { delivery_id: d.id, product_name: d.product_name, quantity: parseFloat(d.quantity), unit_cost: parseFloat(d.unit_cost), supplier_name: d.supplier_name, invoice_number: d.invoice_number || '' }; editDeliveryModal = true; $nextTick(() => lucide.createIcons())" class="inline-flex items-center gap-1 px-2 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Edit Delivery">
                                                 <i data-lucide="pencil" class="w-3 h-3"></i> Edit
                                             </button>
-                                            <button @click="recallForm = { delivery_id: d.id, product_id: d.product_id, product_name: d.product_name, max_qty: parseInt(d.quantity), quantity: 0, notes: '' }; recallModal = true; $nextTick(() => lucide.createIcons())" class="inline-flex items-center gap-1 px-2 py-1.5 bg-gradient-to-r from-orange-500 to-amber-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Recall / Return Outward">
+                                            <button @click="recallForm = { delivery_id: d.id, product_id: d.product_id, product_name: d.product_name, max_qty: parseFloat(d.quantity), quantity: 0, notes: '' }; recallModal = true; $nextTick(() => lucide.createIcons())" class="inline-flex items-center gap-1 px-2 py-1.5 bg-gradient-to-r from-orange-500 to-amber-600 text-white text-[10px] font-bold rounded-lg hover:scale-105 transition-all shadow-sm" title="Recall / Return Outward">
                                                 <i data-lucide="undo-2" class="w-3 h-3"></i> Recall
                                             </button>
                                             <button @click="deleteDelivery(d)" class="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded-lg transition-all" title="Delete Delivery">
@@ -1018,7 +1047,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="text-[11px] font-semibold mb-1 block text-slate-500">Quantity *</label>
-                                <input type="number" x-model.number="editDeliveryForm.quantity" required min="1" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
+                                <input type="number" step="any" x-model.number="editDeliveryForm.quantity" required min="1" class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
                             </div>
                             <div>
                                 <label class="text-[11px] font-semibold mb-1 block text-slate-500">Unit Cost *</label>
@@ -1062,7 +1091,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                         </div>
                         <div>
                             <label class="text-[11px] font-semibold mb-1 block text-slate-500">Quantity to Recall *</label>
-                            <input type="number" x-model.number="recallForm.quantity" required min="1" :max="recallForm.max_qty" placeholder="Enter qty..." class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-center focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all">
+                            <input type="number" step="any" x-model.number="recallForm.quantity" required min="1" :max="recallForm.max_qty" placeholder="Enter qty..." class="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-center focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all">
                         </div>
                         <div>
                             <label class="text-[11px] font-semibold mb-1 block text-slate-500">Reason / Notes</label>
@@ -1090,7 +1119,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                     </div>
                     <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                         <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Total Qty Issued</p>
-                        <p class="text-xl font-black text-violet-600" x-text="filteredDeptIssues.reduce((s,r) => s + parseInt(r.added || 0), 0).toLocaleString()"></p>
+                        <p class="text-xl font-black text-violet-600" x-text="filteredDeptIssues.reduce((s,r) => s + parseFloat(r.added || 0), 0).toLocaleString()"></p>
                     </div>
                     <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60">
                         <p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Unique Products</p>
@@ -1141,7 +1170,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                         <template x-for="p in products.filter(pp => !pp.parent_product_id)" :key="p.id"><option :value="p.id" x-text="p.name + ' (Stock: ' + p.current_stock + ')'"></option></template>
                                     </select>
                                 </div>
-                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Quantity *</label><input type="number" x-model="deptIssueForm.quantity" required min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                                <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Quantity *</label><input type="number" step="any" x-model="deptIssueForm.quantity" required min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
                                 <div class="flex items-end"><button type="submit" class="w-full px-8 py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all text-sm">Issue to Department</button></div>
                             </div>
                             <!-- Transfer Mode Toggle -->
@@ -1203,7 +1232,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                     <td class="px-4 py-3 font-semibold" x-text="r.product_name"></td>
                                     <td class="px-4 py-3 text-right font-bold text-rose-600" x-text="r.added"></td>
                                     <td class="px-4 py-3 text-right font-bold text-emerald-600" x-text="r.transfer_out || 0"></td>
-                                    <td class="px-4 py-3 text-right font-bold" :class="(parseInt(r.added || 0) - parseInt(r.transfer_out || 0)) > 0 ? 'text-rose-600' : 'text-emerald-600'" x-text="parseInt(r.added || 0) - parseInt(r.transfer_out || 0)"></td>
+                                    <td class="px-4 py-3 text-right font-bold" :class="(parseFloat(r.added || 0) - parseFloat(r.transfer_out || 0)) > 0 ? 'text-rose-600' : 'text-emerald-600'" x-text="parseFloat(r.added || 0) - parseFloat(r.transfer_out || 0)"></td>
                                 </tr>
                             </template>
                             <tr x-show="filteredDeptIssues.length === 0"><td colspan="6" class="px-4 py-12 text-center text-slate-400">No department issues yet</td></tr>
@@ -1392,7 +1421,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                         <td class="px-4 py-3 text-right text-xs" x-text="fmt(c.unit_cost || 0)"></td>
                                         <td class="px-4 py-3 text-right" x-text="c.system_count"></td>
                                         <td class="px-4 py-3 text-right font-bold" x-text="c.physical_count"></td>
-                                        <td class="px-4 py-3 text-right font-bold text-indigo-600" x-text="fmt(parseFloat(c.unit_cost || 0) * parseInt(c.physical_count || 0))"></td>
+                                        <td class="px-4 py-3 text-right font-bold text-indigo-600" x-text="fmt(parseFloat(c.unit_cost || 0) * parseFloat(c.physical_count || 0))"></td>
                                         <td class="px-4 py-3 text-right font-bold" :class="(c.physical_count - c.system_count) == 0 ? 'text-emerald-600' : 'text-red-600'" x-text="c.physical_count - c.system_count"></td>
                                         <td class="px-4 py-3 text-xs text-slate-500 truncate max-w-[200px]" x-text="c.notes || '—'"></td>
                                     </tr>
@@ -1427,7 +1456,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                     <template x-for="p in products" :key="p.id"><option :value="p.id" x-text="p.name + ' (Stock: ' + p.current_stock + ')'"></option></template>
                                 </select>
                             </div>
-                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Quantity *</label><input type="number" x-model="wastageForm.quantity" required min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
+                            <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Quantity *</label><input type="number" step="any" x-model="wastageForm.quantity" required min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"></div>
                             <div><label class="text-[11px] font-semibold mb-1 block text-slate-500">Reason Code</label>
                                 <select x-model="wastageForm.reason_code" class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm">
                                     <option value="expired">Expired</option><option value="damaged">Damaged</option><option value="spoilage">Spoilage</option><option value="theft">Theft / Pilferage</option><option value="defective">Defective</option><option value="other">Other</option>
@@ -1677,7 +1706,7 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                                                         <td class="px-4 py-2 text-center text-xs font-bold text-slate-400" x-text="dIdx + 1"></td>
                                                         <td class="px-4 py-2 font-mono text-xs" x-text="d.delivery_date"></td>
                                                         <td class="px-4 py-2 font-semibold text-slate-800 dark:text-white" x-text="d.product_name"></td>
-                                                        <td class="px-4 py-2 text-right font-bold text-blue-600" x-text="parseInt(d.quantity || 0)"></td>
+                                                        <td class="px-4 py-2 text-right font-bold text-blue-600" x-text="parseFloat(d.quantity || 0)"></td>
                                                         <td class="px-4 py-2 text-right font-mono text-xs" x-text="fmt(d.unit_cost)"></td>
                                                         <td class="px-4 py-2 text-right font-bold text-emerald-600" x-text="fmt(d.total_cost)"></td>
                                                         <td class="px-4 py-2 font-mono text-xs text-slate-500" x-text="d.invoice_number || '—'"></td>
@@ -1717,8 +1746,8 @@ function mainStoreApp() {
         editModal: false, editCatalogModal: false, showReturnIn: false, showDeptReq: false,
         stockDate: '<?php echo $stock_date; ?>',
         todayStr: new Date().toISOString().split('T')[0],
-        editForm: { product_id:'', name:'', sku:'', category:'', unit_cost:0, selling_price:0, opening:0, purchase:0, reorder_level:10 },
-        editCatalogForm: { id:'', name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false },
+        editForm: { product_id:'', name:'', sku:'', category:'', unit_cost:0, selling_price:0, opening:0, purchase:0, reorder_level:10, pack_size:0 },
+        editCatalogForm: { id:'', name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, pack_size:0, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false },
         tabs: [
             { id: 'catalog', label: 'Product', icon: 'package-plus' },
             { id: 'products', label: 'Store', icon: 'package' },
@@ -1752,8 +1781,8 @@ function mainStoreApp() {
         editDeliveryModal: false,
         editDeliveryForm: { delivery_id: 0, product_name: '', quantity: 0, unit_cost: 0, supplier_name: '', invoice_number: '' },
 
-        productForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, opening_stock:0, reorder_level:10 },
-        catalogForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false },
+        productForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, opening_stock:0, reorder_level:10, pack_size:0 },
+        catalogForm: { name:'', sku:'', category:'', unit:'pcs', unit_cost:0, selling_price:0, reorder_level:10, pack_size:0, selling_unit:'shot', yield_per_unit:1, selling_unit_price:0, _hasSellingUnit:false },
         catForm: { name:'' },
         catMsg: '',
         renamingCatId: null,
@@ -1785,35 +1814,35 @@ function mainStoreApp() {
             const map = {};
             this.deliveries.forEach(d => {
                 const pid = d.product_id;
-                map[pid] = (map[pid] || 0) + parseInt(d.quantity || 0);
+                map[pid] = (map[pid] || 0) + parseFloat(d.quantity || 0);
             });
             return map;
         },
         get adjustmentMap() {
             const map = {};
             // Wastage always reduces stock (negative)
-            this.wastageRecords.forEach(w => { map[w.product_id] = (map[w.product_id] || 0) - parseInt(w.quantity || 0); });
+            this.wastageRecords.forEach(w => { map[w.product_id] = (map[w.product_id] || 0) - parseFloat(w.quantity || 0); });
             this.movements.forEach(m => {
                 // adjustment_out reduces stock (negative), adjustment_in adds stock (positive)
-                if (m.type === 'adjustment_out') map[m.product_id] = (map[m.product_id] || 0) - parseInt(m.quantity || 0);
-                if (m.type === 'adjustment_in') map[m.product_id] = (map[m.product_id] || 0) + parseInt(m.quantity || 0);
+                if (m.type === 'adjustment_out') map[m.product_id] = (map[m.product_id] || 0) - parseFloat(m.quantity || 0);
+                if (m.type === 'adjustment_in') map[m.product_id] = (map[m.product_id] || 0) + parseFloat(m.quantity || 0);
             });
             return map;
         },
         get deptReqMap() {
             const map = {};
-            this.deptStock.forEach(ds => { map[ds.product_id] = (map[ds.product_id] || 0) + parseInt(ds.added || 0); });
+            this.deptStock.forEach(ds => { map[ds.product_id] = (map[ds.product_id] || 0) + parseFloat(ds.added || 0); });
             return map;
         },
         get returnInMap() {
             const map = {};
-            this.deptStock.forEach(ds => { map[ds.product_id] = (map[ds.product_id] || 0) + parseInt(ds.transfer_to_main || 0); });
+            this.deptStock.forEach(ds => { map[ds.product_id] = (map[ds.product_id] || 0) + parseFloat(ds.transfer_to_main || 0); });
             return map;
         },
         get returnOutwardMap() {
             const map = {};
             this.movements.forEach(m => {
-                if (m.type === 'return_outward') map[m.product_id] = (map[m.product_id] || 0) + parseInt(m.quantity || 0);
+                if (m.type === 'return_outward') map[m.product_id] = (map[m.product_id] || 0) + parseFloat(m.quantity || 0);
             });
             return map;
         },
@@ -1821,6 +1850,18 @@ function mainStoreApp() {
         get totalValue() { return this.products.reduce((s,p) => s + (p.current_stock * p.unit_cost), 0); },
         get lowStockCount() { return this.products.filter(p => p.current_stock <= p.reorder_level).length; },
         get uniqueCategories() { return [...new Set(this.products.map(p => p.category).filter(Boolean))]; },
+        // Format quantity as "Xpk Ypcs" for products with pack_size, plain number otherwise
+        fmtQty(qty, packSize) {
+            qty = parseFloat(qty) || 0;
+            packSize = parseInt(packSize) || 0;
+            if (!packSize || packSize <= 0) return qty % 1 === 0 ? qty : qty.toFixed(1);
+            const packs = Math.floor(qty / packSize);
+            const pcs = +(qty % packSize).toFixed(1);
+            if (packs && pcs) return packs + 'pk ' + pcs + 'pcs';
+            if (packs) return packs + 'pk';
+            if (pcs) return pcs + 'pcs';
+            return '0';
+        },
         get filteredProducts() {
             let list = this.products;
             const q = this.search.toLowerCase();
@@ -1898,7 +1939,7 @@ function mainStoreApp() {
             this.ledgerFilteredDeliveries.forEach(d => {
                 const name = d.supplier_name || 'Unknown';
                 if (!map[name]) map[name] = { supplier: name, totalQty: 0, totalAmount: 0, deliveryCount: 0, products: new Set(), lastDate: '', deliveries: [] };
-                const qty = parseInt(d.quantity || 0);
+                const qty = parseFloat(d.quantity || 0);
                 const cost = parseFloat(d.total_cost || 0);
                 map[name].totalQty += qty;
                 map[name].totalAmount += cost;
@@ -1975,11 +2016,11 @@ function mainStoreApp() {
         },
         getCountedPhysical(pid) {
             const c = this.physicalCounts.find(c => String(c.product_id) === String(pid) && c.count_date === this.stockDate);
-            return c ? parseInt(c.physical_count) : 0;
+            return c ? parseFloat(c.physical_count) : 0;
         },
         getCountedVariance(pid) {
             const c = this.physicalCounts.find(c => String(c.product_id) === String(pid) && c.count_date === this.stockDate);
-            return c ? (parseInt(c.physical_count) - parseInt(c.system_count)) : 0;
+            return c ? (parseFloat(c.physical_count) - parseFloat(c.system_count)) : 0;
         },
         async saveCountItem(pid) {
             const physCount = this.countInputs[pid];
@@ -2013,16 +2054,16 @@ function mainStoreApp() {
         },
         getOpening(pid) {
             const p = this.products.find(x => x.id == pid);
-            const initial = p ? parseInt(p.opening_stock || 0) : 0;
+            const initial = p ? parseFloat(p.opening_stock || 0) : 0;
             const prior = this.priorBalances[pid] || 0;
             return initial + prior;
         },
         getPurchase(pid) { return this.purchaseMap[pid] || 0; },
         // Return In from a department = that dept's transfer_to_main for this product
-        getReturnIn(pid, deptId) { const r = this.deptStock.find(ds => ds.product_id == pid && ds.department_id == deptId); return r ? parseInt(r.transfer_to_main || 0) : 0; },
+        getReturnIn(pid, deptId) { const r = this.deptStock.find(ds => ds.product_id == pid && ds.department_id == deptId); return r ? parseFloat(r.transfer_to_main || 0) : 0; },
         getTotalReturnIn(pid) { return this.returnInMap[pid] || 0; },
         // Dept Req = what was sent to each dept = dept's added value
-        getDeptReqFor(pid, deptId) { const r = this.deptStock.find(ds => ds.product_id == pid && ds.department_id == deptId); return r ? parseInt(r.added || 0) : 0; },
+        getDeptReqFor(pid, deptId) { const r = this.deptStock.find(ds => ds.product_id == pid && ds.department_id == deptId); return r ? parseFloat(r.added || 0) : 0; },
         getTotalDeptReq(pid) { return this.deptReqMap[pid] || 0; },
         // Adjustment = damages, write-offs from wastage + adjustment movements
         getAdjustment(pid) { return this.adjustmentMap[pid] || 0; },
@@ -2034,14 +2075,14 @@ function mainStoreApp() {
         // Edit modal helpers
         editTotal() { 
             const prior = this.priorBalances[this.editForm.product_id] || 0;
-            const currentOpening = (parseInt(this.editForm.raw_opening) || 0) + prior; 
-            return currentOpening + (parseInt(this.editForm.purchase)||0) + this.getTotalReturnIn(this.editForm.product_id); 
+            const currentOpening = (parseFloat(this.editForm.raw_opening) || 0) + prior; 
+            return currentOpening + (parseFloat(this.editForm.purchase)||0) + this.getTotalReturnIn(this.editForm.product_id); 
         },
         editClosing() {
             // Base closing from formula: Total - existing DeptReq - RTN Out + Adjustment (positive=add, negative=subtract)
-            const base = this.editTotal() - this.getTotalDeptReq(this.editForm.product_id) - this.getReturnOutward(this.editForm.product_id) + (parseInt(this.editForm.adjustment) || 0);
+            const base = this.editTotal() - this.getTotalDeptReq(this.editForm.product_id) - this.getReturnOutward(this.editForm.product_id) + (parseFloat(this.editForm.adjustment) || 0);
             // Preview: also subtract pending dept issue qty (not yet saved)
-            return base - (parseInt(this.editForm.issue_dept_qty) || 0);
+            return base - (parseFloat(this.editForm.issue_dept_qty) || 0);
         },
 
         async deleteProduct(p) {
@@ -2065,9 +2106,10 @@ function mainStoreApp() {
                 unit: p.unit || 'pcs',
                 unit_cost: parseFloat(p.unit_cost || 0),
                 selling_price: parseFloat(p.selling_price || 0),
-                reorder_level: parseInt(p.reorder_level || 10),
+                reorder_level: parseFloat(p.reorder_level || 10),
+                pack_size: parseInt(p.pack_size || 0),
                 selling_unit: p.selling_unit || 'shot',
-                yield_per_unit: parseInt(p.yield_per_unit || 1),
+                yield_per_unit: parseFloat(p.yield_per_unit || 1),
                 selling_unit_price: parseFloat(p.selling_unit_price || 0),
                 _hasSellingUnit: !!p.selling_unit
             };
@@ -2086,6 +2128,7 @@ function mainStoreApp() {
             fd.append('unit_cost', this.editCatalogForm.unit_cost);
             fd.append('selling_price', this.editCatalogForm.selling_price);
             fd.append('reorder_level', this.editCatalogForm.reorder_level);
+            fd.append('pack_size', this.editCatalogForm.pack_size || 0);
             if (this.editCatalogForm._hasSellingUnit) {
                 fd.append('selling_unit', this.editCatalogForm.selling_unit);
                 fd.append('yield_per_unit', this.editCatalogForm.yield_per_unit);
@@ -2161,25 +2204,28 @@ function mainStoreApp() {
                 opening: this.getOpening(p.id),
                 raw_opening: p.opening_stock || 0,
                 purchase: this.getPurchase(p.id),
-                reorder_level: parseInt(p.reorder_level || 10),
+                reorder_level: parseFloat(p.reorder_level || 10),
                 adjustment: 0,
                 issue_dept_id: '',
                 issue_dept_qty: 0,
                 issue_mode: 'unit',
                 _hasSelling: !!(p.selling_unit),
                 _sellingUnit: p.selling_unit || '',
-                _yield: parseInt(p.yield_per_unit || 1),
+                _yield: parseFloat(p.yield_per_unit || 1),
                 _shotPrice: parseFloat(p.selling_unit_price || 0),
-                _prodUnit: p.unit || 'pcs'
+                _prodUnit: p.unit || 'pcs',
+                pack_size: parseInt(p.pack_size || 0),
+                _open_packs: parseInt(p.pack_size || 0) > 0 ? Math.floor((p.opening_stock || 0) / parseInt(p.pack_size)) : 0,
+                _open_pcs: parseInt(p.pack_size || 0) > 0 ? +((p.opening_stock || 0) % parseInt(p.pack_size)).toFixed(1) : 0
             };
             this.editModal = true;
         },
 
         async updateProduct() {
-            const o = parseInt(this.editForm.opening) || 0;
+            const o = parseFloat(this.editForm.opening) || 0;
             // Handle adjustment change
             const oldAdj = this.getAdjustment(this.editForm.product_id);
-            const newAdj = parseInt(this.editForm.adjustment) || 0;
+            const newAdj = parseFloat(this.editForm.adjustment) || 0;
             const adjDiff = newAdj - oldAdj;
             if (adjDiff !== 0) {
                 const adjFd = new FormData();
@@ -2189,10 +2235,11 @@ function mainStoreApp() {
                 // Positive diff = user adding stock = adjustment_in, Negative diff = removing = adjustment_out
                 adjFd.append('type', adjDiff > 0 ? 'adjustment_in' : 'adjustment_out');
                 adjFd.append('notes', 'Adjusted via Stock Management modal');
+                adjFd.append('stock_date', this.stockDate);
                 await fetch('../ajax/stock_api.php', {method:'POST', body: adjFd});
             }
             // Handle department issue
-            const issueQty = parseInt(this.editForm.issue_dept_qty) || 0;
+            const issueQty = parseFloat(this.editForm.issue_dept_qty) || 0;
             if (this.editForm.issue_dept_id && issueQty > 0) {
                 const issFd = new FormData();
                 issFd.append('action', 'issue_to_department');
@@ -2206,7 +2253,7 @@ function mainStoreApp() {
             }
             // current_stock = closing computed from the formula (Total - DeptReq - RTNOut + Adjustment)
             // The dept issue and adjustment are now recorded as transactions, so include them
-            const closing = this.editTotal() - this.getTotalDeptReq(this.editForm.product_id) - issueQty - this.getReturnOutward(this.editForm.product_id) + (parseInt(this.editForm.adjustment) || 0);
+            const closing = this.editTotal() - this.getTotalDeptReq(this.editForm.product_id) - issueQty - this.getReturnOutward(this.editForm.product_id) + (parseFloat(this.editForm.adjustment) || 0);
             const fd = new FormData(); fd.append('action','update_product');
             fd.append('product_id', this.editForm.product_id);
             fd.append('name', this.editForm.name);
@@ -2217,6 +2264,7 @@ function mainStoreApp() {
             fd.append('opening_stock', this.editForm.raw_opening);
             fd.append('current_stock', closing);
             fd.append('reorder_level', this.editForm.reorder_level);
+            fd.append('pack_size', this.editForm.pack_size || 0);
             fd.append('stock_date', this.stockDate);
             const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
             if (r.success) { this.editModal = false; this.reloadTab(); } else alert(r.message);
@@ -2227,6 +2275,13 @@ function mainStoreApp() {
             Object.entries(this.productForm).forEach(([k,v]) => fd.append(k,v));
             const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
             if (r.success) this.reloadTab(); else alert(r.message);
+        },
+        async resetAllOpening() {
+            const fd = new FormData();
+            fd.append('action', 'reset_all_opening');
+            const r = await (await fetch('../ajax/stock_api.php', {method:'POST', body: fd})).json();
+            if (r.success) { alert('✅ All opening stock reset to 0'); this.reloadTab(); } 
+            else alert(r.message || 'Failed to reset');
         },
         // Catalog tab methods
         async addCatalogProduct() {
@@ -2240,6 +2295,7 @@ function mainStoreApp() {
             fd.append('selling_price', this.catalogForm.selling_price);
             fd.append('opening_stock', 0);
             fd.append('reorder_level', this.catalogForm.reorder_level);
+            fd.append('pack_size', this.catalogForm.pack_size || 0);
             if (this.catalogForm._hasSellingUnit) {
                 fd.append('selling_unit', this.catalogForm.selling_unit);
                 fd.append('yield_per_unit', this.catalogForm.yield_per_unit);
@@ -2322,10 +2378,14 @@ function mainStoreApp() {
                 const r = await (await fetch('../ajax/stock_api.php',{method:'POST',body:fd})).json();
                 if (r.success) success++; else { alert('Error for item: ' + r.message); return; }
             }
-            if (success === validLines.length) this.reloadTab();
+            if (success === validLines.length) {
+                // Sync date filter to the delivery date so just-saved deliveries are visible
+                if (this.grnForm.delivery_date) this.stockDate = this.grnForm.delivery_date;
+                this.reloadTab();
+            }
         },
         async recallDelivery() {
-            const qty = parseInt(this.recallForm.quantity);
+            const qty = parseFloat(this.recallForm.quantity);
             if (!qty || qty <= 0) { alert('Please enter a valid quantity'); return; }
             if (qty > this.recallForm.max_qty) { alert('Cannot recall more than the delivered quantity (' + this.recallForm.max_qty + ')'); return; }
             const fd = new FormData();
@@ -2390,7 +2450,7 @@ function mainStoreApp() {
             if (p && p.selling_unit) {
                 this.deptIssueForm._hasSelling = true;
                 this.deptIssueForm._sellingUnit = p.selling_unit;
-                this.deptIssueForm._yield = parseInt(p.yield_per_unit || 1);
+                this.deptIssueForm._yield = parseFloat(p.yield_per_unit || 1);
                 this.deptIssueForm._shotPrice = parseFloat(p.selling_unit_price || 0);
                 this.deptIssueForm._prodUnit = p.unit || 'pcs';
                 this.deptIssueForm._prodName = p.name;

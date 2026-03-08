@@ -29,7 +29,7 @@ $page_permission_map = [
     'index.php'            => 'dashboard',
     'company_setup.php'    => 'company_setup',
     'audit.php'            => 'audit',
-    'station_audit.php'    => 'audit',
+    'station_audit.php'    => 'station_audit',
     'stock.php'            => 'stock',
     'main_store.php'       => 'main_store',
     'department_store.php' => 'department_store',
@@ -37,8 +37,10 @@ $page_permission_map = [
     'requisitions.php'     => 'requisitions',
     'reports.php'          => 'reports',
     'settings.php'         => 'settings',
-    'trash.php'            => 'settings',
-    'support.php'          => 'settings',
+    'trash.php'            => 'trash',
+    'support.php'          => 'support',
+    'billing.php'          => 'billing',
+    'pnl_generator.php'    => 'finance',
 ];
 
 // Map page hrefs to subscription module keys (may differ from permission keys)
@@ -57,6 +59,7 @@ $page_subscription_map = [
     'trash.php'            => 'trash',
     'support.php'          => 'support',
     'billing.php'          => 'billing',
+    'pnl_generator.php'    => 'finance',
 ];
 try {
     $_current_plan_key = get_current_plan();
@@ -103,14 +106,30 @@ $nav_sections = [
     ],
 ];
 
-// Add Station Audit: show if plan includes station_audit module OR client is petroleum
-if ($_is_petroleum || plan_includes_module($_current_plan_key, 'station_audit')) {
+// Add Station Audit: show if plan includes station_audit module OR ANY of user's clients is petroleum
+$_has_petroleum_client = $_is_petroleum;
+if (!$_has_petroleum_client && !empty($sidebar_clients)) {
+    foreach ($sidebar_clients as $_sc) {
+        if (strtolower($_sc['industry'] ?? '') === 'petroleum') {
+            $_has_petroleum_client = true;
+            break;
+        }
+    }
+}
+if ($_has_petroleum_client || plan_includes_module($_current_plan_key, 'station_audit')) {
     $nav_sections['Station'] = [
         'items' => [
             ['label' => 'Station Audit', 'icon' => 'fuel', 'href' => 'station_audit.php', 'gradient' => 'from-orange-500 to-amber-600', 'roles' => 'all', 'badge' => 'NEW'],
         ]
     ];
 }
+
+// Create P&L — after Station Audit
+$nav_sections['P&L'] = [
+    'items' => [
+        ['label' => 'Create P&L', 'icon' => 'file-spreadsheet', 'href' => 'pnl_generator.php', 'gradient' => 'from-emerald-500 to-green-600', 'roles' => 'all', 'badge' => 'NEW'],
+    ]
+];
 
 // Billing — always visible, placed after Station Audit
 $nav_sections['Billing'] = [
@@ -333,3 +352,136 @@ $nav_sections['Admin'] = [
 })();
 </script>
 <?php endif; ?>
+
+<!-- ═══════════ NETWORK STATUS NOTIFICATION ═══════════ -->
+<div id="net-status-bar" style="
+    position: fixed; top: -80px; left: 50%; transform: translateX(-50%);
+    z-index: 999999; min-width: 320px; max-width: 480px; padding: 14px 24px;
+    border-radius: 0 0 16px 16px; font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    transition: top 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s ease;
+    opacity: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+">
+    <div id="net-status-icon" style="
+        width: 36px; height: 36px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0; transition: all 0.3s ease;
+    ">
+        <svg id="net-icon-offline" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+            <line x1="2" y1="2" x2="22" y2="22"></line>
+            <path d="M8.5 16.5a5 5 0 0 1 7 0"></path>
+            <path d="M2 8.82a15 15 0 0 1 4.17-2.65"></path>
+            <path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"></path>
+            <path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"></path>
+            <path d="M5 12.86a10 10 0 0 1 5.17-2.97"></path>
+            <line x1="12" y1="20" x2="12.01" y2="20"></line>
+        </svg>
+        <svg id="net-icon-online" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+            <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+            <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+            <line x1="12" y1="20" x2="12.01" y2="20"></line>
+        </svg>
+    </div>
+    <div style="flex:1; min-width:0;">
+        <div id="net-status-title" style="font-size:13px; font-weight:800; letter-spacing:0.02em;"></div>
+        <div id="net-status-sub" style="font-size:10px; font-weight:500; opacity:0.8; margin-top:2px;"></div>
+    </div>
+    <div id="net-status-pulse" style="
+        width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+        transition: all 0.3s ease;
+    "></div>
+</div>
+
+<style>
+@keyframes net-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.6); opacity: 0.4; }
+}
+@keyframes net-shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+    20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+#net-status-bar.offline {
+    background: linear-gradient(135deg, rgba(220, 38, 38, 0.95), rgba(185, 28, 28, 0.95));
+    color: #fff; border: 1px solid rgba(255,255,255,0.15); border-top: none;
+}
+#net-status-bar.offline #net-status-icon {
+    background: rgba(255,255,255,0.15); color: #fff;
+}
+#net-status-bar.offline #net-status-pulse {
+    background: #fca5a5; animation: net-pulse 1.2s ease-in-out infinite;
+    box-shadow: 0 0 8px rgba(252,165,165,0.6);
+}
+#net-status-bar.online {
+    background: linear-gradient(135deg, rgba(5, 150, 105, 0.95), rgba(4, 120, 87, 0.95));
+    color: #fff; border: 1px solid rgba(255,255,255,0.15); border-top: none;
+}
+#net-status-bar.online #net-status-icon {
+    background: rgba(255,255,255,0.15); color: #fff;
+}
+#net-status-bar.online #net-status-pulse {
+    background: #6ee7b7; box-shadow: 0 0 8px rgba(110,231,183,0.6);
+}
+@media print { #net-status-bar { display: none !important; } }
+</style>
+
+<script>
+(function(){
+    var bar = document.getElementById('net-status-bar');
+    var title = document.getElementById('net-status-title');
+    var sub = document.getElementById('net-status-sub');
+    var iconOff = document.getElementById('net-icon-offline');
+    var iconOn = document.getElementById('net-icon-online');
+    var hideTimer = null;
+    var wasOffline = false;
+
+    function showBar(type) {
+        clearTimeout(hideTimer);
+        bar.className = type; // 'offline' or 'online'
+        if (type === 'offline') {
+            title.textContent = 'You are offline';
+            sub.textContent = 'Check your internet connection';
+            iconOff.style.display = 'block';
+            iconOn.style.display = 'none';
+            bar.style.animation = 'net-shake 0.5s ease';
+            setTimeout(function(){ bar.style.animation = ''; }, 600);
+        } else {
+            title.textContent = 'Back online';
+            sub.textContent = 'Connection restored';
+            iconOff.style.display = 'none';
+            iconOn.style.display = 'block';
+        }
+        bar.style.top = '0';
+        bar.style.opacity = '1';
+
+        if (type === 'online') {
+            hideTimer = setTimeout(function(){
+                bar.style.top = '-80px';
+                bar.style.opacity = '0';
+            }, 4000);
+        }
+    }
+
+    window.addEventListener('offline', function(){
+        wasOffline = true;
+        showBar('offline');
+    });
+
+    window.addEventListener('online', function(){
+        if (wasOffline) {
+            showBar('online');
+            wasOffline = false;
+        }
+    });
+
+    // Check initial state
+    if (!navigator.onLine) {
+        wasOffline = true;
+        setTimeout(function(){ showBar('offline'); }, 500);
+    }
+})();
+</script>

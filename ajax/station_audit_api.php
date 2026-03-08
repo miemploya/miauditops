@@ -836,9 +836,62 @@ try {
             echo json_encode(['success' => true]);
             break;
 
+        // ───────── Set Deletion Password (CEO/Admin only) ─────────
+        case 'set_delete_password':
+            $current_user = get_user($user_id);
+            $cur_role = $current_user['role'] ?? '';
+            if (!in_array($cur_role, ['business_owner', 'super_admin'])) {
+                echo json_encode(['success' => false, 'message' => 'Only CEO/Admin can set the deletion password']);
+                break;
+            }
+            $password = $_POST['password'] ?? '';
+            if (strlen($password) < 4) {
+                echo json_encode(['success' => false, 'message' => 'Password must be at least 4 characters']);
+                break;
+            }
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+            $stmt = $pdo->prepare("INSERT INTO station_audit_settings (company_id, setting_key, setting_value, updated_by) VALUES (?, 'delete_password', ?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)");
+            $stmt->execute([$company_id, $hash, $user_id]);
+            log_audit($company_id, $user_id, 'set_delete_password', 'station_audit_settings', 0);
+            echo json_encode(['success' => true, 'message' => 'Deletion password set']);
+            break;
+
+        // ───────── Check if Deletion Password is Set ─────────
+        case 'check_delete_password':
+            $stmt = $pdo->prepare("SELECT setting_value FROM station_audit_settings WHERE company_id = ? AND setting_key = 'delete_password'");
+            $stmt->execute([$company_id]);
+            $val = $stmt->fetchColumn();
+            echo json_encode(['success' => true, 'has_password' => !empty($val)]);
+            break;
+
+        // ───────── Remove Deletion Password (CEO/Admin only) ─────────
+        case 'remove_delete_password':
+            $current_user = get_user($user_id);
+            $cur_role = $current_user['role'] ?? '';
+            if (!in_array($cur_role, ['business_owner', 'super_admin'])) {
+                echo json_encode(['success' => false, 'message' => 'Only CEO/Admin can remove the deletion password']);
+                break;
+            }
+            $pdo->prepare("DELETE FROM station_audit_settings WHERE company_id = ? AND setting_key = 'delete_password'")->execute([$company_id]);
+            log_audit($company_id, $user_id, 'remove_delete_password', 'station_audit_settings', 0);
+            echo json_encode(['success' => true, 'message' => 'Deletion password removed']);
+            break;
+
         // ───────── Delete Session (→ Trash) ─────────
         case 'delete_session':
             $session_id = intval($_POST['session_id'] ?? 0);
+
+            // ── Password verification gate ──
+            $stmt = $pdo->prepare("SELECT setting_value FROM station_audit_settings WHERE company_id = ? AND setting_key = 'delete_password'");
+            $stmt->execute([$company_id]);
+            $pwd_hash = $stmt->fetchColumn();
+            if (!empty($pwd_hash)) {
+                $provided_pwd = $_POST['delete_password'] ?? '';
+                if (empty($provided_pwd) || !password_verify($provided_pwd, $pwd_hash)) {
+                    echo json_encode(['success' => false, 'message' => 'Incorrect deletion password', 'password_required' => true]);
+                    break;
+                }
+            }
 
             // 1. Snapshot the session + all children into JSON
             $stmt = $pdo->prepare("SELECT s.*, co.name as outlet_name FROM station_audit_sessions s LEFT JOIN client_outlets co ON s.outlet_id = co.id WHERE s.id = ? AND s.company_id = ?");
@@ -1095,7 +1148,7 @@ try {
             // Delete & re-insert
             $pdo->prepare("DELETE FROM station_lube_items WHERE section_id = ? AND company_id = ?")->execute([$section_id, $company_id]);
 
-            $ins = $pdo->prepare("INSERT INTO station_lube_items (section_id, store_item_id, company_id, item_name, opening, received, sold, closing, selling_price, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $ins = $pdo->prepare("INSERT INTO station_lube_items (section_id, store_item_id, company_id, item_name, opening, received, adjustment, return_inward, sold, closing, selling_price, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $order = 0;
             foreach ($items as $it) {
                 $ins->execute([
@@ -1105,6 +1158,8 @@ try {
                     clean_input($it['item_name'] ?? ''),
                     floatval($it['opening'] ?? 0),
                     floatval($it['received'] ?? 0),
+                    floatval($it['adjustment'] ?? 0),
+                    floatval($it['return_inward'] ?? 0),
                     floatval($it['sold'] ?? 0),
                     floatval($it['closing'] ?? 0),
                     floatval($it['selling_price'] ?? 0),
@@ -1126,25 +1181,53 @@ try {
                 break;
             }
 
-            // Delete & re-insert store items (and their issues)
-            $pdo->prepare("DELETE FROM station_lube_issues WHERE store_item_id IN (SELECT id FROM station_lube_store_items WHERE session_id = ? AND company_id = ?)")->execute([$session_id, $company_id]);
-            $pdo->prepare("DELETE FROM station_lube_store_items WHERE session_id = ? AND company_id = ?")->execute([$session_id, $company_id]);
-
-            $ins = $pdo->prepare("INSERT INTO station_lube_store_items (session_id, company_id, item_name, opening, received, return_out, adjustment, selling_price, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            // Upsert: update existing items, insert new ones, remove deleted ones
             $order = 0;
             $new_ids = [];
+            $existing_ids = [];
             foreach ($items as $it) {
-                $ins->execute([
-                    $session_id, $company_id,
-                    clean_input($it['item_name'] ?? ''),
-                    floatval($it['opening'] ?? 0),
-                    floatval($it['received'] ?? 0),
-                    floatval($it['return_out'] ?? 0),
-                    floatval($it['adjustment'] ?? 0),
-                    floatval($it['selling_price'] ?? 0),
-                    $order++
-                ]);
-                $new_ids[] = $pdo->lastInsertId();
+                $item_id = intval($it['id'] ?? 0);
+                if ($item_id > 0) {
+                    // Update existing
+                    $pdo->prepare("UPDATE station_lube_store_items SET item_name=?, opening=?, received=?, return_out=?, adjustment=?, selling_price=?, sort_order=? WHERE id=? AND session_id=? AND company_id=?")
+                        ->execute([
+                            clean_input($it['item_name'] ?? ''),
+                            floatval($it['opening'] ?? 0),
+                            floatval($it['received'] ?? 0),
+                            floatval($it['return_out'] ?? 0),
+                            floatval($it['adjustment'] ?? 0),
+                            floatval($it['selling_price'] ?? 0),
+                            $order++,
+                            $item_id, $session_id, $company_id
+                        ]);
+                    $existing_ids[] = $item_id;
+                    $new_ids[] = $item_id;
+                } else {
+                    // Insert new
+                    $pdo->prepare("INSERT INTO station_lube_store_items (session_id, company_id, item_name, opening, received, return_out, adjustment, selling_price, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([
+                            $session_id, $company_id,
+                            clean_input($it['item_name'] ?? ''),
+                            floatval($it['opening'] ?? 0),
+                            floatval($it['received'] ?? 0),
+                            floatval($it['return_out'] ?? 0),
+                            floatval($it['adjustment'] ?? 0),
+                            floatval($it['selling_price'] ?? 0),
+                            $order++
+                        ]);
+                    $new_id = $pdo->lastInsertId();
+                    $existing_ids[] = $new_id;
+                    $new_ids[] = $new_id;
+                }
+            }
+            // Remove items that were deleted from the UI
+            if (!empty($existing_ids)) {
+                $placeholders = implode(',', array_fill(0, count($existing_ids), '?'));
+                $del_params = array_merge([$session_id, $company_id], $existing_ids);
+                $pdo->prepare("DELETE FROM station_lube_issues WHERE store_item_id IN (SELECT id FROM station_lube_store_items WHERE session_id=? AND company_id=? AND id NOT IN ($placeholders))")
+                    ->execute($del_params);
+                $pdo->prepare("DELETE FROM station_lube_store_items WHERE session_id=? AND company_id=? AND id NOT IN ($placeholders)")
+                    ->execute($del_params);
             }
 
             echo json_encode(['success' => true, 'count' => count($items), 'ids' => $new_ids]);
@@ -1180,15 +1263,31 @@ try {
             echo json_encode(['success' => true]);
             break;
 
-        // ───────── Lube Products CRUD ─────────
+        // ───────── Lube Products CRUD (session-scoped) ─────────
         case 'get_lube_products':
-            $stmt = $pdo->prepare("SELECT * FROM station_lube_products WHERE company_id = ? ORDER BY product_name");
-            $stmt->execute([$company_id]);
+            $sid = intval($_POST['session_id'] ?? 0);
+            // Check if this session already has products
+            $chk = $pdo->prepare("SELECT COUNT(*) FROM station_lube_products WHERE company_id = ? AND session_id = ?");
+            $chk->execute([$company_id, $sid]);
+            if ($chk->fetchColumn() == 0 && $sid > 0) {
+                // Auto-clone: try from the most recent previous session, else from template (session_id=0)
+                $src = $pdo->prepare("SELECT DISTINCT session_id FROM station_lube_products WHERE company_id = ? AND session_id > 0 AND session_id < ? ORDER BY session_id DESC LIMIT 1");
+                $src->execute([$company_id, $sid]);
+                $src_sid = $src->fetchColumn();
+                if (!$src_sid) $src_sid = 0; // fallback to template
+                $clone = $pdo->prepare("INSERT INTO station_lube_products (company_id, session_id, product_name, unit, cost_price, selling_price, reorder_level, is_active)
+                    SELECT company_id, ?, product_name, unit, cost_price, selling_price, reorder_level, is_active
+                    FROM station_lube_products WHERE company_id = ? AND session_id = ?");
+                $clone->execute([$sid, $company_id, $src_sid]);
+            }
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_products WHERE company_id = ? AND session_id = ? ORDER BY product_name");
+            $stmt->execute([$company_id, $sid]);
             echo json_encode(['success' => true, 'products' => $stmt->fetchAll()]);
             break;
 
         case 'save_lube_product':
             $id            = intval($_POST['id'] ?? 0);
+            $sid           = intval($_POST['session_id'] ?? 0);
             $product_name  = clean_input($_POST['product_name'] ?? '');
             $unit          = clean_input($_POST['unit'] ?? 'Litre');
             $cost_price    = floatval($_POST['cost_price'] ?? 0);
@@ -1196,23 +1295,79 @@ try {
             $reorder_level = floatval($_POST['reorder_level'] ?? 0);
             if (!$product_name) { echo json_encode(['success' => false, 'message' => 'Product name required']); break; }
             if ($id) {
-                $pdo->prepare("UPDATE station_lube_products SET product_name=?, unit=?, cost_price=?, selling_price=?, reorder_level=? WHERE id=? AND company_id=?")
-                    ->execute([$product_name, $unit, $cost_price, $selling_price, $reorder_level, $id, $company_id]);
+                // Get old product name for matching (in case name was changed)
+                $old = $pdo->prepare("SELECT product_name FROM station_lube_products WHERE id=? AND company_id=? AND session_id=?");
+                $old->execute([$id, $company_id, $sid]);
+                $old_name = $old->fetchColumn();
+
+                $pdo->prepare("UPDATE station_lube_products SET product_name=?, unit=?, cost_price=?, selling_price=?, reorder_level=? WHERE id=? AND company_id=? AND session_id=?")
+                    ->execute([$product_name, $unit, $cost_price, $selling_price, $reorder_level, $id, $company_id, $sid]);
                 echo json_encode(['success' => true, 'id' => $id]);
+
+                // Sync selling_price to store items (match by old name or new name)
+                $match_name = $old_name ?: $product_name;
+                $pdo->prepare("UPDATE station_lube_store_items SET selling_price=? WHERE session_id=? AND company_id=? AND item_name=?")
+                    ->execute([$selling_price, $sid, $company_id, $match_name]);
+                // If product name changed, also update the store item name
+                if ($old_name && $old_name !== $product_name) {
+                    $pdo->prepare("UPDATE station_lube_store_items SET item_name=? WHERE session_id=? AND company_id=? AND item_name=?")
+                        ->execute([$product_name, $sid, $company_id, $old_name]);
+                }
+
+                // Sync selling_price to counter items (match by product name)
+                $sections = $pdo->prepare("SELECT id FROM station_lube_sections WHERE session_id=? AND company_id=?");
+                $sections->execute([$sid, $company_id]);
+                foreach ($sections->fetchAll(PDO::FETCH_COLUMN) as $sec_id) {
+                    $pdo->prepare("UPDATE station_lube_items SET selling_price=? WHERE section_id=? AND company_id=? AND item_name=?")
+                        ->execute([$selling_price, $sec_id, $company_id, $match_name]);
+                    if ($old_name && $old_name !== $product_name) {
+                        $pdo->prepare("UPDATE station_lube_items SET item_name=? WHERE section_id=? AND company_id=? AND item_name=?")
+                            ->execute([$product_name, $sec_id, $company_id, $old_name]);
+                    }
+                }
+
+                // Sync cost_price & selling_price to stock count items (store + counter)
+                // Store stock count items
+                $sc_ids = $pdo->prepare("SELECT id FROM station_lube_stock_counts WHERE session_id=? AND company_id=?");
+                $sc_ids->execute([$sid, $company_id]);
+                foreach ($sc_ids->fetchAll(PDO::FETCH_COLUMN) as $sc_id) {
+                    $pdo->prepare("UPDATE station_lube_stock_count_items SET cost_price=?, selling_price=?, sold_value_cost=sold_qty*? WHERE count_id=? AND company_id=? AND product_name=?")
+                        ->execute([$cost_price, $selling_price, $cost_price, $sc_id, $company_id, $match_name]);
+                    if ($old_name && $old_name !== $product_name) {
+                        $pdo->prepare("UPDATE station_lube_stock_count_items SET product_name=? WHERE count_id=? AND company_id=? AND product_name=?")
+                            ->execute([$product_name, $sc_id, $company_id, $old_name]);
+                    }
+                }
+                // Counter stock count items
+                $sections2 = $pdo->prepare("SELECT id FROM station_lube_sections WHERE session_id=? AND company_id=?");
+                $sections2->execute([$sid, $company_id]);
+                foreach ($sections2->fetchAll(PDO::FETCH_COLUMN) as $sec_id2) {
+                    $csc_ids = $pdo->prepare("SELECT id FROM station_counter_stock_counts WHERE section_id=? AND company_id=?");
+                    $csc_ids->execute([$sec_id2, $company_id]);
+                    foreach ($csc_ids->fetchAll(PDO::FETCH_COLUMN) as $csc_id) {
+                        $pdo->prepare("UPDATE station_counter_stock_count_items SET cost_price=? WHERE count_id=? AND company_id=? AND product_name=?")
+                            ->execute([$cost_price, $csc_id, $company_id, $match_name]);
+                        if ($old_name && $old_name !== $product_name) {
+                            $pdo->prepare("UPDATE station_counter_stock_count_items SET product_name=? WHERE count_id=? AND company_id=? AND product_name=?")
+                                ->execute([$product_name, $csc_id, $company_id, $old_name]);
+                        }
+                    }
+                }
             } else {
-                $stmt = $pdo->prepare("INSERT INTO station_lube_products (company_id, product_name, unit, cost_price, selling_price, reorder_level) VALUES (?,?,?,?,?,?)");
-                $stmt->execute([$company_id, $product_name, $unit, $cost_price, $selling_price, $reorder_level]);
+                $stmt = $pdo->prepare("INSERT INTO station_lube_products (company_id, session_id, product_name, unit, cost_price, selling_price, reorder_level) VALUES (?,?,?,?,?,?,?)");
+                $stmt->execute([$company_id, $sid, $product_name, $unit, $cost_price, $selling_price, $reorder_level]);
                 echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
             }
             break;
 
         case 'delete_lube_product':
             $id = intval($_POST['id'] ?? 0);
-            $stmt = $pdo->prepare("SELECT * FROM station_lube_products WHERE id=? AND company_id=?");
-            $stmt->execute([$id, $company_id]);
+            $sid = intval($_POST['session_id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_products WHERE id=? AND company_id=? AND session_id=?");
+            $stmt->execute([$id, $company_id, $sid]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row) move_to_trash($pdo, $company_id, 'lube_product', $id, $row['product_name'] ?? 'Lube Product', $row, $user_id);
-            $pdo->prepare("DELETE FROM station_lube_products WHERE id=? AND company_id=?")->execute([$id, $company_id]);
+            $pdo->prepare("DELETE FROM station_lube_products WHERE id=? AND company_id=? AND session_id=?")->execute([$id, $company_id, $sid]);
             echo json_encode(['success' => true]);
             break;
 
@@ -1304,16 +1459,20 @@ try {
                 $unit_v = clean_input($it['unit'] ?? 'Litre');
                 $ins->execute([$id, $company_id, $pid, $pname, $qty, $unit_v, $cp, $sp, floatval($it['total_cost'] ?? $qty * $cp)]);
 
-                // GRN cost overrides product catalog price
+                // GRN cost/selling price overrides product catalog price (session-scoped)
                 if ($pid && ($cp > 0 || $sp > 0)) {
                     $upd_fields = [];
                     $upd_vals   = [];
+                    // Always sync both prices when either is provided
                     if ($cp > 0) { $upd_fields[] = 'cost_price=?';    $upd_vals[] = $cp; }
                     if ($sp > 0) { $upd_fields[] = 'selling_price=?'; $upd_vals[] = $sp; }
-                    $upd_vals[] = $pid;
-                    $upd_vals[] = $company_id;
-                    $pdo->prepare("UPDATE station_lube_products SET " . implode(', ', $upd_fields) . " WHERE id=? AND company_id=?")
-                        ->execute($upd_vals);
+                    if (!empty($upd_fields)) {
+                        $upd_vals[] = $pid;
+                        $upd_vals[] = $company_id;
+                        $upd_vals[] = $session_id_grn;
+                        $pdo->prepare("UPDATE station_lube_products SET " . implode(', ', $upd_fields) . " WHERE id=? AND company_id=? AND session_id=?")
+                            ->execute($upd_vals);
+                    }
                 }
             }
 
@@ -1321,7 +1480,8 @@ try {
             // Recalculate total received per product from ALL GRNs for this session
             if ($session_id_grn) {
                 $grn_totals = $pdo->prepare("
-                    SELECT gi.product_name, SUM(gi.quantity) AS total_qty, MAX(gi.selling_price) AS sell_price
+                    SELECT gi.product_name, SUM(gi.quantity) AS total_qty, 
+                           MAX(gi.cost_price) AS cost_price, MAX(gi.selling_price) AS sell_price
                     FROM station_lube_grn_items gi
                     JOIN station_lube_grn g ON g.id = gi.grn_id AND g.company_id = gi.company_id
                     WHERE g.session_id = ? AND g.company_id = ?
@@ -1340,13 +1500,44 @@ try {
                     $store_row = $existing->fetch(PDO::FETCH_ASSOC);
 
                     if ($store_row) {
-                        // Update received quantity
-                        $pdo->prepare("UPDATE station_lube_store_items SET received=?, selling_price=CASE WHEN selling_price=0 THEN ? ELSE selling_price END WHERE id=?")
+                        // Always update received quantity AND selling_price
+                        $pdo->prepare("UPDATE station_lube_store_items SET received=?, selling_price=? WHERE id=?")
                             ->execute([$recv_qty, $sell_price, $store_row['id']]);
                     } else {
                         // Create new store item with received quantity
                         $pdo->prepare("INSERT INTO station_lube_store_items (session_id, company_id, item_name, opening, received, return_out, selling_price, sort_order) VALUES (?,?,?,0,?,0,?,999)")
                             ->execute([$session_id_grn, $company_id, $pname_clean, $recv_qty, $sell_price]);
+                    }
+                }
+
+                // ── Sync GRN prices → Stock Count Items ──
+                // Update cost_price in store stock count items
+                $sc_ids_grn = $pdo->prepare("SELECT id FROM station_lube_stock_counts WHERE session_id=? AND company_id=?");
+                $sc_ids_grn->execute([$session_id_grn, $company_id]);
+                foreach ($sc_ids_grn->fetchAll(PDO::FETCH_COLUMN) as $sc_id_grn) {
+                    foreach ($received_map as $row2) {
+                        $grn_cp = floatval($row2['cost_price']);
+                        $grn_sp = floatval($row2['sell_price']);
+                        if ($grn_cp > 0) {
+                            $pdo->prepare("UPDATE station_lube_stock_count_items SET cost_price=?, selling_price=?, sold_value_cost=sold_qty*? WHERE count_id=? AND company_id=? AND product_name=?")
+                                ->execute([$grn_cp, $grn_sp, $grn_cp, $sc_id_grn, $company_id, $row2['product_name']]);
+                        }
+                    }
+                }
+                // Update cost_price in counter stock count items
+                $grn_secs = $pdo->prepare("SELECT id FROM station_lube_sections WHERE session_id=? AND company_id=?");
+                $grn_secs->execute([$session_id_grn, $company_id]);
+                foreach ($grn_secs->fetchAll(PDO::FETCH_COLUMN) as $grn_sec_id) {
+                    $csc_ids2 = $pdo->prepare("SELECT id FROM station_counter_stock_counts WHERE section_id=? AND company_id=?");
+                    $csc_ids2->execute([$grn_sec_id, $company_id]);
+                    foreach ($csc_ids2->fetchAll(PDO::FETCH_COLUMN) as $csc_id2) {
+                        foreach ($received_map as $row3) {
+                            $grn_cp2 = floatval($row3['cost_price']);
+                            if ($grn_cp2 > 0) {
+                                $pdo->prepare("UPDATE station_counter_stock_count_items SET cost_price=? WHERE count_id=? AND company_id=? AND product_name=?")
+                                    ->execute([$grn_cp2, $csc_id2, $company_id, $row3['product_name']]);
+                            }
+                        }
                     }
                 }
             }
@@ -1492,15 +1683,16 @@ try {
             }
             // Delete & re-insert items
             $pdo->prepare("DELETE FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?")->execute([$id, $company_id]);
-            $ins = $pdo->prepare("INSERT INTO station_counter_stock_count_items (count_id, company_id, product_name, system_stock, physical_count, variance, selling_price, sold_qty, sold_value) VALUES (?,?,?,?,?,?,?,?,?)");
+            $ins = $pdo->prepare("INSERT INTO station_counter_stock_count_items (count_id, company_id, product_name, system_stock, physical_count, variance, cost_price, selling_price, sold_qty, sold_value) VALUES (?,?,?,?,?,?,?,?,?,?)");
             foreach ($items as $it) {
                 $sys   = intval($it['system_stock'] ?? 0);
                 $phys  = intval($it['physical_count'] ?? 0);
                 $var   = $phys - $sys;
-                $sp    = floatval($it['selling_price'] ?? 0);
+                $cp    = floatval($it['cost_price'] ?? 0);
+                $sp    = floatval($it['selling_price'] ?? $cp);
                 $sold  = intval($it['sold_qty'] ?? 0);
-                $sold_val = $sold * $sp;
-                $ins->execute([$id, $company_id, clean_input($it['product_name'] ?? ''), $sys, $phys, $var, $sp, $sold, $sold_val]);
+                $sold_val = floatval($it['sold_value'] ?? ($sold * ($cp ?: $sp)));
+                $ins->execute([$id, $company_id, clean_input($it['product_name'] ?? ''), $sys, $phys, $var, $cp, $sp, $sold, $sold_val]);
             }
             echo json_encode(['success' => true, 'id' => $id]);
             break;
