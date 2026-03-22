@@ -33,6 +33,16 @@ function send_mail($to_email, $to_name, $subject, $html_body, $text_body = '') {
         $mail->Password   = MAIL_PASSWORD;
         $mail->SMTPSecure = MAIL_ENCRYPTION;
         $mail->Port       = MAIL_PORT;
+        $mail->Timeout    = 30;
+        
+        // Skip SSL certificate verification (needed for XAMPP / localhost)
+        $mail->SMTPOptions = [
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true,
+            ],
+        ];
         
         // Sender & Recipient
         $mail->setFrom(MAIL_FROM_EMAIL, MAIL_FROM_NAME);
@@ -41,7 +51,6 @@ function send_mail($to_email, $to_name, $subject, $html_body, $text_body = '') {
         // Content
         $mail->isHTML(true);
         $mail->Subject = $subject;
-        $mail->Body    = $html_body;
         $mail->Body    = $html_body;
         $mail->AltBody = $text_body ?: strip_tags($html_body);
         

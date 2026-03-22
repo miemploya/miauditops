@@ -69,6 +69,9 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
             <button @click="tab='deleted'; loadDeletedCompanies()" :class="tab==='deleted' ? 'bg-red-600/20 text-red-400' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all">
                 <i data-lucide="trash-2" class="w-4 h-4"></i> Deleted Accounts
             </button>
+            <a href="testimonials.php" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-all">
+                <i data-lucide="message-square-quote" class="w-4 h-4"></i> Testimonials
+            </a>
         </nav>
 
         <!-- Footer -->

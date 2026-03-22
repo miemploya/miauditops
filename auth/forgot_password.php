@@ -1,63 +1,79 @@
 <?php
 /**
  * MIAUDITOPS — Forgot Password
- * User enters email + company code → receives a reset link via email.
+ * User enters email → receives a reset link via email.
  */
 session_start();
 if (isset($_SESSION['user_id'])) { header('Location: ../dashboard/index.php'); exit; }
 
 require_once '../config/db.php';
-require_once '../includes/mail_helper.php';
 
 $error = '';
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
-    $company_code = strtoupper(trim($_POST['company_code'] ?? ''));
 
-    if (empty($email) || empty($company_code)) {
-        $error = 'Email and company code are required.';
+    if (empty($email)) {
+        $error = 'Email address is required.';
     } else {
-        // Find the user
-        $stmt = $pdo->prepare("
-            SELECT u.id, u.first_name, c.id as company_id
-            FROM users u
-            JOIN companies c ON c.id = u.company_id
-            WHERE u.email = ? AND c.code = ? AND u.is_active = 1 AND u.deleted_at IS NULL AND c.deleted_at IS NULL
-            LIMIT 1
-        ");
-        $stmt->execute([$email, $company_code]);
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            // Auto-create password_reset_tokens table if not exists
+            $pdo->exec("CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                company_id INT NOT NULL,
+                token VARCHAR(64) UNIQUE NOT NULL,
+                expires_at DATETIME NOT NULL,
+                used_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_token (token),
+                INDEX idx_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-        if ($user) {
-            // Invalidate old tokens for this user
-            $pdo->prepare("DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL")->execute([$user['id']]);
+            // Find the user by email only (no company code needed)
+            $stmt = $pdo->prepare("
+                SELECT u.id, u.first_name, u.company_id
+                FROM users u
+                WHERE u.email = ? AND u.is_active = 1 AND u.deleted_at IS NULL
+                LIMIT 1
+            ");
+            $stmt->execute([$email]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Generate new token
-            $token = bin2hex(random_bytes(32));
-            $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
+            if ($user) {
+                // Invalidate old tokens
+                $pdo->prepare("DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL")->execute([$user['id']]);
 
-            $pdo->prepare("INSERT INTO password_reset_tokens (user_id, company_id, token, expires_at) VALUES (?,?,?,?)")
-                ->execute([$user['id'], $user['company_id'], $token, $expires]);
+                // Generate new token
+                $token = bin2hex(random_bytes(32));
+                $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
 
-            // Build the reset link
-            $base = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http')
-                . '://' . $_SERVER['HTTP_HOST']
-                . str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME']));
-            $reset_link = $base . '/reset_password.php?token=' . $token;
+                $pdo->prepare("INSERT INTO password_reset_tokens (user_id, company_id, token, expires_at) VALUES (?,?,?,?)")
+                    ->execute([$user['id'], $user['company_id'], $token, $expires]);
 
-            // Send the reset email
-            $mail_result = send_password_reset_email($email, $user['first_name'], $reset_link);
-            
-            if ($mail_result['success']) {
-                $success = 'A password reset link has been sent to <strong>' . htmlspecialchars($email) . '</strong>. Please check your inbox (and spam folder). The link expires in 1 hour.';
+                // Build the reset link
+                $base = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http')
+                    . '://' . $_SERVER['HTTP_HOST']
+                    . str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME']));
+                $reset_link = $base . '/reset_password.php?token=' . $token;
+
+                // Send the reset email
+                require_once '../includes/mail_helper.php';
+                $mail_result = send_password_reset_email($email, $user['first_name'], $reset_link);
+                
+                if ($mail_result['success']) {
+                    $success = 'A password reset link has been sent to <strong>' . htmlspecialchars($email) . '</strong>. Please check your inbox (and spam folder). The link expires in 1 hour.';
+                } else {
+                    error_log("MIAUDITOPS Forgot Password - Mail failed for {$email}: " . ($mail_result['message'] ?? 'Unknown'));
+                    $error = 'We could not send the reset email. Please try again or contact your administrator.';
+                }
             } else {
-                $error = 'We could not send the reset email. Please try again or contact your administrator.';
+                $success = 'If an account with that email exists, a reset link has been sent.';
             }
-        } else {
-            // Show generic success to prevent email enumeration
-            $success = 'If an account with that email and company code exists, a reset link has been sent.';
+        } catch (Exception $e) {
+            error_log("MIAUDITOPS Forgot Password - Exception: " . $e->getMessage());
+            $error = 'An error occurred. Please try again or contact your administrator.';
         }
     }
 }
@@ -108,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="bg-white/80 dark:bg-white/5 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl p-5">
             <h2 class="text-base font-bold text-slate-800 dark:text-white mb-0.5">Forgot Password?</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Enter your details to get a reset link</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Enter your email address to receive a reset link</p>
 
             <?php if ($error): ?>
                 <div class="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 text-sm flex items-center gap-2">
@@ -127,12 +143,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             <?php else: ?>
                 <form method="POST" class="space-y-3">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-0.5">Company Code</label>
-                        <input type="text" name="company_code" placeholder="e.g. ACME123" required
-                               value="<?php echo htmlspecialchars($_POST['company_code'] ?? ''); ?>"
-                               class="w-full px-3 py-1.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/20 transition-all uppercase tracking-wider text-sm font-mono">
-                    </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-0.5">Email Address</label>
                         <input type="email" name="email" placeholder="your@email.com" required

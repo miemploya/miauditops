@@ -9,6 +9,18 @@ header('Content-Type: application/json');
 
 if (!is_logged_in()) { echo json_encode(['success' => false, 'message' => 'Not authenticated']); exit; }
 
+// Sanitize input WITHOUT htmlspecialchars (Alpine x-text and esc() handle escaping on output)
+function pnl_clean($data) { return trim(stripslashes($data)); }
+
+// One-time cleanup: remove stale catalog tables and phantom entries
+try {
+    $pdo->exec("UPDATE pnl_revenue SET label = REPLACE(REPLACE(label, '&amp;amp;', '&amp;'), '&amp;', '&') WHERE label LIKE '%&amp;%'");
+    $pdo->exec("UPDATE pnl_cost_of_sales SET label = REPLACE(REPLACE(label, '&amp;amp;', '&amp;'), '&amp;', '&') WHERE label LIKE '%&amp;%'");
+    $pdo->exec("UPDATE pnl_expenses SET label = REPLACE(REPLACE(label, '&amp;amp;', '&amp;'), '&amp;', '&') WHERE label LIKE '%&amp;%'");
+    $pdo->exec("DROP TABLE IF EXISTS pnl_revenue_catalog");
+    $pdo->exec("DROP TABLE IF EXISTS pnl_purchase_catalog");
+} catch (Exception $e) {}
+
 $company_id = $_SESSION['company_id'];
 $client_id  = get_active_client();
 $user_id    = $_SESSION['user_id'];
@@ -34,6 +46,8 @@ try {
 
     // Ensure ai_recommendation column exists
     try { $pdo->exec("ALTER TABLE pnl_reports ADD COLUMN ai_recommendation TEXT DEFAULT NULL"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE pnl_reports ADD COLUMN prev_pnl_data TEXT DEFAULT NULL"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE pnl_reports ADD COLUMN pdf_style TEXT DEFAULT NULL"); } catch (Exception $e) {}
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS pnl_periods (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -70,6 +84,7 @@ try {
 
     // Auto-add sub_entries column if table already exists without it
     try { $pdo->exec("ALTER TABLE pnl_cost_of_sales ADD COLUMN sub_entries TEXT DEFAULT NULL AFTER entry_type"); } catch (Exception $ignore) {}
+    try { $pdo->exec("ALTER TABLE pnl_cost_of_sales ADD COLUMN department VARCHAR(100) DEFAULT '' AFTER sub_entries"); } catch (Exception $ignore) {}
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS pnl_expenses (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -209,7 +224,7 @@ try {
                 'totalRevenue' => $totalRev, 'cos' => $totalCOS,
                 'grossProfit' => $grossProfit, 'totalOpex' => $totalOpex,
                 'totalOther' => $totalOther, 'operatingProfit' => $operatingProfit,
-                'netProfit' => $netProfit
+                'netProfit' => $netProfit, 'closingStock' => $closing
             ]);
             break;
 
@@ -289,11 +304,11 @@ try {
         // ── Create report (month-scoped) ──
         case 'create_report':
             require_non_viewer();
-            $title    = clean_input($_POST['title'] ?? '');
+            $title    = pnl_clean($_POST['title'] ?? '');
             $industry = in_array($_POST['industry'] ?? '', ['hospitality','manufacturing']) ? $_POST['industry'] : 'hospitality';
             $month    = max(1, min(12, intval($_POST['report_month'] ?? date('n'))));
             $year     = max(2020, min(2099, intval($_POST['report_year'] ?? date('Y'))));
-            $location = clean_input($_POST['location'] ?? '');
+            $location = pnl_clean($_POST['location'] ?? '');
 
             if (!$client_id) { echo json_encode(['success' => false, 'message' => 'Please select a client first']); break; }
 
@@ -376,6 +391,22 @@ try {
             echo json_encode(['success' => true]);
             break;
 
+        // ── Update period dates ──
+        case 'update_period':
+            require_non_viewer();
+            $period_id = intval($_POST['period_id'] ?? 0);
+            $date_from = pnl_clean($_POST['date_from'] ?? '');
+            $date_to   = pnl_clean($_POST['date_to'] ?? '');
+            if (!$period_id || !$date_from || !$date_to) { echo json_encode(['success' => false, 'message' => 'Missing data']); break; }
+
+            $chk = $pdo->prepare("SELECT p.id FROM pnl_periods p JOIN pnl_reports r ON r.id = p.report_id WHERE p.id = ? AND r.company_id = ? AND r.status = 'draft'");
+            $chk->execute([$period_id, $company_id]);
+            if (!$chk->fetch()) { echo json_encode(['success' => false, 'message' => 'Period not found or report finalized']); break; }
+
+            $pdo->prepare("UPDATE pnl_periods SET date_from = ?, date_to = ? WHERE id = ?")->execute([$date_from, $date_to, $period_id]);
+            echo json_encode(['success' => true]);
+            break;
+
         // ── Save revenue for a period ──
         case 'save_revenue':
             require_non_viewer();
@@ -391,9 +422,11 @@ try {
             $pdo->prepare("DELETE FROM pnl_revenue WHERE period_id = ?")->execute([$period_id]);
             $s = $pdo->prepare("INSERT INTO pnl_revenue (report_id, period_id, label, amount, sort_order) VALUES (?,?,?,?,?)");
             foreach ($items as $i => $item) {
-                $label = clean_input($item['label'] ?? '');
+                $label = pnl_clean($item['label'] ?? '');
                 $amount = floatval($item['amount'] ?? 0);
-                if (!empty($label)) $s->execute([$report_id, $period_id, $label, $amount, $i]);
+                if (!empty($label)) {
+                    $s->execute([$report_id, $period_id, $label, $amount, $i]);
+                }
             }
             echo json_encode(['success' => true]);
             break;
@@ -411,10 +444,11 @@ try {
             if (!$chk->fetch()) { echo json_encode(['success' => false, 'message' => 'Report not found or finalized']); break; }
 
             $pdo->prepare("DELETE FROM pnl_cost_of_sales WHERE period_id = ?")->execute([$period_id]);
-            $s = $pdo->prepare("INSERT INTO pnl_cost_of_sales (report_id, period_id, label, amount, entry_type, sub_entries, sort_order) VALUES (?,?,?,?,?,?,?)");
+            $s = $pdo->prepare("INSERT INTO pnl_cost_of_sales (report_id, period_id, label, amount, entry_type, sub_entries, department, sort_order) VALUES (?,?,?,?,?,?,?,?)");
             foreach ($items as $i => $item) {
-                $label = clean_input($item['label'] ?? '');
+                $label = pnl_clean($item['label'] ?? '');
                 $type = in_array($item['entry_type'] ?? '', ['opening','purchase','closing']) ? $item['entry_type'] : 'opening';
+                $dept = pnl_clean($item['department'] ?? '');
                 $subs = $item['sub_entries'] ?? null;
                 $amount = 0;
                 if (is_array($subs) && count($subs) > 0) {
@@ -429,7 +463,9 @@ try {
                     $amount = floatval($item['amount'] ?? 0);
                 }
                 $subs_json = is_array($subs) ? json_encode($subs) : null;
-                if (!empty($label)) $s->execute([$report_id, $period_id, $label, $amount, $type, $subs_json, $i]);
+                if (!empty($label)) {
+                    $s->execute([$report_id, $period_id, $label, $amount, $type, $subs_json, $dept, $i]);
+                }
             }
             echo json_encode(['success' => true]);
             break;
@@ -449,7 +485,7 @@ try {
             $pdo->prepare("DELETE FROM pnl_expenses WHERE period_id = ?")->execute([$period_id]);
             $s = $pdo->prepare("INSERT INTO pnl_expenses (report_id, period_id, label, amount, category, sub_entries, sort_order) VALUES (?,?,?,?,?,?,?)");
             foreach ($items as $i => $item) {
-                $label = clean_input($item['label'] ?? '');
+                $label = pnl_clean($item['label'] ?? '');
                 $cat = in_array($item['category'] ?? '', ['operating','other']) ? $item['category'] : 'operating';
                 $subs = $item['sub_entries'] ?? [];
                 $amount = 0;
@@ -511,10 +547,10 @@ try {
             $pdo->prepare("UPDATE pnl_stock_catalog SET active = 0 WHERE company_id = ? AND client_id = ?")->execute([$company_id, $client_id]);
 
             foreach ($items as $i => $item) {
-                $name = clean_input($item['item_name'] ?? '');
+                $name = pnl_clean($item['item_name'] ?? '');
                 $cost = floatval($item['unit_cost'] ?? 0);
-                $dept = clean_input($item['department'] ?? '');
-                $cat  = clean_input($item['category'] ?? '');
+                $dept = pnl_clean($item['department'] ?? '');
+                $cat  = pnl_clean($item['category'] ?? '');
                 $ps   = max(1, intval($item['pack_size'] ?? 1));
                 if (!empty($name)) {
                     $ins = $pdo->prepare("INSERT INTO pnl_stock_catalog (company_id, client_id, item_name, unit_cost, department, category, pack_size, sort_order, active) VALUES (?,?,?,?,?,?,?,?,1)");
@@ -534,6 +570,24 @@ try {
             $report_id = intval($_POST['report_id'] ?? 0);
             $text = $_POST['ai_recommendation'] ?? '';
             $pdo->prepare("UPDATE pnl_reports SET ai_recommendation = ? WHERE id = ? AND company_id = ? AND client_id = ?")->execute([$text, $report_id, $company_id, $client_id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ── Save previous P&L data ──
+        case 'save_prev_pnl':
+            require_non_viewer();
+            $report_id = intval($_POST['report_id'] ?? 0);
+            $data = $_POST['prev_pnl_data'] ?? '{}';
+            $pdo->prepare("UPDATE pnl_reports SET prev_pnl_data = ? WHERE id = ? AND company_id = ? AND client_id = ?")->execute([$data, $report_id, $company_id, $client_id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ── Save PDF style settings ──
+        case 'save_pdf_style':
+            require_non_viewer();
+            $report_id = intval($_POST['report_id'] ?? 0);
+            $style = $_POST['pdf_style'] ?? '{}';
+            $pdo->prepare("UPDATE pnl_reports SET pdf_style = ? WHERE id = ? AND company_id = ? AND client_id = ?")->execute([$style, $report_id, $company_id, $client_id]);
             echo json_encode(['success' => true]);
             break;
 

@@ -41,6 +41,9 @@ $page_permission_map = [
     'support.php'          => 'support',
     'billing.php'          => 'billing',
     'pnl_generator.php'    => 'finance',
+    'bank_recon.php'       => 'finance',
+    'fixed_assets.php'     => 'finance',
+    'capital_allowance.php' => 'finance',
 ];
 
 // Map page hrefs to subscription module keys (may differ from permission keys)
@@ -60,6 +63,9 @@ $page_subscription_map = [
     'support.php'          => 'support',
     'billing.php'          => 'billing',
     'pnl_generator.php'    => 'finance',
+    'bank_recon.php'       => 'finance',
+    'fixed_assets.php'     => 'finance',
+    'capital_allowance.php' => 'finance',
 ];
 try {
     $_current_plan_key = get_current_plan();
@@ -128,6 +134,9 @@ if ($_has_petroleum_client || plan_includes_module($_current_plan_key, 'station_
 $nav_sections['P&L'] = [
     'items' => [
         ['label' => 'Create P&L', 'icon' => 'file-spreadsheet', 'href' => 'pnl_generator.php', 'gradient' => 'from-emerald-500 to-green-600', 'roles' => 'all', 'badge' => 'NEW'],
+        ['label' => 'Bank Recon', 'icon' => 'landmark', 'href' => 'bank_recon.php', 'gradient' => 'from-blue-500 to-indigo-600', 'roles' => 'all', 'badge' => 'NEW'],
+        ['label' => 'Fixed Assets', 'icon' => 'package-check', 'href' => 'fixed_assets.php', 'gradient' => 'from-violet-500 to-purple-600', 'roles' => 'all', 'badge' => 'NEW'],
+        ['label' => 'Capital Allow.', 'icon' => 'calculator', 'href' => 'capital_allowance.php', 'gradient' => 'from-amber-500 to-orange-600', 'roles' => 'all', 'badge' => 'NEW'],
     ]
 ];
 

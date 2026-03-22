@@ -1362,6 +1362,51 @@ try {
             echo json_encode(['success' => true]);
             break;
 
+        case 'bulk_import':
+            $items = json_decode($_POST['items'] ?? '[]', true);
+            if (!is_array($items) || empty($items)) {
+                echo json_encode(['success' => false, 'message' => 'No items to import']);
+                break;
+            }
+
+            // Check subscription limit
+            $limit = check_product_limit($company_id, $client_id);
+            $remaining = $limit['max'] - $limit['current'];
+
+            // Get existing product names for dedup
+            $stmt = $pdo->prepare("SELECT LOWER(name) FROM products WHERE company_id = ? AND client_id = ? AND deleted_at IS NULL");
+            $stmt->execute([$company_id, $client_id]);
+            $existing = array_flip($stmt->fetchAll(PDO::FETCH_COLUMN));
+
+            $imported = 0; $skipped = 0; $limitHit = false;
+            $ins = $pdo->prepare("INSERT INTO products (company_id, client_id, name, sku, category, unit, unit_cost, selling_price, current_stock, reorder_level) VALUES (?,?,?,?,?,?,?,?,?,?)");
+
+            foreach ($items as $item) {
+                $name = trim($item['name'] ?? '');
+                if (!$name) { $skipped++; continue; }
+                $key = strtolower($name);
+                if (isset($existing[$key])) { $skipped++; continue; }
+                if ($imported >= $remaining) { $limitHit = true; break; }
+
+                $initials = strtoupper(implode('', array_map(fn($w) => substr($w, 0, 1), explode(' ', $name))));
+                $sku = 'P' . $initials . rand(100, 999);
+                $cat  = trim($item['category'] ?? '');
+                $unit = trim($item['unit'] ?? 'pcs');
+                $cost = floatval($item['unit_cost'] ?? 0);
+                $sell = floatval($item['selling_price'] ?? 0);
+                $stk  = floatval($item['opening_stock'] ?? 0);
+                $reorder = intval($item['reorder_level'] ?? 10);
+
+                $ins->execute([$company_id, $client_id, $name, $sku, $cat, $unit, $cost, $sell, $stk, $reorder]);
+                $existing[$key] = true;
+                $imported++;
+            }
+
+            log_audit($company_id, $user_id, 'bulk_import', 'stock', 0, "CSV import: $imported products imported, $skipped skipped");
+            $msg = "Imported $imported products" . ($skipped ? ", $skipped duplicates skipped" : '') . ($limitHit ? ". Subscription limit reached — upgrade to add more." : '');
+            echo json_encode(['success' => true, 'imported' => $imported, 'skipped' => $skipped, 'limit_hit' => $limitHit, 'message' => $msg]);
+            break;
+
         default:
             echo json_encode(['success' => false, 'message' => 'Unknown action']);
     }

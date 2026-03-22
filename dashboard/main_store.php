@@ -301,13 +301,19 @@ $js_allowed_tabs = json_encode(array_values(array_filter($store_tabs, function($
                             <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30"><i data-lucide="package-plus" class="w-4 h-4 text-white"></i></div>
                             <div><h3 class="font-bold text-slate-900 dark:text-white text-sm">Product Catalog</h3><p class="text-xs text-slate-500" x-text="products.length + ' products'"></p></div>
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                             <div class="relative">
                                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
                                 <input type="text" x-model="productSearch" placeholder="Search products..." class="pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs w-48 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
                             </div>
                             <button @click="printCatalog()" class="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl transition-all" title="Print / Save as PDF">
                                 <i data-lucide="printer" class="w-3.5 h-3.5"></i> Print
+                            </button>
+                            <button @click="downloadProductTemplate()" class="flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 text-blue-600 text-xs font-bold rounded-xl border border-blue-200 dark:border-blue-800 transition-all" title="Download CSV Template">
+                                <i data-lucide="download" class="w-3.5 h-3.5"></i> Template
+                            </button>
+                            <button @click="importProductCSV()" class="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 text-xs font-bold rounded-xl border border-emerald-200 dark:border-emerald-800 transition-all" title="Import from CSV">
+                                <i data-lucide="upload" class="w-3.5 h-3.5"></i> Import CSV
                             </button>
                             <button @click="showCategoryModal = true; $nextTick(() => lucide.createIcons())" class="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 text-amber-600 text-xs font-bold rounded-xl border border-amber-200 dark:border-amber-800 transition-all">
                                 <i data-lucide="tag" class="w-3.5 h-3.5"></i> Categories
@@ -2546,6 +2552,91 @@ function mainStoreApp() {
                 ],
                 rows: rows.map((r, i) => ({ ...r, _idx: i + 1 })),
             });
+        },
+        // ── CSV Import / Export ──
+        downloadProductTemplate() {
+            let csv = 'PRODUCT_NAME,CATEGORY,UNIT,UNIT_COST,SELLING_PRICE,OPENING_STOCK,REORDER_LEVEL\n';
+            csv += 'Coca-Cola 50cl,Beverages,bottle,200,350,0,10\n';
+            csv += 'Absolut Vodka 75cl,Spirits,bottle,12500,18000,0,5\n';
+            csv += 'Chicken Wings,Food,pcs,3500,5000,0,20\n';
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'product_import_template.csv';
+            a.click();
+            alert('Template downloaded — fill it in Excel and save as CSV (UTF-8).');
+        },
+        importProductCSV() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.csv,.txt';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    let text = ev.target.result.replace(/^\uFEFF/, '');
+                    let lines = text.split(/\r?\n/).filter(l => l.trim());
+                    if (lines.length < 2) { alert('CSV is empty or has no data rows'); return; }
+                    // Parse header
+                    let header = lines[0].split(',').map(h => h.trim().toUpperCase().replace(/['"]$/g, '').replace(/^['"]/, ''));
+                    let colMap = {};
+                    const keyMap = {
+                        'PRODUCT_NAME': 'NAME', 'PRODUCT NAME': 'NAME', 'NAME': 'NAME', 'ITEM_NAME': 'NAME', 'ITEM NAME': 'NAME',
+                        'CATEGORY': 'CATEGORY', 'UNIT': 'UNIT',
+                        'UNIT_COST': 'UNIT_COST', 'UNIT COST': 'UNIT_COST', 'COST': 'UNIT_COST', 'COST PRICE': 'UNIT_COST',
+                        'SELLING_PRICE': 'SELLING_PRICE', 'SELLING PRICE': 'SELLING_PRICE', 'PRICE': 'SELLING_PRICE', 'SELL PRICE': 'SELLING_PRICE',
+                        'OPENING_STOCK': 'OPENING_STOCK', 'OPENING STOCK': 'OPENING_STOCK', 'STOCK': 'OPENING_STOCK', 'QTY': 'OPENING_STOCK',
+                        'REORDER_LEVEL': 'REORDER_LEVEL', 'REORDER LEVEL': 'REORDER_LEVEL', 'REORDER': 'REORDER_LEVEL'
+                    };
+                    Object.keys(keyMap).forEach(h => { let idx = header.indexOf(h); if (idx >= 0) colMap[keyMap[h]] = idx; });
+                    if (colMap['NAME'] === undefined) { alert('CSV must have a PRODUCT_NAME or NAME column'); return; }
+                    // Parse CSV rows (handle quoted fields)
+                    function parseCSVLine(line) {
+                        let cols = []; let cur = ''; let inQ = false;
+                        for (let ch of line) {
+                            if (ch === '"') { inQ = !inQ; }
+                            else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+                            else { cur += ch; }
+                        }
+                        cols.push(cur.trim());
+                        return cols;
+                    }
+                    let items = [];
+                    for (let i = 1; i < lines.length; i++) {
+                        let cols = parseCSVLine(lines[i]);
+                        let name = (cols[colMap['NAME']] || '').replace(/^["']|["']$/g, '').trim();
+                        if (!name) continue;
+                        items.push({
+                            name: name,
+                            category: colMap['CATEGORY'] !== undefined ? (cols[colMap['CATEGORY']] || '').replace(/^["']|["']$/g, '').trim() : '',
+                            unit: colMap['UNIT'] !== undefined ? (cols[colMap['UNIT']] || '').replace(/^["']|["']$/g, '').trim() : 'pcs',
+                            unit_cost: colMap['UNIT_COST'] !== undefined ? parseFloat((cols[colMap['UNIT_COST']] || '0').replace(/[,'"]/g, '')) || 0 : 0,
+                            selling_price: colMap['SELLING_PRICE'] !== undefined ? parseFloat((cols[colMap['SELLING_PRICE']] || '0').replace(/[,'"]/g, '')) || 0 : 0,
+                            opening_stock: colMap['OPENING_STOCK'] !== undefined ? parseFloat((cols[colMap['OPENING_STOCK']] || '0').replace(/[,'"]/g, '')) || 0 : 0,
+                            reorder_level: colMap['REORDER_LEVEL'] !== undefined ? parseInt((cols[colMap['REORDER_LEVEL']] || '10').replace(/[,'"]/g, '')) || 10 : 10
+                        });
+                    }
+                    if (items.length === 0) { alert('No valid items found in CSV'); return; }
+                    if (confirm('Found ' + items.length + ' products to import. Proceed?')) {
+                        this.bulkImportProducts(items);
+                    }
+                };
+                reader.readAsText(file, 'UTF-8');
+            };
+            input.click();
+        },
+        async bulkImportProducts(items) {
+            const fd = new FormData();
+            fd.append('action', 'bulk_import');
+            fd.append('items', JSON.stringify(items));
+            try {
+                const r = await (await fetch('../ajax/stock_api.php', { method: 'POST', body: fd })).json();
+                alert(r.message || ('Imported ' + (r.imported||0) + ' products'));
+                if (r.success && r.imported > 0) {
+                    window.location.href = 'main_store.php?stock_date=' + this.stockDate + '&tab=catalog';
+                }
+            } catch (e) { alert('Import failed: ' + e.message); }
         },
     }
 }

@@ -621,6 +621,114 @@ switch ($action) {
         break;
 
 
+
+    // ══════════════════════════════════════════════
+    // TESTIMONIALS
+    // ══════════════════════════════════════════════
+
+    case 'list_testimonials':
+        // Auto-create table
+        $pdo->exec("CREATE TABLE IF NOT EXISTS testimonials (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            title VARCHAR(150) DEFAULT '',
+            testimony TEXT NOT NULL,
+            photo VARCHAR(255) DEFAULT NULL,
+            is_active TINYINT(1) DEFAULT 1,
+            sort_order INT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $rows = $pdo->query("SELECT * FROM testimonials ORDER BY sort_order ASC, id DESC")->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'data' => $rows]);
+        break;
+
+    case 'save_testimonial':
+        // Auto-create table
+        $pdo->exec("CREATE TABLE IF NOT EXISTS testimonials (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            title VARCHAR(150) DEFAULT '',
+            testimony TEXT NOT NULL,
+            photo VARCHAR(255) DEFAULT NULL,
+            is_active TINYINT(1) DEFAULT 1,
+            sort_order INT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $id         = (int)($_POST['id'] ?? 0);
+        $name       = trim($_POST['name'] ?? '');
+        $title_t    = trim($_POST['title'] ?? '');
+        $testimony  = trim($_POST['testimony'] ?? '');
+        $sort_order = (int)($_POST['sort_order'] ?? 0);
+
+        if (empty($name) || empty($testimony)) {
+            echo json_encode(['success' => false, 'message' => 'Name and testimony are required.']);
+            break;
+        }
+
+        // Handle photo upload
+        $photo_path = null;
+        if (!empty($_FILES['photo']['tmp_name']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+            $ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
+            if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) {
+                echo json_encode(['success' => false, 'message' => 'Invalid image format. Use JPG, PNG, WEBP, or GIF.']);
+                break;
+            }
+            $upload_dir = __DIR__ . '/../uploads/testimonials/';
+            if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+            $filename = 'testimonial_' . time() . '_' . rand(100, 999) . '.' . $ext;
+            if (move_uploaded_file($_FILES['photo']['tmp_name'], $upload_dir . $filename)) {
+                $photo_path = 'uploads/testimonials/' . $filename;
+            }
+        }
+
+        if ($id > 0) {
+            // Update
+            if ($photo_path) {
+                // Delete old photo
+                $old = $pdo->prepare("SELECT photo FROM testimonials WHERE id = ?");
+                $old->execute([$id]);
+                $old_photo = $old->fetchColumn();
+                if ($old_photo && file_exists(__DIR__ . '/../' . $old_photo)) {
+                    unlink(__DIR__ . '/../' . $old_photo);
+                }
+                $pdo->prepare("UPDATE testimonials SET name=?, title=?, testimony=?, photo=?, sort_order=? WHERE id=?")
+                    ->execute([$name, $title_t, $testimony, $photo_path, $sort_order, $id]);
+            } else {
+                $pdo->prepare("UPDATE testimonials SET name=?, title=?, testimony=?, sort_order=? WHERE id=?")
+                    ->execute([$name, $title_t, $testimony, $sort_order, $id]);
+            }
+            echo json_encode(['success' => true, 'message' => 'Testimonial updated.']);
+        } else {
+            // Insert
+            $pdo->prepare("INSERT INTO testimonials (name, title, testimony, photo, sort_order) VALUES (?, ?, ?, ?, ?)")
+                ->execute([$name, $title_t, $testimony, $photo_path, $sort_order]);
+            echo json_encode(['success' => true, 'message' => 'Testimonial added.']);
+        }
+        break;
+
+    case 'delete_testimonial':
+        $id = (int)($_POST['id'] ?? 0);
+        // Delete photo file
+        $old = $pdo->prepare("SELECT photo FROM testimonials WHERE id = ?");
+        $old->execute([$id]);
+        $old_photo = $old->fetchColumn();
+        if ($old_photo && file_exists(__DIR__ . '/../' . $old_photo)) {
+            unlink(__DIR__ . '/../' . $old_photo);
+        }
+        $pdo->prepare("DELETE FROM testimonials WHERE id = ?")->execute([$id]);
+        echo json_encode(['success' => true, 'message' => 'Testimonial deleted.']);
+        break;
+
+    case 'toggle_testimonial':
+        $id = (int)($_POST['id'] ?? 0);
+        $is_active = (int)($_POST['is_active'] ?? 0);
+        $pdo->prepare("UPDATE testimonials SET is_active = ? WHERE id = ?")->execute([$is_active, $id]);
+        echo json_encode(['success' => true]);
+        break;
+
+
     default:
         echo json_encode(['success' => false, 'message' => 'Unknown action']);
 }

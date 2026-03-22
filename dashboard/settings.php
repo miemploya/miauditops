@@ -335,21 +335,55 @@ $js_allowed_tabs = json_encode(array_values(array_filter($settings_tabs, functio
                     </div>
                     <div class="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
                         <template x-for="(info, key) in allPermissions" :key="key">
-                            <label class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500/20 to-purple-500/20 flex items-center justify-center">
-                                        <i :data-lucide="info.icon" class="w-4 h-4 text-violet-600"></i>
+                            <div>
+                                <label class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500/20 to-purple-500/20 flex items-center justify-center">
+                                            <i :data-lucide="info.icon" class="w-4 h-4 text-violet-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-semibold text-slate-700 dark:text-slate-300" x-text="info.label"></p>
+                                            <p class="text-[10px] text-slate-400" x-text="info.desc"></p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p class="text-sm font-semibold text-slate-700 dark:text-slate-300" x-text="info.label"></p>
-                                        <p class="text-[10px] text-slate-400" x-text="info.desc"></p>
+                                    <div class="relative">
+                                        <input type="checkbox" :value="key" x-model="permSelectedPerms" class="sr-only peer">
+                                        <div class="w-10 h-5 bg-slate-200 peer-checked:bg-violet-500 rounded-full transition-colors cursor-pointer after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5 shadow-inner"></div>
                                     </div>
-                                </div>
-                                <div class="relative">
-                                    <input type="checkbox" :value="key" x-model="permSelectedPerms" class="sr-only peer">
-                                    <div class="w-10 h-5 bg-slate-200 peer-checked:bg-violet-500 rounded-full transition-colors cursor-pointer after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5 shadow-inner"></div>
-                                </div>
-                            </label>
+                                </label>
+                                <!-- Requisition Sub-Permissions -->
+                                <template x-if="key === 'requisitions' && permSelectedPerms.includes('requisitions')">
+                                    <div class="ml-11 mr-3 mb-2 p-3 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-xl border border-indigo-200/60 dark:border-indigo-800/40">
+                                        <p class="text-[10px] font-bold uppercase text-indigo-400 mb-2">Requisition Access Level</p>
+                                        <div class="grid grid-cols-2 gap-1.5">
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="requisitions.submit" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Submit</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="requisitions.approve_hod" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Approve (HOD)</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="requisitions.approve_audit" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Approve (Audit)</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="requisitions.approve_ceo" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Approve (CEO)</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="requisitions.purchase_orders" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Purchase Orders</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="requisitions.verify" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Verify Delivery</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
                         </template>
                     </div>
                     <div class="px-5 py-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">

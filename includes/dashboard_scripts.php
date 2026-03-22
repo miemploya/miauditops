@@ -205,5 +205,75 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }).observe(document.body, { childList: true, subtree: true });
+
+    // ==========================================
+    // PWA — Only on live server (skip localhost)
+    // ==========================================
+    const _isLocalhost = ['localhost','127.0.0.1','[::1]'].includes(location.hostname) || location.hostname.startsWith('192.168.');
+    if (!_isLocalhost) {
+        // Dynamic head injection
+        if (!document.querySelector('link[rel="manifest"]')) {
+            const ml = document.createElement('link'); ml.rel = 'manifest'; ml.href = '/miiauditops/manifest.json'; document.head.appendChild(ml);
+        }
+        if (!document.querySelector('meta[name="theme-color"]')) {
+            const tc = document.createElement('meta'); tc.name = 'theme-color'; tc.content = '#6d28d9'; document.head.appendChild(tc);
+        }
+        if (!document.querySelector('link[rel="apple-touch-icon"]')) {
+            const ai = document.createElement('link'); ai.rel = 'apple-touch-icon'; ai.href = '/miiauditops/assets/images/pwa-icon-512.png'; document.head.appendChild(ai);
+        }
+        if (!document.querySelector('link[rel="icon"]')) {
+            const fi = document.createElement('link'); fi.rel = 'icon'; fi.type = 'image/png'; fi.href = '/miiauditops/assets/images/pwa-icon-512.png'; document.head.appendChild(fi);
+        }
+
+        // Service Worker registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/miiauditops/service-worker.js', { scope: '/miiauditops/' })
+            .then(reg => { console.log('[PWA] Service Worker registered:', reg.scope); })
+            .catch(err => { console.warn('[PWA] SW registration failed:', err); });
+        }
+
+        // Install Prompt
+        let _deferredInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            _deferredInstallPrompt = e;
+            const banner = document.createElement('div');
+            banner.id = 'pwa-install-banner';
+            banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;align-items:center;gap:12px;padding:14px 20px;background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;border-radius:16px;box-shadow:0 8px 30px rgba(109,40,217,0.4);font-family:Inter,sans-serif;font-size:13px;max-width:420px;width:90%;animation:pwaSlideUp 0.4s ease-out';
+            banner.innerHTML = `
+                <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                    <svg style="width:20px;height:20px;stroke:#fff;fill:none;stroke-width:2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </div>
+                <div style="flex:1">
+                    <strong style="font-size:14px">Install MIAUDITOPS</strong><br>
+                    <span style="opacity:0.85;font-size:11px">Add to home screen for quick access</span>
+                </div>
+                <button id="pwa-install-btn" style="padding:8px 16px;background:#fff;color:#6d28d9;border:none;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap">Install</button>
+                <button id="pwa-dismiss-btn" style="background:none;border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:18px;padding:4px;line-height:1">&times;</button>
+            `;
+            document.body.appendChild(banner);
+            const style = document.createElement('style');
+            style.textContent = '@keyframes pwaSlideUp{from{opacity:0;transform:translateX(-50%) translateY(100%)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+            document.head.appendChild(style);
+
+            document.getElementById('pwa-install-btn').addEventListener('click', async () => {
+                banner.remove();
+                _deferredInstallPrompt.prompt();
+                const { outcome } = await _deferredInstallPrompt.userChoice;
+                console.log('[PWA] Install outcome:', outcome);
+                _deferredInstallPrompt = null;
+            });
+            document.getElementById('pwa-dismiss-btn').addEventListener('click', () => {
+                banner.remove();
+                localStorage.setItem('miauditops_pwa_dismissed', Date.now());
+            });
+
+            const dismissed = localStorage.getItem('miauditops_pwa_dismissed');
+            if (dismissed && (Date.now() - parseInt(dismissed)) < 7 * 24 * 60 * 60 * 1000) {
+                banner.remove();
+            }
+        });
+    } // end !_isLocalhost
 });
 </script>
+
