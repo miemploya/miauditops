@@ -84,6 +84,7 @@ $SUBSCRIPTION_PLANS = [
             'main_store',      // all tabs
             'department_store',
             'finance',         // Revenue + Expenses only (tab-locked)
+            'cash',            // Cash Management
             'reports',         // Sales + Stock only (tab-locked)
             'settings',        // all tabs
             'trash',
@@ -147,6 +148,7 @@ $SUBSCRIPTION_PLANS = [
             'department_store',
             'finance',
             'requisitions',    // Enterprise-only
+            'cash',            // Cash Management
             'reports',
             'settings',
             'trash',

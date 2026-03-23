@@ -35,6 +35,7 @@ $page_permission_map = [
     'department_store.php' => 'department_store',
     'finance.php'          => 'finance',
     'requisitions.php'     => 'requisitions',
+    'cash.php'             => 'cash',
     'reports.php'          => 'reports',
     'settings.php'         => 'settings',
     'trash.php'            => 'trash',
@@ -57,6 +58,7 @@ $page_subscription_map = [
     'department_store.php' => 'department_store',
     'finance.php'          => 'finance',
     'requisitions.php'     => 'requisitions',
+    'cash.php'             => 'cash',
     'reports.php'          => 'reports',
     'settings.php'         => 'settings',
     'trash.php'            => 'trash',
@@ -103,6 +105,11 @@ $nav_sections = [
     'Procurement' => [
         'items' => [
             ['label' => 'Requisitions', 'icon' => 'file-text', 'href' => 'requisitions.php', 'gradient' => 'from-rose-500 to-pink-600', 'roles' => 'all'],
+        ]
+    ],
+    'Cash' => [
+        'items' => [
+            ['label' => 'Cash Management', 'icon' => 'banknote', 'href' => 'cash.php', 'gradient' => 'from-green-500 to-emerald-600', 'roles' => 'all', 'badge' => 'NEW'],
         ]
     ],
     'Intelligence' => [
