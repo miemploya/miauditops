@@ -9,142 +9,64 @@ ini_set('display_errors', 1);
 
 echo "<h2>📧 MIAUDITOPS Mail Diagnostic</h2><pre style='background:#1e293b;color:#e2e8f0;padding:20px;border-radius:12px;font-size:13px;'>";
 
-// 1. Check mail.php config
+// 1. Check config
 echo "═══ Step 1: Config Check ═══\n";
 $config_path = __DIR__ . '/config/mail.php';
-if (!file_exists($config_path)) {
-    echo "❌ config/mail.php NOT FOUND\n";
-    die("</pre>");
-}
-echo "✅ config/mail.php found (" . filesize($config_path) . " bytes)\n\n";
-echo "── FILE CONTENTS ──\n";
-echo htmlspecialchars(file_get_contents($config_path));
-echo "\n── END FILE ──\n\n";
-
+if (!file_exists($config_path)) { echo "❌ config/mail.php NOT FOUND\n"; die("</pre>"); }
+echo "✅ config/mail.php found (" . filesize($config_path) . " bytes)\n";
 require_once $config_path;
+if (!defined('SMTP_HOST')) { echo "❌ SMTP_HOST not defined! Check file.\n"; die("</pre>"); }
+echo "   HOST: " . SMTP_HOST . ":" . SMTP_PORT . " | FROM: " . SMTP_FROM_EMAIL . " | ENC: " . (SMTP_ENCRYPTION ?: 'none') . "\n\n";
 
-// Check if constants are defined
-if (!defined('MAIL_HOST')) {
-    echo "❌ MAIL_HOST constant NOT DEFINED!\n";
-    echo "   The file above must define: MAIL_HOST, MAIL_PORT, MAIL_USERNAME, etc.\n";
-    echo "   Check for BOM characters, syntax errors, or wrong constant names.\n";
-    die("</pre>");
-}
-echo "✅ Constants loaded\n";
-echo "   MAIL_HOST:       " . MAIL_HOST . "\n";
-echo "   MAIL_PORT:       " . MAIL_PORT . "\n";
-echo "   MAIL_USERNAME:   " . MAIL_USERNAME . "\n";
-echo "   MAIL_FROM_EMAIL: " . MAIL_FROM_EMAIL . "\n";
-echo "   MAIL_FROM_NAME:  " . MAIL_FROM_NAME . "\n";
-echo "   MAIL_ENCRYPTION: " . (MAIL_ENCRYPTION ?: '(none)') . "\n";
-echo "   MAIL_PASSWORD:   " . str_repeat('*', max(0, strlen(MAIL_PASSWORD) - 3)) . substr(MAIL_PASSWORD, -3) . "\n\n";
-
-// 2. Check PHPMailer exists
-echo "═══ Step 2: PHPMailer Check ═══\n";
-$phpmailer_path = __DIR__ . '/vendor/PHPMailer/PHPMailer.php';
-$smtp_path = __DIR__ . '/vendor/PHPMailer/SMTP.php';
-$exception_path = __DIR__ . '/vendor/PHPMailer/Exception.php';
-
-if (!file_exists($phpmailer_path)) { echo "❌ PHPMailer.php NOT FOUND at: $phpmailer_path\n"; die("</pre>"); }
-if (!file_exists($smtp_path)) { echo "❌ SMTP.php NOT FOUND at: $smtp_path\n"; die("</pre>"); }
-if (!file_exists($exception_path)) { echo "❌ Exception.php NOT FOUND at: $exception_path\n"; die("</pre>"); }
-echo "✅ All PHPMailer files found\n\n";
-
-require_once $exception_path;
-require_once $phpmailer_path;
-require_once $smtp_path;
+// 2. PHPMailer check
+echo "═══ Step 2: PHPMailer ═══\n";
+require_once __DIR__ . '/vendor/PHPMailer/Exception.php';
+require_once __DIR__ . '/vendor/PHPMailer/PHPMailer.php';
+require_once __DIR__ . '/vendor/PHPMailer/SMTP.php';
+echo "✅ PHPMailer loaded\n\n";
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-// 3. Check mail_helper.php
-echo "═══ Step 3: mail_helper.php Check ═══\n";
-$helper_path = __DIR__ . '/includes/mail_helper.php';
-if (!file_exists($helper_path)) {
-    echo "❌ includes/mail_helper.php NOT FOUND\n";
-} else {
-    $helper_content = file_get_contents($helper_path);
-    if (strpos($helper_content, 'SMTPAutoTLS') !== false) {
-        echo "✅ mail_helper.php has localhost detection (updated version)\n";
-    } else {
-        echo "⚠️  mail_helper.php does NOT have localhost detection (OLD version)\n";
-        echo "   Run 'git pull' to get the latest version!\n";
-    }
-}
-echo "\n";
-
-// 4. Test SMTP connection
-echo "═══ Step 4: SMTP Connection Test ═══\n";
+// 3. Send test
+echo "═══ Step 3: Send Test ═══\n";
 $mail = new PHPMailer(true);
-$mail->SMTPDebug = 2; // Verbose output
+$mail->SMTPDebug = 2;
 $mail->Debugoutput = function($str, $level) { echo "   [SMTP] $str"; };
 
 try {
     $mail->isSMTP();
-    $mail->Host = MAIL_HOST;
-    $mail->Port = MAIL_PORT;
+    $mail->Host = SMTP_HOST;
+    $mail->Port = SMTP_PORT;
     $mail->Timeout = 15;
 
-    if (MAIL_HOST === 'localhost' || MAIL_HOST === '127.0.0.1') {
-        echo "→ Using LOCAL MTA (no auth)\n";
+    if (SMTP_HOST === 'localhost' || SMTP_HOST === '127.0.0.1') {
+        echo "→ LOCAL MTA (no auth)\n";
         $mail->SMTPAuth = false;
         $mail->SMTPSecure = false;
         $mail->SMTPAutoTLS = false;
     } else {
-        echo "→ Using EXTERNAL SMTP (with auth)\n";
+        echo "→ EXTERNAL SMTP (with auth)\n";
         $mail->SMTPAuth = true;
-        $mail->Username = MAIL_USERNAME;
-        $mail->Password = MAIL_PASSWORD;
-        if (!empty(MAIL_ENCRYPTION)) {
-            $mail->SMTPSecure = MAIL_ENCRYPTION;
-        } else {
-            $mail->SMTPSecure = false;
-            $mail->SMTPAutoTLS = false;
-        }
+        $mail->Username = SMTP_USERNAME;
+        $mail->Password = SMTP_PASSWORD;
+        $mail->SMTPSecure = !empty(SMTP_ENCRYPTION) ? SMTP_ENCRYPTION : false;
+        if (empty(SMTP_ENCRYPTION)) $mail->SMTPAutoTLS = false;
     }
 
-    $mail->SMTPOptions = [
-        'ssl' => [
-            'verify_peer' => false,
-            'verify_peer_name' => false,
-            'allow_self_signed' => true,
-        ],
-    ];
-
-    $mail->setFrom(MAIL_FROM_EMAIL, MAIL_FROM_NAME);
-    $mail->addAddress(MAIL_USERNAME, 'Test Recipient');
-
+    $mail->SMTPOptions = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]];
+    $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+    $mail->addAddress(SMTP_USERNAME, 'Test');
     $mail->isHTML(true);
-    $mail->Subject = 'MIAUDITOPS Mail Test — ' . date('H:i:s');
-    $mail->Body = '<div style="font-family:Arial;padding:20px;"><h2 style="color:#7c3aed;">✅ Mail Test Successful!</h2><p>This is a test email from MIAUDITOPS at ' . date('Y-m-d H:i:s') . '</p><p>Server: ' . ($_SERVER['HTTP_HOST'] ?? 'unknown') . '</p></div>';
-    $mail->AltBody = 'MIAUDITOPS Mail Test — ' . date('Y-m-d H:i:s');
+    $mail->Subject = 'MIAUDITOPS Test — ' . date('H:i:s');
+    $mail->Body = '<h2 style="color:#7c3aed;">✅ Mail Works!</h2><p>' . date('Y-m-d H:i:s') . '</p>';
 
-    echo "\n→ Sending test email to " . MAIL_USERNAME . "...\n\n";
+    echo "→ Sending to " . SMTP_USERNAME . "...\n\n";
     $mail->send();
-    echo "\n✅ ✅ ✅ EMAIL SENT SUCCESSFULLY! ✅ ✅ ✅\n";
-    echo "Check inbox of " . MAIL_USERNAME . "\n";
-
+    echo "\n✅ ✅ ✅ EMAIL SENT! ✅ ✅ ✅\n";
 } catch (Exception $e) {
-    echo "\n❌ SEND FAILED: " . $mail->ErrorInfo . "\n";
+    echo "\n❌ FAILED: " . $mail->ErrorInfo . "\n";
 }
 
-// 5. Alternative: test PHP mail() function
-echo "\n═══ Step 5: PHP mail() Function Test ═══\n";
-$php_mail_result = @mail(
-    MAIL_USERNAME,
-    'MIAUDITOPS mail() Test — ' . date('H:i:s'),
-    'Test from PHP mail() at ' . date('Y-m-d H:i:s'),
-    'From: ' . MAIL_FROM_EMAIL . "\r\n" . 'Reply-To: ' . MAIL_FROM_EMAIL
-);
-echo $php_mail_result ? "✅ PHP mail() returned true (queued)\n" : "❌ PHP mail() returned false\n";
-
-// 6. Server info
-echo "\n═══ Step 6: Server Info ═══\n";
-echo "PHP Version:  " . PHP_VERSION . "\n";
-echo "Server:       " . ($_SERVER['SERVER_SOFTWARE'] ?? 'unknown') . "\n";
-echo "Hostname:     " . ($_SERVER['HTTP_HOST'] ?? 'unknown') . "\n";
-echo "OpenSSL:      " . (extension_loaded('openssl') ? 'YES (' . OPENSSL_VERSION_TEXT . ')' : 'NO') . "\n";
-echo "Sockets:      " . (extension_loaded('sockets') ? 'YES' : 'NO') . "\n";
-
-echo "\n⚠️  DELETE THIS FILE AFTER TESTING!\n";
-echo "</pre>";
+echo "\n═══ Server ═══\nPHP: " . PHP_VERSION . " | Host: " . ($_SERVER['HTTP_HOST'] ?? '?') . "\n";
+echo "\n⚠️  DELETE THIS FILE AFTER TESTING!\n</pre>";

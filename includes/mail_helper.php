@@ -1,7 +1,7 @@
 <?php
 /**
  * MIAUDITOPS — Mail Helper
- * Sends emails via Gmail SMTP using PHPMailer
+ * Sends emails via SMTP using PHPMailer (matches MIRESUME pattern)
  */
 require_once dirname(__DIR__) . '/config/mail.php';
 require_once dirname(__DIR__) . '/vendor/PHPMailer/Exception.php';
@@ -12,7 +12,7 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
 /**
- * Send an email via Gmail SMTP
+ * Send an email via SMTP
  * 
  * @param string $to_email    Recipient email
  * @param string $to_name     Recipient name
@@ -25,24 +25,23 @@ function send_mail($to_email, $to_name, $subject, $html_body, $text_body = '') {
     $mail = new PHPMailer(true);
     
     try {
-        // SMTP Configuration
         $mail->isSMTP();
-        $mail->Host       = MAIL_HOST;
-        $mail->Port       = MAIL_PORT;
+        $mail->Host       = SMTP_HOST;
+        $mail->Port       = SMTP_PORT;
         $mail->Timeout    = 30;
         
         // Localhost (server's own MTA): no auth needed
         // External SMTP: authenticate with credentials
-        if (MAIL_HOST === 'localhost' || MAIL_HOST === '127.0.0.1') {
+        if (SMTP_HOST === 'localhost' || SMTP_HOST === '127.0.0.1') {
             $mail->SMTPAuth   = false;
             $mail->SMTPSecure = false;
             $mail->SMTPAutoTLS = false;
         } else {
             $mail->SMTPAuth   = true;
-            $mail->Username   = MAIL_USERNAME;
-            $mail->Password   = MAIL_PASSWORD;
-            if (!empty(MAIL_ENCRYPTION)) {
-                $mail->SMTPSecure = MAIL_ENCRYPTION;
+            $mail->Username   = SMTP_USERNAME;
+            $mail->Password   = SMTP_PASSWORD;
+            if (!empty(SMTP_ENCRYPTION)) {
+                $mail->SMTPSecure = SMTP_ENCRYPTION;
             } else {
                 $mail->SMTPSecure = false;
                 $mail->SMTPAutoTLS = false;
@@ -59,7 +58,7 @@ function send_mail($to_email, $to_name, $subject, $html_body, $text_body = '') {
         ];
         
         // Sender & Recipient
-        $mail->setFrom(MAIL_FROM_EMAIL, MAIL_FROM_NAME);
+        $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
         $mail->addAddress($to_email, $to_name);
         
         // Content
