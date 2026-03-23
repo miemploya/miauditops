@@ -216,7 +216,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
         <!-- Form Card -->
         <div class="bg-white/80 dark:bg-white/5 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl p-5 relative">
             <!-- Logo top-right -->
-            <a href="/MIIAUDITOPS/" class="absolute top-3 right-3 h-[52px] w-[187px] overflow-hidden block">
+            <a href="../index.php" class="absolute top-3 right-3 h-[52px] w-[187px] overflow-hidden block">
                 <img src="../assets/images/logo.png" alt="MiAuditOps" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[180%] object-contain dark:hidden">
                 <img src="../assets/images/logo-dark.png" alt="MiAuditOps Dark" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[180%] object-contain hidden dark:block">
             </a>
