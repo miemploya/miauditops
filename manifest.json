@@ -1,53 +1,77 @@
 {
-  "name": "MIAUDITOPS — Operations Hub",
-  "short_name": "MIAUDITOPS",
-  "description": "Audit, Control & Operations Management Platform by Empleo System Limited",
-  "start_url": "/miiauditops/dashboard/",
-  "scope": "/miiauditops/",
-  "display": "standalone",
-  "orientation": "any",
-  "background_color": "#0f172a",
-  "theme_color": "#6d28d9",
-  "lang": "en",
-  "categories": ["business", "finance", "productivity"],
-  "icons": [
-    {
-      "src": "/miiauditops/assets/images/pwa-icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/miiauditops/assets/images/pwa-icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/miiauditops/assets/images/logo.png",
-      "sizes": "any",
-      "type": "image/png"
-    }
-  ],
-  "screenshots": [],
-  "shortcuts": [
-    {
-      "name": "Station Audit",
-      "short_name": "Audit",
-      "url": "/miiauditops/dashboard/station_audit.php",
-      "icons": [{"src": "/miiauditops/assets/images/pwa-icon-192.png", "sizes": "192x192"}]
-    },
-    {
-      "name": "Requisitions",
-      "short_name": "Requisitions",
-      "url": "/miiauditops/dashboard/requisitions.php",
-      "icons": [{"src": "/miiauditops/assets/images/pwa-icon-192.png", "sizes": "192x192"}]
-    },
-    {
-      "name": "Financial Control",
-      "short_name": "Finance",
-      "url": "/miiauditops/dashboard/financial.php",
-      "icons": [{"src": "/miiauditops/assets/images/pwa-icon-192.png", "sizes": "192x192"}]
-    }
-  ]
+    "name": "MIAUDITOPS by Miemploya",
+    "short_name": "MIAUDITOPS",
+    "description": "Operational Intelligence & Financial Control System by Miemploya Consult",
+    "start_url": "/dashboard/index.php",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "any",
+    "background_color": "#0f172a",
+    "theme_color": "#6d28d9",
+    "categories": ["business", "finance", "productivity"],
+    "icons": [
+        {
+            "src": "/uploads/branding/pwa/icon-72.png",
+            "sizes": "72x72",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/uploads/branding/pwa/icon-96.png",
+            "sizes": "96x96",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/uploads/branding/pwa/icon-128.png",
+            "sizes": "128x128",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/uploads/branding/pwa/icon-144.png",
+            "sizes": "144x144",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/uploads/branding/pwa/icon-152.png",
+            "sizes": "152x152",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/uploads/branding/pwa/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/uploads/branding/pwa/icon-384.png",
+            "sizes": "384x384",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/uploads/branding/pwa/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "screenshots": [],
+    "shortcuts": [
+        {
+            "name": "Station Audit",
+            "short_name": "Audit",
+            "url": "/dashboard/station_audit.php",
+            "icons": [{"src": "/uploads/branding/pwa/icon-96.png", "sizes": "96x96"}]
+        },
+        {
+            "name": "Requisitions",
+            "short_name": "Requisitions",
+            "url": "/dashboard/requisitions.php",
+            "icons": [{"src": "/uploads/branding/pwa/icon-96.png", "sizes": "96x96"}]
+        }
+    ]
 }

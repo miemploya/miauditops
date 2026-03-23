@@ -58,13 +58,22 @@ try {
         .slide-up-delay-2 { animation: slide-up 0.8s ease-out 0.4s forwards; opacity: 0; }
         .mobile-nav-open { animation: slideDown 0.3s ease-out forwards; }
     </style>
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#6d28d9">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MIAUDITOPS">
+    <link rel="apple-touch-icon" href="/uploads/branding/pwa/icon-192.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="MIAUDITOPS">
 </head>
 <body class="font-sans bg-white dark:bg-slate-950 text-slate-800 dark:text-white transition-colors duration-300">
 
 <!-- Navigation -->
 <nav class="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 transition-colors">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between">
-        <a href="/MIIAUDITOPS/" class="flex items-center gap-2">
+        <a href="/" class="flex items-center gap-2">
             <div class="h-[40px] sm:h-[52px] w-[160px] sm:w-[208px] overflow-hidden relative">
                 <img src="assets/images/logo.png" alt="MiAuditOps" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[180%] object-contain dark:hidden">
                 <img src="assets/images/logo-dark.png" alt="MiAuditOps" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[180%] object-contain hidden dark:block">
@@ -81,12 +90,21 @@ try {
                 <svg class="icon-moon w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
             </button>
             <a href="auth/login.php" class="text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors">Sign In</a>
+            <button id="pwa-install-nav" onclick="pwaInstall()" class="hidden items-center gap-1.5 text-emerald-500 hover:text-emerald-600 font-semibold transition-colors" style="display:none">
+                <i data-lucide="download" class="w-4 h-4"></i> Install App
+            </button>
+            <button id="pwa-install-cta" onclick="pwaInstall()" class="hidden items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/30" style="display:none">
+                <i data-lucide="smartphone" class="w-4 h-4"></i> Install App
+            </button>
             <a href="auth/signup.php" class="px-5 py-2 bg-gradient-to-r from-violet-600 to-purple-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-105 transition-all">
                 Get Started
             </a>
         </div>
-        <!-- Mobile: Theme + Hamburger -->
+        <!-- Mobile: Install + Theme + Hamburger -->
         <div class="flex md:hidden items-center gap-2">
+            <button id="pwa-install-mobile" onclick="pwaInstall()" class="hidden items-center justify-center w-9 h-9 rounded-xl bg-emerald-500 text-white shadow-md" style="display:none" title="Install App">
+                <i data-lucide="download" class="w-4 h-4"></i>
+            </button>
             <button class="theme-toggle-btn w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/10 border border-slate-200 dark:border-white/10 flex items-center justify-center" title="Toggle theme">
                 <svg class="icon-sun w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                 <svg class="icon-moon w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
@@ -113,6 +131,9 @@ try {
             <a href="auth/signup.php" class="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white text-sm font-bold shadow-lg shadow-violet-500/20">
                 <i data-lucide="rocket" class="w-4 h-4"></i> Get Started Free
             </a>
+            <button id="pwa-install-menu" onclick="pwaInstall()" class="hidden items-center justify-center gap-3 px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold shadow-lg shadow-emerald-500/20 transition-colors" style="display:none">
+                <i data-lucide="download" class="w-4 h-4"></i> Install App on Device
+            </button>
         </div>
     </div>
 </nav>
@@ -537,5 +558,50 @@ function closeMobileMenu() {
     }
 }
 </script>
+<!-- PWA Install Prompt Logic -->
+<script>
+var pwaInstallEvent = null;
+window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    pwaInstallEvent = e;
+    // Show all install buttons
+    ['pwa-install-nav','pwa-install-cta','pwa-install-mobile','pwa-install-menu'].forEach(function(id) {
+        var btn = document.getElementById(id);
+        if (btn) { btn.style.display = 'inline-flex'; btn.classList.remove('hidden'); }
+    });
+    lucide.createIcons();
+});
+function pwaInstall() {
+    if (!pwaInstallEvent) return;
+    pwaInstallEvent.prompt();
+    pwaInstallEvent.userChoice.then(function(result) {
+        if (result.outcome === 'accepted') {
+            ['pwa-install-nav','pwa-install-cta','pwa-install-mobile','pwa-install-menu'].forEach(function(id) {
+                var btn = document.getElementById(id);
+                if (btn) btn.style.display = 'none';
+            });
+        }
+        pwaInstallEvent = null;
+    });
+}
+window.addEventListener('appinstalled', function() {
+    ['pwa-install-nav','pwa-install-cta','pwa-install-mobile','pwa-install-menu'].forEach(function(id) {
+        var btn = document.getElementById(id);
+        if (btn) btn.style.display = 'none';
+    });
+    pwaInstallEvent = null;
+});
+</script>
+<!-- PWA Service Worker (production only) -->
+<script>
+if ('serviceWorker' in navigator && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+            .then(function(reg) { console.log('[PWA] SW registered:', reg.scope); })
+            .catch(function(err) { console.warn('[PWA] SW failed:', err); });
+    });
+}
+</script>
 </body>
 </html>
+
