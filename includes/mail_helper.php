@@ -28,14 +28,28 @@ function send_mail($to_email, $to_name, $subject, $html_body, $text_body = '') {
         // SMTP Configuration
         $mail->isSMTP();
         $mail->Host       = MAIL_HOST;
-        $mail->SMTPAuth   = true;
-        $mail->Username   = MAIL_USERNAME;
-        $mail->Password   = MAIL_PASSWORD;
-        $mail->SMTPSecure = MAIL_ENCRYPTION;
         $mail->Port       = MAIL_PORT;
         $mail->Timeout    = 30;
         
-        // Skip SSL certificate verification (needed for XAMPP / localhost)
+        // Localhost (server's own MTA): no auth needed
+        // External SMTP: authenticate with credentials
+        if (MAIL_HOST === 'localhost' || MAIL_HOST === '127.0.0.1') {
+            $mail->SMTPAuth   = false;
+            $mail->SMTPSecure = false;
+            $mail->SMTPAutoTLS = false;
+        } else {
+            $mail->SMTPAuth   = true;
+            $mail->Username   = MAIL_USERNAME;
+            $mail->Password   = MAIL_PASSWORD;
+            if (!empty(MAIL_ENCRYPTION)) {
+                $mail->SMTPSecure = MAIL_ENCRYPTION;
+            } else {
+                $mail->SMTPSecure = false;
+                $mail->SMTPAutoTLS = false;
+            }
+        }
+        
+        // Skip SSL certificate verification
         $mail->SMTPOptions = [
             'ssl' => [
                 'verify_peer' => false,
