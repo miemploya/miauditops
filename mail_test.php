@@ -11,12 +11,26 @@ echo "<h2>📧 MIAUDITOPS Mail Diagnostic</h2><pre style='background:#1e293b;col
 
 // 1. Check mail.php config
 echo "═══ Step 1: Config Check ═══\n";
-if (!file_exists(__DIR__ . '/config/mail.php')) {
+$config_path = __DIR__ . '/config/mail.php';
+if (!file_exists($config_path)) {
     echo "❌ config/mail.php NOT FOUND\n";
     die("</pre>");
 }
-require_once __DIR__ . '/config/mail.php';
-echo "✅ config/mail.php loaded\n";
+echo "✅ config/mail.php found (" . filesize($config_path) . " bytes)\n\n";
+echo "── FILE CONTENTS ──\n";
+echo htmlspecialchars(file_get_contents($config_path));
+echo "\n── END FILE ──\n\n";
+
+require_once $config_path;
+
+// Check if constants are defined
+if (!defined('MAIL_HOST')) {
+    echo "❌ MAIL_HOST constant NOT DEFINED!\n";
+    echo "   The file above must define: MAIL_HOST, MAIL_PORT, MAIL_USERNAME, etc.\n";
+    echo "   Check for BOM characters, syntax errors, or wrong constant names.\n";
+    die("</pre>");
+}
+echo "✅ Constants loaded\n";
 echo "   MAIL_HOST:       " . MAIL_HOST . "\n";
 echo "   MAIL_PORT:       " . MAIL_PORT . "\n";
 echo "   MAIL_USERNAME:   " . MAIL_USERNAME . "\n";
