@@ -73,6 +73,7 @@ try {
 try { $pdo->exec("ALTER TABLE requisitions ADD COLUMN rejection_reason TEXT NULL"); } catch(Exception $e) {}
 try { $pdo->exec("ALTER TABLE requisitions ADD COLUMN approved_by INT NULL"); } catch(Exception $e) {}
 try { $pdo->exec("ALTER TABLE requisitions ADD COLUMN approved_at DATETIME NULL"); } catch(Exception $e) {}
+try { $pdo->exec("ALTER TABLE requisitions ADD COLUMN updated_at DATETIME NULL"); } catch(Exception $e) {}
 // Ensure client_id column exists in purchase_orders (may have been created without it)
 try { $pdo->exec("ALTER TABLE purchase_orders ADD COLUMN client_id INT NULL AFTER company_id"); } catch(Exception $e) {}
 
@@ -132,6 +133,59 @@ try {
             notify_approvers($company_id, '📝 New Requisition', "$requester_name submitted $req_number (₦" . number_format($total, 2) . ") for approval.", 'info', 'requisitions.php', $user_id);
 
             echo json_encode(['success' => true, 'requisition_number' => $req_number]);
+            break;
+
+        case 'update':
+            $req_id     = intval($_POST['requisition_id'] ?? 0);
+            $department = clean_input($_POST['department'] ?? '');
+            $purpose    = clean_input($_POST['purpose'] ?? '');
+            $priority   = clean_input($_POST['priority'] ?? 'medium');
+            $items_json = $_POST['items'] ?? '[]';
+            $items      = json_decode($items_json, true) ?: [];
+
+            if (!$req_id) { echo json_encode(['success' => false, 'message' => 'Invalid requisition']); break; }
+            if (!$department || !$purpose) { echo json_encode(['success' => false, 'message' => 'Department and Purpose required']); break; }
+            if (empty($items)) { echo json_encode(['success' => false, 'message' => 'At least one item required']); break; }
+
+            // Only allow editing own submitted requisitions
+            $stmt = $pdo->prepare("SELECT * FROM requisitions WHERE id = ? AND company_id = ? AND client_id = ? AND requested_by = ? AND status = 'submitted'");
+            $stmt->execute([$req_id, $company_id, $client_id, $user_id]);
+            $req = $stmt->fetch();
+            if (!$req) { echo json_encode(['success' => false, 'message' => 'Cannot edit this requisition — only your own submitted requisitions can be edited']); break; }
+
+            $total = 0;
+            foreach ($items as $item) {
+                $total += (floatval($item['quantity'] ?? 0) * floatval($item['unit_price'] ?? 0));
+            }
+
+            $pdo->beginTransaction();
+
+            // Update requisition header
+            $stmt = $pdo->prepare("UPDATE requisitions SET department = ?, purpose = ?, priority = ?, total_amount = ?, updated_at = NOW() WHERE id = ?");
+            $stmt->execute([$department, $purpose, $priority, $total, $req_id]);
+
+            // Delete old items and re-insert
+            $pdo->prepare("DELETE FROM requisition_items WHERE requisition_id = ?")->execute([$req_id]);
+
+            $stmt_cat = $pdo->prepare("SELECT unit_cost FROM products WHERE id = ? AND company_id = ? LIMIT 1");
+            $stmt_ins = $pdo->prepare("INSERT INTO requisition_items (requisition_id, product_id, description, quantity, initial_quantity, unit_price, initial_unit_price, total_price, status) VALUES (?,?,?,?,?,?,?,?,'active')");
+            foreach ($items as $item) {
+                $qty         = floatval($item['quantity'] ?? 0);
+                $price       = floatval($item['unit_price'] ?? 0);
+                $product_id  = (!empty($item['product_id']) && intval($item['product_id']) > 0) ? intval($item['product_id']) : null;
+                $description = clean_input($item['description'] ?? '');
+                $catalogue_cost = $price;
+                if ($product_id) {
+                    $stmt_cat->execute([$product_id, $company_id]);
+                    $cat = $stmt_cat->fetch(PDO::FETCH_ASSOC);
+                    if ($cat && floatval($cat['unit_cost']) > 0) $catalogue_cost = floatval($cat['unit_cost']);
+                }
+                $stmt_ins->execute([$req_id, $product_id, $description, $qty, $qty, $price, $catalogue_cost, $qty * $price]);
+            }
+
+            $pdo->commit();
+            log_audit($company_id, $user_id, 'update_requisition', 'requisitions', $req_id, "Edited {$req['requisition_number']} — new total ₦" . number_format($total, 2));
+            echo json_encode(['success' => true, 'requisition_number' => $req['requisition_number']]);
             break;
 
         case 'get_items':
