@@ -117,6 +117,7 @@ if (is_admin_role() || empty($req_sub_perms)) {
     $allowed_tabs = array_values(array_unique($allowed_tabs));
 }
 $js_allowed_tabs = json_encode($allowed_tabs);
+$js_user_perms = json_encode(array_values($user_perms_for_approvals), JSON_HEX_TAG | JSON_HEX_APOS);
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -1003,6 +1004,7 @@ function reqApp() {
         priceModal: false, priceReq: null, priceItems: [],
         approvalModal: false, approvalReq: null, approvalItems: [],
         userId: <?= $user_id ?>, userRole: '<?= $user_role ?>',
+        userPerms: <?= $js_user_perms ?>,
         editingReqId: null,
         tabs: [
             { id: 'requisitions', label: 'Requisitions', icon: 'file-plus' },
