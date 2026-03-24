@@ -54,6 +54,24 @@ $js_sales  = json_encode($sales, JSON_HEX_TAG|JSON_HEX_APOS);
 $js_reqs   = json_encode($requisitions, JSON_HEX_TAG|JSON_HEX_APOS);
 $js_cats   = json_encode($categories, JSON_HEX_TAG|JSON_HEX_APOS);
 $js_depts  = json_encode($departments, JSON_HEX_TAG|JSON_HEX_APOS);
+
+// Build allowed tabs based on sub-permissions
+$cash_tab_map = [
+    'cash.sales'       => 'sales',
+    'cash.ledger'      => 'ledger',
+    'cash.requisition' => 'requisition',
+    'cash.analysis'    => 'analysis',
+    'cash.report'      => 'report',
+];
+$user_perms = get_user_permissions($user_id);
+$cash_sub_perms = array_filter($user_perms, fn($p) => str_starts_with($p, 'cash.'));
+// If admin or no sub-permissions set, allow all tabs
+if (is_admin_role() || empty($cash_sub_perms)) {
+    $cash_allowed_tabs = ['sales','ledger','requisition','analysis','report'];
+} else {
+    $cash_allowed_tabs = array_values(array_unique(array_filter(array_map(fn($p) => $cash_tab_map[$p] ?? null, $cash_sub_perms))));
+}
+$js_cash_allowed = json_encode($cash_allowed_tabs);
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -445,7 +463,7 @@ $js_depts  = json_encode($departments, JSON_HEX_TAG|JSON_HEX_APOS);
 <?php include '../includes/dashboard_scripts.php'; ?>
 <script src="cash_app.js"></script>
 <script>
-function cashApp() { return cashModule(<?= $js_sales ?>, <?= $js_reqs ?>, <?= $js_cats ?>, <?= $js_depts ?>, <?= $user_id ?>, <?= $is_approver ? 'true' : 'false' ?>); }
+function cashApp() { return cashModule(<?= $js_sales ?>, <?= $js_reqs ?>, <?= $js_cats ?>, <?= $js_depts ?>, <?= $user_id ?>, <?= $is_approver ? 'true' : 'false' ?>, <?= $js_cash_allowed ?>); }
 </script>
 </body>
 </html>

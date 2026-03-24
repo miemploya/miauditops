@@ -81,6 +81,27 @@ $js_depts     = json_encode($departments, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_client_depts = json_encode($client_departments, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_company_name = json_encode($company_name, JSON_HEX_TAG | JSON_HEX_APOS);
 $js_client_name  = json_encode($client_name, JSON_HEX_TAG | JSON_HEX_APOS);
+
+// Build allowed tabs based on sub-permissions
+$req_tab_map = [
+    'requisitions.submit'       => 'requisitions',
+    'requisitions.approve_hod'  => 'approvals',
+    'requisitions.approve_audit'=> 'approvals',
+    'requisitions.approve_ceo'  => 'approvals',
+    'requisitions.purchase_orders' => 'pos',
+    'requisitions.verify'       => 'verification',
+];
+$user_perms = get_user_permissions($user_id);
+$req_sub_perms = array_filter($user_perms, fn($p) => str_starts_with($p, 'requisitions.'));
+// If admin or no sub-permissions set, allow all tabs
+if (is_admin_role() || empty($req_sub_perms)) {
+    $allowed_tabs = ['requisitions','approvals','pos','verification','reports'];
+} else {
+    $allowed_tabs = array_unique(array_filter(array_map(fn($p) => $req_tab_map[$p] ?? null, $req_sub_perms)));
+    $allowed_tabs[] = 'reports'; // Reports always accessible if module is accessible
+    $allowed_tabs = array_values(array_unique($allowed_tabs));
+}
+$js_allowed_tabs = json_encode($allowed_tabs);
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -959,7 +980,7 @@ $js_client_name  = json_encode($client_name, JSON_HEX_TAG | JSON_HEX_APOS);
 <script>
 function reqApp() {
     return {
-        currentTab: (location.hash.slice(1) || 'requisitions'), statusFilter: '', showMineOnly: false, showForm: false,
+        currentTab: (() => { const hash = location.hash.slice(1); const allowed = <?= $js_allowed_tabs ?>; return allowed.includes(hash) ? hash : allowed[0] || 'requisitions'; })(), statusFilter: '', showMineOnly: false, showForm: false,
         expandedId: null, expandedItems: [],
         priceModal: false, priceReq: null, priceItems: [],
         approvalModal: false, approvalReq: null, approvalItems: [],
@@ -970,7 +991,7 @@ function reqApp() {
             { id: 'pos', label: 'Purchase Orders', icon: 'file-check' },
             { id: 'verification', label: 'Verification', icon: 'clipboard-check' },
             { id: 'reports', label: 'Reports', icon: 'bar-chart-2' },
-        ],
+        ].filter(t => <?= $js_allowed_tabs ?>.includes(t.id)),
         companyName: <?= $js_company_name ?>,
         clientName: <?= $js_client_name ?>,
         products: <?= $js_products ?>,

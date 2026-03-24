@@ -1,17 +1,19 @@
 /**
  * MIAUDITOPS — Cash Module AlpineJS App
  */
-function cashModule(initSales, initReqs, initCats, initDepts, userId, isApprover) {
+function cashModule(initSales, initReqs, initCats, initDepts, userId, isApprover, allowedTabs) {
+    const allTabs = [
+        {id:'sales', label:'Cash Sales', icon:'coins'},
+        {id:'ledger', label:'Cash Ledger', icon:'book-open'},
+        {id:'requisition', label:'Cash Requisition', icon:'hand-coins'},
+        {id:'analysis', label:'Cash Analysis', icon:'pie-chart'},
+        {id:'report', label:'Cash Report', icon:'file-text'}
+    ];
+    const filteredTabs = allowedTabs && allowedTabs.length ? allTabs.filter(t => allowedTabs.includes(t.id)) : allTabs;
     return {
         // State
-        currentTab: 'sales',
-        tabs: [
-            {id:'sales', label:'Cash Sales', icon:'coins'},
-            {id:'ledger', label:'Cash Ledger', icon:'book-open'},
-            {id:'requisition', label:'Cash Requisition', icon:'hand-coins'},
-            {id:'analysis', label:'Cash Analysis', icon:'pie-chart'},
-            {id:'report', label:'Cash Report', icon:'file-text'}
-        ],
+        currentTab: filteredTabs.length ? filteredTabs[0].id : 'sales',
+        tabs: filteredTabs,
         userId: userId,
         isApprover: isApprover,
         allSales: initSales || [],
