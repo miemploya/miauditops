@@ -286,12 +286,41 @@ $js_allowed_tabs = json_encode(array_values(array_filter($settings_tabs, functio
                                 </template>
                                 <div x-show="userForm.role !== 'hod' && userForm.role !== 'ceo'" class="grid grid-cols-2 gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                                     <template x-for="(info, key) in allPermissions" :key="key">
-                                        <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700/50 transition-colors cursor-pointer">
-                                            <input type="checkbox" :value="key" x-model="userForm.permissions" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
-                                            <div>
-                                                <span class="text-xs font-semibold text-slate-700 dark:text-slate-300" x-text="info.label"></span>
-                                            </div>
-                                        </label>
+                                        <div>
+                                            <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700/50 transition-colors cursor-pointer">
+                                                <input type="checkbox" :value="key" x-model="userForm.permissions" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                                                <div>
+                                                    <span class="text-xs font-semibold text-slate-700 dark:text-slate-300" x-text="info.label"></span>
+                                                </div>
+                                            </label>
+                                            <!-- Requisition Sub-Tabs (Add User) -->
+                                            <template x-if="key === 'requisitions' && userForm.permissions.includes('requisitions')">
+                                                <div class="ml-8 mr-1 mb-1 p-2.5 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-xl border border-indigo-200/60 dark:border-indigo-800/40">
+                                                    <p class="text-[10px] font-bold uppercase text-indigo-400 mb-1.5">Requisition Tabs</p>
+                                                    <div class="space-y-1">
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="requisitions.submit" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Submit</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="requisitions.approve_hod" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Approve (HOD)</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="requisitions.approve_audit" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Approve (Audit)</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="requisitions.approve_ceo" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Approve (CEO)</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="requisitions.purchase_orders" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Purchase Orders</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="requisitions.verify" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Verify Delivery</span></label>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                            <!-- Cash Sub-Tabs (Add User) -->
+                                            <template x-if="key === 'cash' && userForm.permissions.includes('cash')">
+                                                <div class="ml-8 mr-1 mb-1 p-2.5 bg-emerald-50/50 dark:bg-emerald-900/10 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40">
+                                                    <p class="text-[10px] font-bold uppercase text-emerald-500 mb-1.5">Cash Module Tabs</p>
+                                                    <div class="space-y-1">
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="cash.sales" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Sales</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="cash.ledger" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Ledger</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="cash.requisition" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Requisition</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="cash.analysis" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Analysis</span></label>
+                                                        <label class="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-colors"><input type="checkbox" value="cash.report" x-model="userForm.permissions" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Report</span></label>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
                                     </template>
                                 </div>
                                 <div class="mt-2 p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 text-[10px] text-blue-600 dark:text-blue-400">
