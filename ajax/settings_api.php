@@ -126,7 +126,7 @@ try {
             $last      = clean_input($_POST['last_name'] ?? '');
             $email     = clean_input($_POST['email'] ?? '');
             $phone     = clean_input($_POST['phone'] ?? '');
-            $role      = clean_input($_POST['role'] ?? '');
+            $role      = clean_input($_POST['role'] ?? '') ?: 'staff';
             $dept      = clean_input($_POST['department'] ?? '');
 
             if (!$target_id || !$first || !$last || !$email) {

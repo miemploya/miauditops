@@ -16,7 +16,8 @@ $company    = get_company($company_id);
 $company_name = $company['name'] ?? 'Company';
 $client_name  = $_SESSION['active_client_name'] ?? 'Client';
 $page_title = 'Cash Management';
-$is_approver = in_array($user_role, ['business_owner','super_admin','auditor']);
+$user_perms = get_user_permissions($user_id);
+$is_approver = in_array($user_role, ['business_owner','super_admin','auditor']) || !empty(array_filter($user_perms, fn($p) => str_starts_with($p, 'cash.')));
 
 // Departments
 $stmt = $pdo->prepare("SELECT sd.id, sd.name FROM stock_departments sd WHERE sd.company_id = ? AND sd.client_id = ? AND sd.deleted_at IS NULL ORDER BY sd.name");
@@ -63,7 +64,6 @@ $cash_tab_map = [
     'cash.analysis'    => 'analysis',
     'cash.report'      => 'report',
 ];
-$user_perms = get_user_permissions($user_id);
 $cash_sub_perms = array_filter($user_perms, fn($p) => str_starts_with($p, 'cash.'));
 // If admin or no sub-permissions set, allow all tabs
 if (is_admin_role() || empty($cash_sub_perms)) {

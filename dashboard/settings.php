@@ -747,7 +747,7 @@ function settingsApp() {
         },
         openEditUser(u) {
             this.editingUserId = u.id;
-            this.userForm = { first_name: u.first_name, last_name: u.last_name, email: u.email, phone: u.phone || '', role: u.role, department: u.department || '', password:'', permissions: [], client_ids: [] };
+            this.userForm = { first_name: u.first_name, last_name: u.last_name, email: u.email, phone: u.phone || '', role: u.role || 'staff', department: u.department || '', password:'', permissions: [], client_ids: [] };
             this.showUserModal = true;
             this.$nextTick(() => lucide.createIcons());
         },
