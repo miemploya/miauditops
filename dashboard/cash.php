@@ -461,7 +461,7 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
     </div>
 </div>
 <?php include '../includes/dashboard_scripts.php'; ?>
-<script src="cash_app.js"></script>
+<script src="cash_app.js?v=<?= filemtime(__DIR__ . '/cash_app.js') ?>"></script>
 <script>
 function cashApp() { return cashModule(<?= $js_sales ?>, <?= $js_reqs ?>, <?= $js_cats ?>, <?= $js_depts ?>, <?= $user_id ?>, <?= $is_approver ? 'true' : 'false' ?>, <?= $js_cash_allowed ?>); }
 </script>
