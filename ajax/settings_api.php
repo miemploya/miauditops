@@ -330,7 +330,7 @@ try {
 
             $user_ids = json_decode($_POST['user_ids'] ?? '[]', true);
             $role = clean_input($_POST['role'] ?? '');
-            $valid_roles = ['business_owner','auditor','finance_officer','store_officer','department_head','hod','ceo','viewer'];
+            $valid_roles = ['business_owner','auditor','finance_officer','store_officer','department_head','staff','hod','ceo','viewer'];
             $user_ids = array_filter(array_map('intval', $user_ids), fn($id) => $id > 0 && $id !== $user_id);
 
             if (empty($user_ids) || !in_array($role, $valid_roles)) {

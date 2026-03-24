@@ -48,6 +48,7 @@ $roles = [
     'finance_officer' => 'Finance Officer',
     'store_officer' => 'Store Officer',
     'department_head' => 'Department Head',
+    'staff' => 'Staff',
     'hod' => 'HOD (Requisition Approver)',
     'ceo' => 'CEO (Final Approver)',
     'viewer' => 'Viewer (Read Only)',
@@ -657,8 +658,8 @@ function settingsApp() {
             window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h && this.tabs.some(t => t.id === h)) this.currentTab = h; });
         },
 
-        getRoleGradient(r) { return { business_owner:'bg-gradient-to-br from-violet-500 to-purple-600', auditor:'bg-gradient-to-br from-blue-500 to-indigo-600', finance_officer:'bg-gradient-to-br from-emerald-500 to-teal-600', store_officer:'bg-gradient-to-br from-amber-500 to-orange-600', department_head:'bg-gradient-to-br from-slate-500 to-slate-700', hod:'bg-gradient-to-br from-rose-500 to-pink-600', ceo:'bg-gradient-to-br from-yellow-500 to-amber-600', viewer:'bg-gradient-to-br from-gray-400 to-gray-500' }[r] || 'bg-gradient-to-br from-slate-500 to-slate-700'; },
-        getRoleBadge(r) { return { business_owner:'bg-violet-100 text-violet-700', auditor:'bg-blue-100 text-blue-700', finance_officer:'bg-emerald-100 text-emerald-700', store_officer:'bg-amber-100 text-amber-700', department_head:'bg-slate-100 text-slate-600', hod:'bg-rose-100 text-rose-700', ceo:'bg-yellow-100 text-yellow-700', viewer:'bg-gray-100 text-gray-600' }[r] || 'bg-slate-100 text-slate-600'; },
+        getRoleGradient(r) { return { business_owner:'bg-gradient-to-br from-violet-500 to-purple-600', auditor:'bg-gradient-to-br from-blue-500 to-indigo-600', finance_officer:'bg-gradient-to-br from-emerald-500 to-teal-600', store_officer:'bg-gradient-to-br from-amber-500 to-orange-600', department_head:'bg-gradient-to-br from-slate-500 to-slate-700', staff:'bg-gradient-to-br from-cyan-500 to-sky-600', hod:'bg-gradient-to-br from-rose-500 to-pink-600', ceo:'bg-gradient-to-br from-yellow-500 to-amber-600', viewer:'bg-gradient-to-br from-gray-400 to-gray-500' }[r] || 'bg-gradient-to-br from-slate-500 to-slate-700'; },
+        getRoleBadge(r) { return { business_owner:'bg-violet-100 text-violet-700', auditor:'bg-blue-100 text-blue-700', finance_officer:'bg-emerald-100 text-emerald-700', store_officer:'bg-amber-100 text-amber-700', department_head:'bg-slate-100 text-slate-600', staff:'bg-cyan-100 text-cyan-700', hod:'bg-rose-100 text-rose-700', ceo:'bg-yellow-100 text-yellow-700', viewer:'bg-gray-100 text-gray-600' }[r] || 'bg-slate-100 text-slate-600'; },
 
         // === Company ===
         async updateCompany() {
