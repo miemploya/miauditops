@@ -56,9 +56,11 @@ $pending_for_me = array_values(array_filter($all_reqs, function($r) use ($user_r
     return false;
 }));
 
-// Approved requisitions visible to approving officials
-// business_owner/super_admin see ALL approved reqs; others see only reqs they personally approved
-if (in_array($user_role, ['business_owner','super_admin'])) {
+// Approved requisitions visible to approving officials or users with relevant sub-permissions
+$has_req_sub_perm = !empty(array_intersect($user_perms_for_approvals, [
+    'requisitions.approve_hod','requisitions.approve_audit','requisitions.approve_ceo','requisitions.purchase_orders','requisitions.verify'
+]));
+if (in_array($user_role, ['business_owner','super_admin']) || $has_req_sub_perm) {
     $approved_reqs = array_values(array_filter($all_reqs, fn($r) => in_array($r['status'], ['ceo_approved','po_created'])));
 } else {
     $approved_reqs = array_values(array_filter($all_reqs, fn($r) => in_array($r['status'], ['ceo_approved','po_created']) && ($r['approved_by'] ?? 0) == $user_id));
