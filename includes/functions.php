@@ -547,6 +547,7 @@ function get_all_permissions() {
         'department_store' => ['label' => 'Department Store',   'icon' => 'store',             'desc' => 'Department-level stock tracking'],
         'finance'          => ['label' => 'Financial Control',  'icon' => 'trending-up',       'desc' => 'Revenue, expenses, P&L'],
         'requisitions'     => ['label' => 'Requisitions',       'icon' => 'file-text',         'desc' => 'Purchase requests & approvals'],
+        'cash'             => ['label' => 'Cash Management',    'icon' => 'banknote',          'desc' => 'Cash sales, ledger & requisitions'],
         'reports'          => ['label' => 'Reports',            'icon' => 'bar-chart-3',       'desc' => 'Audit trail, financial reports'],
         'billing'          => ['label' => 'Billing',            'icon' => 'credit-card',       'desc' => 'Subscription and billing management'],
         'trash'            => ['label' => 'Trash',              'icon' => 'trash-2',           'desc' => 'View and restore deleted records'],

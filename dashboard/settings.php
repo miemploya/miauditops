@@ -384,6 +384,34 @@ $js_allowed_tabs = json_encode(array_values(array_filter($settings_tabs, functio
                                         </div>
                                     </div>
                                 </template>
+                                <!-- Cash Management Sub-Permissions -->
+                                <template x-if="key === 'cash' && permSelectedPerms.includes('cash')">
+                                    <div class="ml-11 mr-3 mb-2 p-3 bg-emerald-50/50 dark:bg-emerald-900/10 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40">
+                                        <p class="text-[10px] font-bold uppercase text-emerald-500 mb-2">Cash Module Tabs</p>
+                                        <div class="grid grid-cols-2 gap-1.5">
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="cash.sales" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Sales</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="cash.ledger" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Ledger</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="cash.requisition" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Requisition</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="cash.analysis" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Analysis</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-colors">
+                                                <input type="checkbox" value="cash.report" x-model="permSelectedPerms" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                                                <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Cash Report</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </template>
                             </div>
                         </template>
                     </div>
