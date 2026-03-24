@@ -16,31 +16,41 @@ $valid_token = false;
 if (empty($token)) {
     $error = 'Invalid or missing reset token.';
 } else {
-    // Validate token
-    $stmt = $pdo->prepare("SELECT * FROM password_reset_tokens WHERE token = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1");
-    $stmt->execute([$token]);
-    $reset = $stmt->fetch(PDO::FETCH_ASSOC);
+    // Validate token step by step (MIRESUME pattern — avoids MySQL timezone issues)
+    try {
+        // Step 1: Find the token regardless of used/expired status
+        $stmt = $pdo->prepare("SELECT * FROM password_reset_tokens WHERE token = ?");
+        $stmt->execute([$token]);
+        $reset = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$reset) {
-        $error = 'This reset link is invalid or has expired. Please request a new one.';
-    } else {
-        $valid_token = true;
+        if (!$reset) {
+            $error = 'This reset link is invalid. The token was not found. Please request a new one.';
+        } elseif ($reset['used_at'] !== null) {
+            $error = 'This reset link has already been used. Please <a href="forgot_password.php" class="text-violet-500 font-semibold hover:underline">request a new one</a>.';
+        } elseif (strtotime($reset['expires_at']) < time()) {
+            $error = 'This reset link has expired. Please <a href="forgot_password.php" class="text-violet-500 font-semibold hover:underline">request a new one</a>.';
+        } else {
+            $valid_token = true;
+        }
+    } catch (PDOException $e) {
+        error_log("MIAUDITOPS Reset Password - DB error: " . $e->getMessage());
+        $error = 'An error occurred. Please try again or contact your administrator.';
+    }
 
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $password = $_POST['password'] ?? '';
-            $confirm  = $_POST['confirm_password'] ?? '';
+    if ($valid_token && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $password = $_POST['password'] ?? '';
+        $confirm  = $_POST['confirm_password'] ?? '';
 
-            if (strlen($password) < 6) {
-                $error = 'Password must be at least 6 characters.';
-            } elseif ($password !== $confirm) {
-                $error = 'Passwords do not match.';
-            } else {
-                $hash = password_hash($password, PASSWORD_DEFAULT);
-                $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([$hash, $reset['user_id']]);
-                $pdo->prepare("UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?")->execute([$reset['id']]);
-                $success = 'Your password has been reset successfully! You can now sign in with your new password.';
-                $valid_token = false; // Hide the form
-            }
+        if (strlen($password) < 6) {
+            $error = 'Password must be at least 6 characters.';
+        } elseif ($password !== $confirm) {
+            $error = 'Passwords do not match.';
+        } else {
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+            $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([$hash, $reset['user_id']]);
+            $pdo->prepare("UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?")->execute([$reset['id']]);
+            $success = 'Your password has been reset successfully! You can now sign in with your new password.';
+            $valid_token = false; // Hide the form
         }
     }
 }
@@ -93,7 +103,7 @@ if (empty($token)) {
             <?php if ($error): ?>
                 <div class="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 text-sm flex items-center gap-2">
                     <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    <?php echo htmlspecialchars($error); ?>
+                    <?php echo $error; ?>
                 </div>
             <?php endif; ?>
 
