@@ -35,11 +35,24 @@ $all_reqs = $stmt->fetchAll();
 // My requisitions
 $my_reqs = array_values(array_filter($all_reqs, fn($r) => $r['requested_by'] == $user_id));
 
-// Pending approvals for this user's role
-$pending_for_me = array_values(array_filter($all_reqs, function($r) use ($user_role) {
-    if ($r['status'] === 'submitted' && in_array($user_role, ['business_owner','super_admin','department_head'])) return true;
-    if ($r['status'] === 'hod_approved' && in_array($user_role, ['auditor','business_owner','super_admin'])) return true;
-    if ($r['status'] === 'audit_approved' && in_array($user_role, ['business_owner','super_admin'])) return true;
+// Pending approvals for this user's role OR sub-permissions
+$user_perms_for_approvals = get_user_permissions($user_id);
+$pending_for_me = array_values(array_filter($all_reqs, function($r) use ($user_role, $user_perms_for_approvals) {
+    // Submitted → needs HOD or admin approval
+    if ($r['status'] === 'submitted' && (
+        in_array($user_role, ['business_owner','super_admin','department_head','hod']) ||
+        in_array('requisitions.approve_hod', $user_perms_for_approvals)
+    )) return true;
+    // HOD approved → needs Audit or admin approval
+    if ($r['status'] === 'hod_approved' && (
+        in_array($user_role, ['auditor','business_owner','super_admin']) ||
+        in_array('requisitions.approve_audit', $user_perms_for_approvals)
+    )) return true;
+    // Audit approved → needs CEO/admin approval
+    if ($r['status'] === 'audit_approved' && (
+        in_array($user_role, ['business_owner','super_admin','ceo']) ||
+        in_array('requisitions.approve_ceo', $user_perms_for_approvals)
+    )) return true;
     return false;
 }));
 

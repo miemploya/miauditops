@@ -208,18 +208,28 @@ try {
 
             if (!$req) { echo json_encode(['success' => false, 'message' => 'Requisition not found']); break; }
 
-            // Determine next status based on current status and user role
+            // Determine next status based on current status and user role OR sub-permissions
             // business_owner / super_admin ALWAYS fast-track directly to ceo_approved (final stage)
             $new_status = null;
+            $approver_perms = get_user_permissions($user_id);
             if (in_array($user_role, ['business_owner','super_admin'])) {
                 if (in_array($req['status'], ['submitted','hod_approved','audit_approved'])) {
                     $new_status = 'ceo_approved'; // one-click final approval
                 }
-            } elseif ($req['status'] === 'submitted' && in_array($user_role, ['department_head','hod'])) {
+            } elseif ($req['status'] === 'submitted' && (
+                in_array($user_role, ['department_head','hod']) ||
+                in_array('requisitions.approve_hod', $approver_perms)
+            )) {
                 $new_status = 'hod_approved';
-            } elseif ($req['status'] === 'hod_approved' && in_array($user_role, ['auditor'])) {
+            } elseif ($req['status'] === 'hod_approved' && (
+                in_array($user_role, ['auditor']) ||
+                in_array('requisitions.approve_audit', $approver_perms)
+            )) {
                 $new_status = 'audit_approved';
-            } elseif ($req['status'] === 'audit_approved' && in_array($user_role, ['ceo'])) {
+            } elseif ($req['status'] === 'audit_approved' && (
+                in_array($user_role, ['ceo']) ||
+                in_array('requisitions.approve_ceo', $approver_perms)
+            )) {
                 $new_status = 'ceo_approved';
             }
 
