@@ -669,15 +669,32 @@ function get_clients_for_user($company_id, $user_id = null) {
  */
 function set_user_permissions($user_id, $permissions, $granted_by) {
     global $pdo;
+    // Safety: ensure $permissions is a valid array
+    if (!is_array($permissions)) {
+        error_log("set_user_permissions: invalid permissions input for user $user_id — skipping");
+        return;
+    }
     // Normalize to lowercase and deduplicate
     $permissions = array_unique(array_filter(array_map('strtolower', $permissions)));
-    // Delete existing
-    $stmt = $pdo->prepare("DELETE FROM user_permissions WHERE user_id = ?");
-    $stmt->execute([$user_id]);
-    // Insert new
-    $stmt = $pdo->prepare("INSERT IGNORE INTO user_permissions (user_id, permission, granted_by) VALUES (?, ?, ?)");
-    foreach ($permissions as $perm) {
-        $stmt->execute([$user_id, $perm, $granted_by]);
+    // Safety: never allow saving a completely empty permission set (at minimum dashboard should exist)
+    if (empty($permissions)) {
+        $permissions = ['dashboard', 'company_setup'];
+    }
+    // Wrap in transaction so if INSERT fails, DELETE is rolled back
+    $pdo->beginTransaction();
+    try {
+        // Delete existing
+        $stmt = $pdo->prepare("DELETE FROM user_permissions WHERE user_id = ?");
+        $stmt->execute([$user_id]);
+        // Insert new
+        $stmt = $pdo->prepare("INSERT IGNORE INTO user_permissions (user_id, permission, granted_by) VALUES (?, ?, ?)");
+        foreach ($permissions as $perm) {
+            $stmt->execute([$user_id, $perm, $granted_by]);
+        }
+        $pdo->commit();
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        error_log("set_user_permissions: transaction failed for user $user_id — " . $e->getMessage());
     }
 }
 

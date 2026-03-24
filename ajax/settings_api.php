@@ -138,6 +138,14 @@ try {
             $stmt->execute([$email, $company_id, $target_id]);
             if ($stmt->fetch()) { echo json_encode(['success' => false, 'message' => 'Email already in use by another user']); break; }
 
+            // Prevent changing the role of a business_owner to something else (protect the company owner)
+            $existing = $pdo->prepare("SELECT role FROM users WHERE id = ? AND company_id = ?");
+            $existing->execute([$target_id, $company_id]);
+            $existing_user = $existing->fetch();
+            if ($existing_user && $existing_user['role'] === 'business_owner' && $role !== 'business_owner') {
+                echo json_encode(['success' => false, 'message' => 'Cannot change the role of the Business Owner']); break;
+            }
+
             $stmt = $pdo->prepare("UPDATE users SET first_name = ?, last_name = ?, email = ?, phone = ?, role = ?, department = ? WHERE id = ? AND company_id = ?");
             $stmt->execute([$first, $last, $email, $phone, $role, $dept, $target_id, $company_id]);
 
@@ -196,6 +204,14 @@ try {
             $permissions = json_decode($_POST['permissions'] ?? '[]', true);
 
             if (!$target_id) { echo json_encode(['success' => false, 'message' => 'Invalid user']); break; }
+            // Safety: if JSON decode failed, don't wipe permissions
+            if (!is_array($permissions)) {
+                echo json_encode(['success' => false, 'message' => 'Invalid permissions data']); break;
+            }
+            // Safety: verify target user belongs to same company
+            $check = $pdo->prepare("SELECT id FROM users WHERE id = ? AND company_id = ?");
+            $check->execute([$target_id, $company_id]);
+            if (!$check->fetch()) { echo json_encode(['success' => false, 'message' => 'User not found']); break; }
 
             // Ensure core permissions are always present
             foreach (['dashboard', 'company_setup'] as $core) {
