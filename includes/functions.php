@@ -669,8 +669,8 @@ function get_clients_for_user($company_id, $user_id = null) {
  */
 function set_user_permissions($user_id, $permissions, $granted_by) {
     global $pdo;
-    // Deduplicate
-    $permissions = array_unique(array_filter($permissions));
+    // Normalize to lowercase and deduplicate
+    $permissions = array_unique(array_filter(array_map('strtolower', $permissions)));
     // Delete existing
     $stmt = $pdo->prepare("DELETE FROM user_permissions WHERE user_id = ?");
     $stmt->execute([$user_id]);
