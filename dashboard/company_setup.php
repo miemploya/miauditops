@@ -12,8 +12,8 @@ $company_id = $_SESSION['company_id'];
 $page_title = 'Company Setup';
 $is_admin = is_admin_role();
 
-// Fetch all clients
-$clients = get_clients($company_id);
+// Fetch clients: admins see all, non-admins see only assigned clients
+$clients = get_clients_for_user($company_id);
 $active_client_id = get_active_client();
 
 // Fetch outlets for active client (if any)
