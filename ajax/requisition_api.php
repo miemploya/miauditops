@@ -94,10 +94,10 @@ try {
                 $total += (floatval($item['quantity'] ?? 0) * floatval($item['unit_price'] ?? 0));
             }
 
-            // Generate requisition number
-            $stmt = $pdo->prepare("SELECT COUNT(*)+1 as num FROM requisitions WHERE company_id = ? AND client_id = ?");
-            $stmt->execute([$company_id, $client_id]);
-            $num = $stmt->fetch()['num'];
+            // Generate requisition number — use MAX across entire company to avoid cross-client duplicates
+            $stmt = $pdo->prepare("SELECT MAX(CAST(SUBSTRING(requisition_number, 5) AS UNSIGNED)) as max_num FROM requisitions WHERE company_id = ?");
+            $stmt->execute([$company_id]);
+            $num = ($stmt->fetch()['max_num'] ?? 0) + 1;
             $req_number = 'REQ-' . str_pad($num, 5, '0', STR_PAD_LEFT);
 
             $pdo->beginTransaction();
@@ -207,9 +207,9 @@ try {
             if ($new_status === 'ceo_approved') {
                 try {
                     $po_prefix = generate_po_prefix($client_id, $company_id, $pdo);
-                    $stmt = $pdo->prepare("SELECT COUNT(*)+1 as num FROM purchase_orders WHERE company_id = ? AND client_id = ?");
+                    $stmt = $pdo->prepare("SELECT MAX(CAST(SUBSTRING_INDEX(po_number, '-', -1) AS UNSIGNED)) as max_num FROM purchase_orders WHERE company_id = ? AND client_id = ?");
                     $stmt->execute([$company_id, $client_id]);
-                    $num = $stmt->fetch()['num'];
+                    $num = ($stmt->fetch()['max_num'] ?? 0) + 1;
                     $po_number = $po_prefix . '/PO-' . str_pad($num, 5, '0', STR_PAD_LEFT);
 
                     // Try with client_id first, fall back without it
@@ -306,9 +306,9 @@ try {
 
             // Generate PO number with company prefix
             $po_prefix = generate_po_prefix($client_id, $company_id, $pdo);
-            $stmt = $pdo->prepare("SELECT COUNT(*)+1 as num FROM purchase_orders WHERE company_id = ? AND client_id = ?");
+            $stmt = $pdo->prepare("SELECT MAX(CAST(SUBSTRING_INDEX(po_number, '-', -1) AS UNSIGNED)) as max_num FROM purchase_orders WHERE company_id = ? AND client_id = ?");
             $stmt->execute([$company_id, $client_id]);
-            $num = $stmt->fetch()['num'];
+            $num = ($stmt->fetch()['max_num'] ?? 0) + 1;
             $po_number = $po_prefix . '/PO-' . str_pad($num, 5, '0', STR_PAD_LEFT);
 
             $pdo->beginTransaction();
