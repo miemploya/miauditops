@@ -101,13 +101,16 @@ $dynamic_prices = get_dynamic_prices();
         <button @click="cycle='annual'" :class="cycle==='annual' ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30' : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10'" class="px-5 py-2 rounded-xl text-sm font-bold transition-all">
             Annual <span class="text-[10px] ml-1 opacity-75">-20%</span>
         </button>
+        <button @click="cycle='triennial'" :class="cycle==='triennial' ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30' : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10'" class="px-5 py-2 rounded-xl text-sm font-bold transition-all">
+            3 Years <span class="text-[10px] ml-1 opacity-75">Value</span>
+        </button>
     </div>
 </section>
 
 <!-- Pricing Cards -->
 <section class="pb-24">
-    <div class="max-w-6xl mx-auto px-6">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 slide-up-delay-2">
+    <div class="max-w-7xl mx-auto px-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 slide-up-delay-2">
 
             <!-- Starter -->
             <div class="card-glow relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 flex flex-col">
@@ -167,7 +170,7 @@ $dynamic_prices = get_dynamic_prices();
                 </div>
                 <div class="mb-6">
                     <span class="text-4xl font-black text-slate-800 dark:text-white" x-text="'₦' + getPrice('professional').toLocaleString()"></span>
-                    <span class="text-sm text-slate-500 dark:text-slate-400" x-text="'/' + (cycle === 'monthly' ? 'mo' : cycle === 'quarterly' ? 'qtr' : 'yr')"></span>
+                    <span class="text-sm text-slate-500 dark:text-slate-400" x-text="'/' + (cycle === 'monthly' ? 'mo' : cycle === 'quarterly' ? 'qtr' : cycle === 'annual' ? 'yr' : '3yr')"></span>
                     <div x-show="cycle !== 'monthly'" class="text-xs text-violet-600 dark:text-violet-400 font-semibold mt-1">
                         Save <span x-text="cycle === 'quarterly' ? '10%' : '20%'"></span>
                     </div>
@@ -219,7 +222,7 @@ $dynamic_prices = get_dynamic_prices();
                 </div>
                 <div class="mb-6">
                     <span class="text-4xl font-black text-slate-800 dark:text-white" x-text="'₦' + getPrice('enterprise').toLocaleString()"></span>
-                    <span class="text-sm text-slate-500 dark:text-slate-400" x-text="'/' + (cycle === 'monthly' ? 'mo' : cycle === 'quarterly' ? 'qtr' : 'yr')"></span>
+                    <span class="text-sm text-slate-500 dark:text-slate-400" x-text="'/' + (cycle === 'monthly' ? 'mo' : cycle === 'quarterly' ? 'qtr' : cycle === 'annual' ? 'yr' : '3yr')"></span>
                     <div x-show="cycle !== 'monthly'" class="text-xs text-amber-600 dark:text-amber-400 font-semibold mt-1">
                         Save <span x-text="cycle === 'quarterly' ? '10%' : '20%'"></span>
                     </div>
@@ -257,6 +260,43 @@ $dynamic_prices = get_dynamic_prices();
                 </button>
             </div>
 
+            <!-- Hotel Revenue -->
+            <div class="card-glow relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 flex flex-col">
+                <div class="mb-6">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30 mb-4">
+                        <i data-lucide="building" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <h3 class="text-xl font-black text-slate-800 dark:text-white">Hotel Revenue</h3>
+                    <span class="inline-block mt-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300 text-[10px] font-bold uppercase tracking-wider">Premium Module</span>
+                </div>
+                <div class="mb-6">
+                    <span class="text-4xl font-black text-slate-800 dark:text-white" x-text="'₦' + getPrice('hotel_revenue').toLocaleString()"></span>
+                    <span class="text-sm text-slate-500 dark:text-slate-400" x-text="'/' + (cycle === 'monthly' ? 'mo' : cycle === 'quarterly' ? 'qtr' : cycle === 'annual' ? 'yr' : '3yr')"></span>
+                </div>
+                <ul class="space-y-3 mb-8 flex-1">
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Unlimited Users
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Hotel Revenue Audit
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Overtime Tracking
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Daily Reports
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Unlimited Data Retention
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-500">
+                        <i data-lucide="x" class="w-4 h-4 text-slate-400 mt-0.5 shrink-0"></i> No Stock Control
+                    </li>
+                </ul>
+                <button @click="startPayment('hotel_revenue')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Start 7-Day Trial'">
+                </button>
+            </div>
+
         </div>
     </div>
 </section>
@@ -273,23 +313,24 @@ $dynamic_prices = get_dynamic_prices();
                         <th class="text-center px-6 py-4 font-bold text-slate-500 dark:text-slate-400">Starter</th>
                         <th class="text-center px-6 py-4 font-bold text-violet-600 dark:text-violet-400">Professional</th>
                         <th class="text-center px-6 py-4 font-bold text-amber-600 dark:text-amber-400">Enterprise</th>
+                        <th class="text-center px-6 py-4 font-bold text-blue-600 dark:text-blue-400">Hotel Revenue</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-white/5">
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Users</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">4</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Clients</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">3</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Outlets</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">30</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Products</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">20</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Departments</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Data Retention</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">90 Days</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1 Year</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Daily Audit</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Stock Control</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Finance Module</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center text-xs text-slate-500">Revenue + Expenses</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Reports</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center text-xs text-slate-500">Sales + Stock</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">PDF Export</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Station Audit</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Viewer Role</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Priority Support</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Users</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">4</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Clients</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">3</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Outlets</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">30</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Products</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">20</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-400 dark:text-slate-500">N/A</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Departments</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-400 dark:text-slate-500">N/A</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Data Retention</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">90 Days</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1 Year</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Daily Audit</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Stock Control</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Finance Module</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center text-xs text-slate-500">Revenue + Expenses</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Reports</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center text-xs text-slate-500">Sales + Stock</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">PDF Export</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Station Audit</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Viewer Role</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Priority Support</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
                 </tbody>
             </table>
         </div>

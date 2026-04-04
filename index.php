@@ -14,6 +14,7 @@ require_once 'config/paystack.php';
 $dynamic_prices = get_dynamic_prices();
 $pro_price  = number_format($dynamic_prices['professional_monthly']);
 $ent_price  = number_format($dynamic_prices['enterprise_monthly']);
+$hotel_price = number_format($dynamic_prices['hotel_revenue_monthly'] ?? 200000);
 
 // Load active testimonials
 $testimonials = [];
@@ -323,7 +324,7 @@ try {
             <p class="text-slate-500 dark:text-slate-400 mt-3 max-w-xl mx-auto">Start free. Scale as you grow. Every plan includes core audit and stock control.</p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 
             <!-- Starter -->
             <div class="relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 flex flex-col hover:border-slate-400 dark:hover:border-white/20 hover:-translate-y-1 transition-all duration-300">
@@ -454,6 +455,44 @@ try {
                 </ul>
                 <a href="pricing.php" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold text-sm shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-[1.02] transition-all">
                     Start 7-Day Trial
+                </a>
+            </div>
+
+            <!-- Hotel Revenue -->
+            <div class="relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 flex flex-col hover:border-blue-400 dark:hover:border-blue-500/30 hover:-translate-y-1 transition-all duration-300">
+                <div class="mb-6">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30 mb-4">
+                        <i data-lucide="building" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <h3 class="text-xl font-black text-slate-800 dark:text-white">Hotel Revenue</h3>
+                    <span class="inline-block mt-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300 text-[10px] font-bold uppercase tracking-wider">Premium Module</span>
+                </div>
+                <div class="mb-6">
+                    <span class="text-4xl font-black text-slate-800 dark:text-white">₦<?php echo $hotel_price; ?></span>
+                    <span class="text-sm text-slate-500 dark:text-slate-400">/month</span>
+                </div>
+                <ul class="space-y-3 mb-8 flex-1">
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Unlimited Users
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Hotel Revenue Audit
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Overtime Tracking
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Daily Reports
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Unlimited Data Retention
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-500">
+                        <i data-lucide="x" class="w-4 h-4 text-slate-400 mt-0.5 shrink-0"></i> No Stock Control
+                    </li>
+                </ul>
+                <a href="pricing.php" class="block w-full text-center px-6 py-3 rounded-xl border-2 border-slate-300 dark:border-white/20 text-slate-700 dark:text-white font-bold text-sm hover:bg-slate-100 dark:hover:bg-white/5 transition-all">
+                    View Plan Features
                 </a>
             </div>
 

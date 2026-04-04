@@ -45,6 +45,7 @@ $page_permission_map = [
     'bank_recon.php'       => 'finance',
     'fixed_assets.php'     => 'finance',
     'capital_allowance.php' => 'finance',
+    'hotel_revenue/index.php' => 'dashboard',
 ];
 
 // Map page hrefs to subscription module keys (may differ from permission keys)
@@ -68,6 +69,7 @@ $page_subscription_map = [
     'bank_recon.php'       => 'finance',
     'fixed_assets.php'     => 'finance',
     'capital_allowance.php' => 'finance',
+    'hotel_revenue/index.php' => 'hotel_revenue',
 ];
 try {
     $_current_plan_key = get_current_plan();
@@ -144,6 +146,13 @@ $nav_sections['P&L'] = [
         ['label' => 'Bank Recon', 'icon' => 'landmark', 'href' => 'bank_recon.php', 'gradient' => 'from-blue-500 to-indigo-600', 'roles' => 'all', 'badge' => 'NEW'],
         ['label' => 'Fixed Assets', 'icon' => 'package-check', 'href' => 'fixed_assets.php', 'gradient' => 'from-violet-500 to-purple-600', 'roles' => 'all', 'badge' => 'NEW'],
         ['label' => 'Capital Allow.', 'icon' => 'calculator', 'href' => 'capital_allowance.php', 'gradient' => 'from-amber-500 to-orange-600', 'roles' => 'all', 'badge' => 'NEW'],
+    ]
+];
+
+// Hotel Revenue
+$nav_sections['Hotel'] = [
+    'items' => [
+        ['label' => 'Hotel Revenue', 'icon' => 'building', 'href' => 'hotel_revenue/index.php', 'gradient' => 'from-fuchsia-500 to-purple-600', 'roles' => 'all', 'badge' => 'NEW'],
     ]
 ];
 

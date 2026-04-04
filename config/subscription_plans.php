@@ -191,6 +191,49 @@ $SUBSCRIPTION_PLANS = [
             'Unlimited Departments',
         ],
     ],
+
+    'hotel_revenue' => [
+        'label'       => 'Hotel Revenue',
+        'tag'         => 'Premium Module',
+        'icon'        => 'building',
+        'color'       => 'violet',
+
+        // ── Limits ──
+        'max_users'       => 0,    // unlimited
+        'max_clients'     => 1,
+        'max_outlets'     => 1,
+        'max_products'    => 0,
+        'max_departments' => 0,
+        'data_retention_days' => 0,
+
+        // ── Allowed modules ──
+        'modules' => [
+            'dashboard',
+            'company_setup',
+            'hotel_revenue',
+            'settings',
+            'billing',
+        ],
+
+        // ── Tab restrictions ──
+        'tab_locks' => [],
+
+        // ── Feature flags ──
+        'pdf_export'     => true,
+        'viewer_role'    => false,
+        'audit_export'   => true,
+        'station_audit'  => false,
+        'support_services' => true,
+
+        // ── Display features ──
+        'features' => [
+            'Hotel Revenue Audit',
+            'Overtime Tracking',
+            'Daily Reports',
+            'Unlimited Data Retention',
+            'Premium Support',
+        ],
+    ],
 ];
 
 /**
@@ -201,6 +244,7 @@ $BILLING_CYCLES = [
     'monthly'   => ['label' => 'Monthly',   'months' => 1,  'discount' => 0],
     'quarterly' => ['label' => 'Quarterly',  'months' => 3,  'discount' => 10],  // 10% off
     'annual'    => ['label' => 'Annual',     'months' => 12, 'discount' => 20],  // 20% off
+    'triennial' => ['label' => '3 Years',    'months' => 36, 'discount' => 30],
 ];
 
 // ── Helper functions ──

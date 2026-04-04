@@ -36,6 +36,10 @@ function get_dynamic_prices() {
         'enterprise_monthly'    => 75000,
         'enterprise_quarterly'  => 202500,
         'enterprise_annual'     => 720000,
+        'hotel_revenue_monthly'   => 200000,
+        'hotel_revenue_quarterly' => 550000,
+        'hotel_revenue_annual'    => 2100000,
+        'hotel_revenue_triennial' => 5000000,
     ];
 
     try {
@@ -61,9 +65,10 @@ function get_dynamic_prices() {
 function get_plan_prices() {
     $p = get_dynamic_prices();
     return [
-        'starter'      => 0,
-        'professional' => $p['professional_monthly'],
-        'enterprise'   => $p['enterprise_monthly'],
+        'starter'       => 0,
+        'professional'  => $p['professional_monthly'],
+        'enterprise'    => $p['enterprise_monthly'],
+        'hotel_revenue' => $p['hotel_revenue_monthly'] ?? 200000,
     ];
 }
 
@@ -75,6 +80,7 @@ function get_cycle_config() {
         'monthly'   => ['months' => 1,  'discount' => 0],
         'quarterly' => ['months' => 3,  'discount' => 10],
         'annual'    => ['months' => 12, 'discount' => 20],
+        'triennial' => ['months' => 36, 'discount' => 30],
     ];
 }
 

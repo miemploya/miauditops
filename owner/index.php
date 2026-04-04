@@ -395,6 +395,39 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                         </div>
                     </div>
 
+                    <div class="h-px bg-slate-800 my-6"></div>
+
+                    <!-- Hotel Revenue Plan -->
+                    <div>
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                                <i data-lucide="building" class="w-4 h-4 text-blue-400"></i>
+                            </div>
+                            <h4 class="text-sm font-bold text-blue-400">Hotel Revenue Module</h4>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 mb-1">Monthly (₦)</label>
+                                <input type="number" x-model.number="pricing.hotel_revenue_monthly" min="0" step="100" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500 transition-all">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 mb-1">Quarterly (₦)</label>
+                                <input type="number" x-model.number="pricing.hotel_revenue_quarterly" min="0" step="100" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500 transition-all">
+                                <p class="text-[10px] text-slate-500 mt-1" x-text="pricing.hotel_revenue_monthly ? 'Default: ₦' + Math.round(pricing.hotel_revenue_monthly * 3 * 0.9).toLocaleString() + ' (10% off)' : ''"></p>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 mb-1">Annual (₦)</label>
+                                <input type="number" x-model.number="pricing.hotel_revenue_annual" min="0" step="100" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500 transition-all">
+                                <p class="text-[10px] text-slate-500 mt-1" x-text="pricing.hotel_revenue_monthly ? 'Default: ₦' + Math.round(pricing.hotel_revenue_monthly * 12 * 0.8).toLocaleString() + ' (20% off)' : ''"></p>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 mb-1">3 Years (₦)</label>
+                                <input type="number" x-model.number="pricing.hotel_revenue_triennial" min="0" step="100" class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500 transition-all">
+                                <p class="text-[10px] text-slate-500 mt-1" x-text="pricing.hotel_revenue_monthly ? 'Default: ₦' + Math.round(pricing.hotel_revenue_monthly * 36 * 0.7).toLocaleString() + ' (30% off)' : ''"></p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="mt-6 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
                         <p class="text-xs text-blue-300">
                             <i data-lucide="info" class="w-3 h-3 inline-block mr-1"></i>
@@ -733,6 +766,7 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                         <option value="starter">Starter</option>
                         <option value="professional">Professional</option>
                         <option value="enterprise">Enterprise</option>
+                        <option value="hotel_revenue">Hotel Revenue</option>
                     </select>
                 </div>
                 <div>
@@ -984,7 +1018,7 @@ function ownerApp() {
         userRoleFilter: '',
         subModal: false,
         subForm: { company_id: 0, company_name: '', plan_name: 'free', status: 'trial', expires_at: '', max_users: 5, max_outlets: 3, max_clients: 1, addon_client_packs: 0, notes: '' },
-        pricing: { professional_monthly: 25000, professional_quarterly: 67500, professional_annual: 240000, enterprise_monthly: 75000, enterprise_quarterly: 202500, enterprise_annual: 720000 },
+        pricing: { professional_monthly: 25000, professional_quarterly: 67500, professional_annual: 240000, enterprise_monthly: 75000, enterprise_quarterly: 202500, enterprise_annual: 720000, hotel_revenue_monthly: 200000, hotel_revenue_quarterly: 550000, hotel_revenue_annual: 2100000, hotel_revenue_triennial: 5000000 },
         pricingSaving: false,
         broadcasts: [],
         broadcastForm: { title: '', message: '', type: 'info', target: 'all', expires_days: '30' },
@@ -1096,7 +1130,8 @@ function ownerApp() {
             free:         { clients: 1, departments: 1 },
             starter:      { clients: 1, departments: 1 },
             professional: { clients: 1, departments: 10 },
-            enterprise:   { clients: 3, departments: 0 } // 0 = unlimited
+            enterprise:   { clients: 3, departments: 0 }, // 0 = unlimited
+            hotel_revenue:{ clients: 1, departments: 0 }
         },
 
         getEffectiveClients() {
