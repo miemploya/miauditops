@@ -348,6 +348,7 @@ switch ($action) {
         $fields = [
             'professional_monthly', 'professional_quarterly', 'professional_annual',
             'enterprise_monthly', 'enterprise_quarterly', 'enterprise_annual',
+            'hotel_revenue_monthly', 'hotel_revenue_quarterly', 'hotel_revenue_annual', 'hotel_revenue_triennial',
         ];
         $stmt = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
         foreach ($fields as $field) {

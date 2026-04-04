@@ -67,12 +67,12 @@ try {
             $plan_key  = clean_input($_POST['plan'] ?? '');
             $cycle_key = clean_input($_POST['cycle'] ?? 'monthly');
 
-            $valid_plans = ['professional', 'enterprise'];
+            $valid_plans = ['professional', 'enterprise', 'hotel_revenue'];
             if (!in_array($plan_key, $valid_plans)) {
                 echo json_encode(['success' => false, 'message' => 'Invalid plan selected']);
                 break;
             }
-            $valid_cycles = ['monthly', 'quarterly', 'annual'];
+            $valid_cycles = ['monthly', 'quarterly', 'annual', 'triennial'];
             if (!in_array($cycle_key, $valid_cycles)) {
                 $cycle_key = 'monthly';
             }
