@@ -966,10 +966,21 @@ function show_upgrade_required_page($module, $plan) {
     }
     echo '</div>';
 
+    // Find root dynamically
+    $script_name = $_SERVER['SCRIPT_NAME'];
+    $root_path = '';
+    if (strpos($script_name, '/dashboard/') !== false) {
+        $root_path = substr($script_name, 0, strpos($script_name, '/dashboard/'));
+    } else {
+        $root_path = rtrim(dirname($script_name), '/');
+    }
+    $dash_url = $root_path . '/dashboard/index.php';
+    $upgrade_url = $root_path . '/dashboard/billing.php';
+
     // Buttons
     echo '<div class="flex gap-3 justify-center">';
-    echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all"> Dashboard</a>';
-    echo '<a href="settings.php" class="px-6 py-3 bg-gradient-to-r from-violet-600 to-amber-500 hover:from-violet-500 hover:to-amber-400 text-white font-bold rounded-xl transition-all">Upgrade Plan</a>';
+    echo '<a href="' . $dash_url . '" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all"> Dashboard</a>';
+    echo '<a href="' . $upgrade_url . '" class="px-6 py-3 bg-gradient-to-r from-violet-600 to-amber-500 hover:from-violet-500 hover:to-amber-400 text-white font-bold rounded-xl transition-all">Upgrade Plan</a>';
     echo '</div>';
 
     echo '</div>';
@@ -997,9 +1008,19 @@ function show_subscription_expired_page($plan, $was_trial = false) {
     echo '<h1 class="text-3xl font-black mb-2">' . $title . '</h1>';
     echo '<p class="text-slate-400 mb-4">' . $message . '</p>';
     echo '<p class="text-sm text-slate-500 mb-8">You can still access the <strong class="text-white">Dashboard</strong>, <strong class="text-white">Billing</strong>, <strong class="text-white">Support</strong>, and <strong class="text-white">Company Setup</strong>.</p>';
+    $script_name = $_SERVER['SCRIPT_NAME'];
+    $root_path = '';
+    if (strpos($script_name, '/dashboard/') !== false) {
+        $root_path = substr($script_name, 0, strpos($script_name, '/dashboard/'));
+    } else {
+        $root_path = rtrim(dirname($script_name), '/');
+    }
+    $dash_url = $root_path . '/dashboard/index.php';
+    $bill_url = $root_path . '/dashboard/billing.php';
+
     echo '<div class="flex gap-3 justify-center">';
-    echo '<a href="index.php" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all"> Dashboard</a>';
-    echo '<a href="billing.php" class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold rounded-xl transition-all">' . $cta_text . '</a>';
+    echo '<a href="' . $dash_url . '" class="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl transition-all"> Dashboard</a>';
+    echo '<a href="' . $bill_url . '" class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold rounded-xl transition-all">' . $cta_text . '</a>';
     echo '</div>';
     echo '</div>';
     echo '<script>lucide.createIcons();</script>';
