@@ -130,7 +130,7 @@ try {
                 <i data-lucide="log-in" class="w-4 h-4 text-slate-400"></i> Sign In
             </a>
             <a href="auth/signup.php" class="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white text-sm font-bold shadow-lg shadow-violet-500/20">
-                <i data-lucide="rocket" class="w-4 h-4"></i> Get Started Free
+                <i data-lucide="rocket" class="w-4 h-4"></i> Get Started
             </a>
             <button id="pwa-install-menu" onclick="pwaInstall()" class="hidden items-center justify-center gap-3 px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold shadow-lg shadow-emerald-500/20 transition-colors" style="display:none">
                 <i data-lucide="download" class="w-4 h-4"></i> Install App on Device
@@ -164,11 +164,156 @@ try {
 
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mt-10 slide-up-delay-2">
             <a href="auth/signup.php" class="px-8 py-3.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold rounded-xl shadow-2xl shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-105 transition-all text-sm flex items-center gap-2">
-                <i data-lucide="rocket" class="w-5 h-5"></i> Start Free Trial
+                <i data-lucide="rocket" class="w-5 h-5"></i> Subscribe Now
             </a>
             <a href="#features" class="px-8 py-3.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-white font-semibold rounded-xl hover:bg-slate-200 dark:hover:bg-white/10 transition-all text-sm flex items-center gap-2">
                 <i data-lucide="play" class="w-5 h-5"></i> See Features
             </a>
+        </div>
+    </div>
+</section>
+
+<!-- Interactive Demo Dashboard Mockup -->
+<section class="max-w-6xl mx-auto px-4 sm:px-6 relative z-20 mt-8 mb-24 slide-up-delay-2" x-data="{
+    activeTab: 'sales',
+    revenue: 4850000,
+    variance: -12500,
+    stockValue: 12450000
+}">
+    <!-- Glassmorphic Dashboard Window -->
+    <div class="rounded-3xl border-2 border-white dark:border-white/10 bg-white/40 dark:bg-slate-900/40 backdrop-blur-3xl shadow-2xl overflow-hidden ring-4 ring-slate-100 dark:ring-slate-800">
+        
+        <!-- Mac-style Window Header -->
+        <div class="h-12 bg-white/60 dark:bg-slate-950/60 border-b border-slate-200/50 dark:border-white/5 flex items-center px-4 justify-between">
+            <div class="flex gap-2">
+                <div class="w-3 h-3 rounded-full bg-red-400"></div>
+                <div class="w-3 h-3 rounded-full bg-amber-400"></div>
+                <div class="w-3 h-3 rounded-full bg-emerald-400"></div>
+            </div>
+            <div class="text-xs font-bold text-slate-400 dark:text-slate-500 font-mono tracking-wider">miauditops.app/dashboard</div>
+            <div class="w-16"></div> <!-- spacer -->
+        </div>
+
+        <!-- Dashboard Layout -->
+        <div class="flex h-[450px]">
+            <!-- Sidebar -->
+            <div class="w-16 sm:w-64 border-r border-slate-200/50 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 p-4 flex flex-col gap-2">
+                <div class="hidden sm:block mb-4 pt-2 px-2">
+                    <span class="text-[10px] font-black tracking-widest text-violet-600 dark:text-violet-400 uppercase">Interactive Demo</span>
+                </div>
+                
+                <button @click="activeTab='sales'" :class="activeTab==='sales' ? 'bg-violet-600 shadow-lg text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-3 rounded-xl transition-all">
+                    <i data-lucide="line-chart" class="w-5 h-5"></i>
+                    <span class="hidden sm:block text-sm font-semibold">Sales Audit</span>
+                </button>
+                <button @click="activeTab='stock'" :class="activeTab==='stock' ? 'bg-emerald-600 shadow-lg text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-3 rounded-xl transition-all">
+                    <i data-lucide="package" class="w-5 h-5"></i>
+                    <span class="hidden sm:block text-sm font-semibold">Stock Control</span>
+                </button>
+                <button @click="activeTab='finance'" :class="activeTab==='finance' ? 'bg-amber-600 shadow-lg text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-3 rounded-xl transition-all">
+                    <i data-lucide="pie-chart" class="w-5 h-5"></i>
+                    <span class="hidden sm:block text-sm font-semibold">Financials</span>
+                </button>
+            </div>
+
+            <!-- Main Content Area -->
+            <div class="flex-1 p-6 sm:p-10 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/30">
+                
+                <!-- Sales Tab -->
+                <div x-show="activeTab==='sales'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0">
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 dark:text-white">Live Audit</h2>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Cross-referencing POS, Cash, and Transfers.</p>
+                        </div>
+                        <div class="hidden sm:flex items-center gap-2 bg-emerald-100 dark:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-500/30">
+                            <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
+                            <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Live Sync</span>
+                        </div>
+                    </div>
+
+                    <!-- Metric Cards -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                        <div class="bg-white/90 dark:bg-slate-800/90 p-5 rounded-2xl shadow-sm border border-slate-200/50 dark:border-white/5">
+                            <div class="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Declared Revenue</div>
+                            <div class="text-3xl font-black text-slate-800 dark:text-white">₦<span x-text="revenue.toLocaleString()"></span></div>
+                        </div>
+                        <div class="bg-red-50/90 dark:bg-red-500/10 p-5 rounded-2xl shadow-sm border border-red-200 dark:border-red-500/20 group relative overflow-hidden cursor-pointer hover:bg-red-100 dark:hover:bg-red-500/20 transition-all" @click="variance = 0; revenue = 4862500">
+                            <div class="text-red-500 dark:text-red-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> Variance Detected
+                            </div>
+                            <div class="text-3xl font-black text-red-600 dark:text-red-400 transition-all" :class="variance === 0 ? 'text-emerald-600 dark:text-emerald-400' : ''">₦<span x-text="variance.toLocaleString()"></span></div>
+                            <!-- Interaction Hint -->
+                            <div class="absolute inset-0 bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" x-show="variance !== 0">
+                                <span class="text-white font-bold text-sm tracking-wide">Click to Investigate & Resolve</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fake Chart -->
+                    <div class="bg-white/90 dark:bg-slate-800/90 p-5 rounded-2xl shadow-sm border border-slate-200/50 dark:border-white/5 h-32 flex items-end gap-3 px-6">
+                        <div class="w-full bg-violet-100 dark:bg-violet-900/30 h-[40%] rounded-t-lg hover:bg-violet-200 transition-all cursor-pointer"></div>
+                        <div class="w-full bg-violet-500 h-[70%] rounded-t-lg shadow-[0_0_15px_rgba(139,92,246,0.3)]"></div>
+                        <div class="w-full bg-violet-100 dark:bg-violet-900/30 h-[50%] rounded-t-lg hover:bg-violet-200 transition-all cursor-pointer"></div>
+                        <div class="w-full bg-violet-100 dark:bg-violet-900/30 h-[80%] rounded-t-lg hover:bg-violet-200 transition-all cursor-pointer"></div>
+                        <div class="w-full bg-violet-100 dark:bg-violet-900/30 h-[60%] rounded-t-lg hover:bg-violet-200 transition-all cursor-pointer"></div>
+                    </div>
+                </div>
+
+                <!-- Stock Tab -->
+                <div x-show="activeTab==='stock'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" style="display:none;">
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 dark:text-white">Stock Control</h2>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Real-time inventory valuation.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-2xl shadow-lg border border-emerald-400/30 text-white mb-6 transform hover:scale-[1.02] transition-all cursor-pointer" @click="stockValue = stockValue * 1.05">
+                        <div class="text-emerald-100 text-xs font-bold mb-2 uppercase tracking-widest flex items-center gap-2"><i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5"></i> Click to Simulate Stock In</div>
+                        <div class="text-4xl font-black">₦<span x-text="stockValue.toLocaleString()"></span></div>
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="bg-white/90 dark:bg-slate-800/90 p-4 rounded-xl flex items-center justify-between border border-slate-200/50 dark:border-white/5">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-600 text-lg font-bold">W</div>
+                                <div><div class="font-bold text-slate-800 dark:text-white text-sm">Warehouse Main</div><div class="text-[11px] text-slate-500">1,245 Items</div></div>
+                            </div>
+                            <div class="font-bold text-slate-800 dark:text-white text-sm">₦8,450,000</div>
+                        </div>
+                        <div class="bg-white/90 dark:bg-slate-800/90 p-4 rounded-xl flex items-center justify-between border border-slate-200/50 dark:border-white/5">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center text-blue-600 text-lg font-bold">F</div>
+                                <div><div class="font-bold text-slate-800 dark:text-white text-sm">Front Bar</div><div class="text-[11px] text-slate-500">320 Items</div></div>
+                            </div>
+                            <div class="font-bold text-slate-800 dark:text-white text-sm">₦4,000,000</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Finance Tab -->
+                <div x-show="activeTab==='finance'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" style="display:none;">
+                    <h2 class="text-2xl font-black text-slate-800 dark:text-white mb-2">Automated P&L</h2>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mb-8">Gross Margin computed efficiently.</p>
+
+                    <div class="bg-white/90 dark:bg-slate-800/90 rounded-2xl shadow-sm border border-slate-200/50 dark:border-white/5 overflow-hidden">
+                        <div class="p-4 border-b border-slate-100 dark:border-slate-700/50 flex justify-between items-center text-sm">
+                            <span class="text-slate-500 font-semibold text-xs uppercase tracking-wider">Total Revenue</span>
+                            <span class="font-bold text-slate-800 dark:text-white text-base">₦12,500,000</span>
+                        </div>
+                        <div class="p-4 border-b border-slate-100 dark:border-slate-700/50 flex justify-between items-center text-sm pl-8">
+                            <span class="text-rose-500 font-semibold text-xs tracking-wider">- Cost of Sales (Computed)</span>
+                            <span class="font-bold text-rose-500 text-base">₦8,200,000</span>
+                        </div>
+                        <div class="p-5 bg-amber-50 dark:bg-amber-500/10 flex justify-between items-center">
+                            <span class="font-black text-amber-600 dark:text-amber-500 text-sm uppercase tracking-wider">Gross Profit</span>
+                            <span class="font-black text-amber-600 dark:text-amber-500 text-2xl">₦4,300,000</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
         </div>
     </div>
 </section>

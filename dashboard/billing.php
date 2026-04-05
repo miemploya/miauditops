@@ -79,7 +79,7 @@ require_login();
                                                 <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
                                                       :class="{
                                                           'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400': sub.status === 'active',
-                                                          'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400': sub.status === 'trial',
+                                                          'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400': sub.status === 'pending',
                                                           'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400': sub.status === 'expired' || sub.status === 'suspended'
                                                       }" x-text="sub.status"></span>
                                             </div>
@@ -105,6 +105,13 @@ require_login();
                                         <div class="flex items-center gap-2 px-4 py-2.5 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-xl">
                                             <i data-lucide="alert-triangle" class="w-4 h-4 text-red-500 shrink-0"></i>
                                             <p class="text-xs font-semibold text-red-600 dark:text-red-400">Your subscription has expired. Settle an invoice below to restore access.</p>
+                                        </div>
+                                    </template>
+                                    <!-- Pending Banner -->
+                                    <template x-if="sub.status === 'pending'">
+                                        <div class="flex items-center gap-2 px-4 py-2.5 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl">
+                                            <i data-lucide="info" class="w-4 h-4 text-blue-500 shrink-0"></i>
+                                            <p class="text-xs font-semibold text-blue-600 dark:text-blue-400">Your account is pending. Please complete your subscription payment below to unlock your dashboard.</p>
                                         </div>
                                     </template>
                                 </div>

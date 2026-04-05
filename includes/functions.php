@@ -304,18 +304,15 @@ function register_company_and_user($company_name, $email, $password, $first_name
             $stmt->execute([$company_id, $cat[0], $cat[1]]);
         }
         
-        // Create subscription with chosen plan
-        // Starter = free forever, paid plans = 7-day trial
-        $trial_days = ($plan === 'starter') ? 365 : 7;
-        $trial_expires = date('Y-m-d', strtotime("+{$trial_days} days"));
+        // Create subscription with chosen plan (pending payment)
         $pdo->prepare("
             INSERT INTO company_subscriptions 
             (company_id, plan_name, status, billing_cycle, started_at, expires_at,
              max_users, max_clients, max_outlets, max_products, max_departments, 
              data_retention_days, addon_client_packs)
-            VALUES (?, ?, 'trial', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, 0)
+            VALUES (?, ?, 'pending', ?, CURDATE(), NULL, ?, ?, ?, ?, ?, ?, 0)
         ")->execute([
-            $company_id, $plan, $cycle, $trial_expires,
+            $company_id, $plan, $cycle,
             (int)$plan_cfg['max_users'], (int)$plan_cfg['max_clients'],
             (int)$plan_cfg['max_outlets'], (int)$plan_cfg['max_products'],
             (int)$plan_cfg['max_departments'], (int)$plan_cfg['data_retention_days']
@@ -323,7 +320,7 @@ function register_company_and_user($company_name, $email, $password, $first_name
         
         // Log the registration
         $plan_label = ucfirst($plan);
-        log_audit($company_id, $user_id, 'company_registered', 'core', $company_id, "Company '$company_name' registered with $plan_label trial ($cycle)");
+        log_audit($company_id, $user_id, 'company_registered', 'core', $company_id, "Company '$company_name' registered with $plan_label ($cycle) - pending payment");
         
         $pdo->commit();
         
@@ -392,25 +389,22 @@ function register_company_and_user_google($company_name, $email, $google_id, $fi
             $stmt->execute([$company_id, $cat[0], $cat[1]]);
         }
         
-        // Create subscription with chosen plan
-        // Starter = free forever, paid plans = 7-day trial
-        $trial_days = ($plan === 'starter') ? 365 : 7;
-        $trial_expires = date('Y-m-d', strtotime("+{$trial_days} days"));
+        // Create subscription with chosen plan (pending payment)
         $pdo->prepare("
             INSERT INTO company_subscriptions 
             (company_id, plan_name, status, billing_cycle, started_at, expires_at,
              max_users, max_clients, max_outlets, max_products, max_departments, 
              data_retention_days, addon_client_packs)
-            VALUES (?, ?, 'trial', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, 0)
+            VALUES (?, ?, 'pending', ?, CURDATE(), NULL, ?, ?, ?, ?, ?, ?, 0)
         ")->execute([
-            $company_id, $plan, $cycle, $trial_expires,
+            $company_id, $plan, $cycle,
             (int)$plan_cfg['max_users'], (int)$plan_cfg['max_clients'],
             (int)$plan_cfg['max_outlets'], (int)$plan_cfg['max_products'],
             (int)$plan_cfg['max_departments'], (int)$plan_cfg['data_retention_days']
         ]);
         
         $plan_label = ucfirst($plan);
-        log_audit($company_id, $user_id, 'company_registered_google', 'core', $company_id, "Company '$company_name' registered via Google OAuth with $plan_label trial ($cycle)");
+        log_audit($company_id, $user_id, 'company_registered_google', 'core', $company_id, "Company '$company_name' registered via Google OAuth with $plan_label ($cycle) - pending payment");
         
         $pdo->commit();
         
@@ -796,37 +790,19 @@ function require_subscription($module) {
         if (strtotime($sub['expires_at']) < time()) {
             global $pdo;
             $company_id = $_SESSION['company_id'] ?? 0;
-            
-            if ($current_status === 'trial') {
-                // Trial expired  downgrade to starter (free plan)
-                require_once __DIR__ . '/../config/subscription_plans.php';
-                $starter = get_plan_config('starter');
-                $pdo->prepare("
-                    UPDATE company_subscriptions SET 
-                        status = 'expired', plan_name = 'starter',
-                        max_users = ?, max_clients = ?, max_outlets = ?,
-                        max_products = ?, max_departments = ?, data_retention_days = ?
-                    WHERE company_id = ?
-                ")->execute([
-                    (int)$starter['max_users'], (int)$starter['max_clients'],
-                    (int)$starter['max_outlets'], (int)$starter['max_products'],
-                    (int)$starter['max_departments'], (int)$starter['data_retention_days'],
-                    $company_id
-                ]);
-                log_audit($company_id, 0, 'trial_expired', 'billing', 0, 'Trial period expired  downgraded to Starter');
-            } else {
-                // Active subscription expired
-                $pdo->prepare("UPDATE company_subscriptions SET status = 'expired' WHERE company_id = ?")
-                    ->execute([$company_id]);
-            }
+            // Active subscription expired (trials are treated as expired since trial program ended)
+            $pdo->prepare("UPDATE company_subscriptions SET status = 'expired' WHERE company_id = ?")
+                ->execute([$company_id]);
             $sub['status'] = 'expired';
+            $current_status = 'expired';
         }
     }
 
     // Check subscription status
-    if (in_array($sub['status'] ?? '', ['expired', 'suspended'])) {
+    if (in_array($current_status, ['expired', 'suspended', 'pending', 'trial'])) {
         $was_trial = ($current_status === 'trial');
-        show_subscription_expired_page($plan, $was_trial);
+        $is_pending = ($current_status === 'pending');
+        show_subscription_expired_page($plan, $was_trial, $is_pending);
         exit;
     }
 
@@ -989,13 +965,24 @@ function show_upgrade_required_page($module, $plan) {
     exit;
 }
 
-function show_subscription_expired_page($plan, $was_trial = false) {
+function show_subscription_expired_page($plan, $was_trial = false, $is_pending = false) {
     http_response_code(403);
-    $title = $was_trial ? 'Trial Period Ended' : 'Subscription Expired';
-    $message = $was_trial 
-        ? 'Your free trial has ended. Upgrade to a paid plan to continue using all features, or stay on the free Starter plan with limited access.'
-        : 'Your subscription has expired or been suspended. Please settle your outstanding invoice to continue using MIAUDITOPS.';
-    $cta_text = $was_trial ? 'Upgrade Now' : 'Go to Billing';
+    
+    if ($is_pending) {
+        $title = 'Complete Payment';
+        $message = 'Your account has been created. Please complete your subscription payment to unlock your dashboard and launch your operations.';
+        $cta_text = 'Proceed to Payment';
+        $color = 'blue';
+        $icon = 'credit-card';
+    } else {
+        $title = $was_trial ? 'Trial Period Ended' : 'Subscription Expired';
+        $message = $was_trial 
+            ? 'Your free trial has ended. Upgrade to a paid plan to continue using all features.'
+            : 'Your subscription has expired or been suspended. Please settle your outstanding invoice to continue using MIAUDITOPS.';
+        $cta_text = $was_trial ? 'Upgrade Now' : 'Go to Billing';
+        $color = $was_trial ? 'amber' : 'red';
+        $icon = $was_trial ? 'clock' : 'alert-triangle';
+    }
     
     echo '<!DOCTYPE html><html><head><title>' . $title . '  MIAUDITOPS</title>';
     echo '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">';
@@ -1003,8 +990,8 @@ function show_subscription_expired_page($plan, $was_trial = false) {
     echo '<script src="https://unpkg.com/lucide@latest"></script>';
     echo '</head><body class="font-[Inter] bg-slate-950 text-white min-h-screen flex items-center justify-center p-6">';
     echo '<div class="max-w-md text-center">';
-    echo '<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-' . ($was_trial ? 'amber' : 'red') . '-500/20 flex items-center justify-center">';
-    echo '<i data-lucide="' . ($was_trial ? 'clock' : 'alert-triangle') . '" class="w-10 h-10 text-' . ($was_trial ? 'amber' : 'red') . '-400"></i></div>';
+    echo '<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-' . $color . '-500/20 flex items-center justify-center">';
+    echo '<i data-lucide="' . $icon . '" class="w-10 h-10 text-' . $color . '-400"></i></div>';
     echo '<h1 class="text-3xl font-black mb-2">' . $title . '</h1>';
     echo '<p class="text-slate-400 mb-4">' . $message . '</p>';
     echo '<p class="text-sm text-slate-500 mb-8">You can still access the <strong class="text-white">Dashboard</strong>, <strong class="text-white">Billing</strong>, <strong class="text-white">Support</strong>, and <strong class="text-white">Company Setup</strong>.</p>';

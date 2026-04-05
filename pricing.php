@@ -84,7 +84,7 @@ $dynamic_prices = get_dynamic_prices();
             <span class="bg-gradient-to-r from-violet-600 via-purple-500 to-blue-500 dark:from-violet-400 dark:via-purple-400 dark:to-blue-400 bg-clip-text text-transparent">Control Level</span>
         </h1>
         <p class="text-lg text-slate-500 dark:text-slate-400 mt-6 max-w-2xl mx-auto leading-relaxed">
-            Start free. Scale as you grow. Every plan includes core audit and stock control — upgrade for advanced financial modules and unlimited capacity.
+            Select a subscription to unlock your administrative dashboard. Every plan includes core audit and stock control — upgrade for advanced financial modules and unlimited capacity.
         </p>
     </div>
 </section>
@@ -110,51 +110,7 @@ $dynamic_prices = get_dynamic_prices();
 <!-- Pricing Cards -->
 <section class="pb-24">
     <div class="max-w-7xl mx-auto px-6">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 slide-up-delay-2">
-
-            <!-- Starter -->
-            <div class="card-glow relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 flex flex-col">
-                <div class="mb-6">
-                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center shadow-lg shadow-slate-500/20 mb-4">
-                        <i data-lucide="rocket" class="w-6 h-6 text-white"></i>
-                    </div>
-                    <h3 class="text-xl font-black text-slate-800 dark:text-white">Starter</h3>
-                    <span class="inline-block mt-1 px-2 py-0.5 rounded-full bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase tracking-wider">Free Forever</span>
-                </div>
-                <div class="mb-6">
-                    <span class="text-4xl font-black text-slate-800 dark:text-white">₦0</span>
-                    <span class="text-sm text-slate-500 dark:text-slate-400">/month</span>
-                </div>
-                <ul class="space-y-3 mb-8 flex-1">
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 2 Users
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 1 Client / 2 Outlets
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 20 Products
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 1 Department
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> Sales Entry + Stock In
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 90 Days Data Retention
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-500">
-                        <i data-lucide="x" class="w-4 h-4 text-slate-400 mt-0.5 shrink-0"></i> No PDF Export
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-500">
-                        <i data-lucide="x" class="w-4 h-4 text-slate-400 mt-0.5 shrink-0"></i> No Finance Module
-                    </li>
-                </ul>
-                <a href="auth/signup.php" class="block w-full text-center px-6 py-3 rounded-xl border-2 border-slate-300 dark:border-white/20 text-slate-700 dark:text-white font-bold text-sm hover:bg-slate-100 dark:hover:bg-white/5 transition-all">
-                    Get Started Free
-                </a>
-            </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 slide-up-delay-2">
 
             <!-- Professional (Highlighted) -->
             <div class="card-glow relative bg-gradient-to-b from-violet-50 dark:from-violet-600/10 to-white dark:to-slate-950 rounded-2xl border-2 border-violet-400 dark:border-violet-500/50 p-8 flex flex-col shadow-xl shadow-violet-500/10">
@@ -207,7 +163,7 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> 1 Year Data Retention
                     </li>
                 </ul>
-                <button @click="startPayment('professional')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-sm shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Start 7-Day Trial'">
+                <button @click="startPayment('professional')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-sm shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Subscribe Now'">
                 </button>
             </div>
 
@@ -256,7 +212,7 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Priority Support Services
                     </li>
                 </ul>
-                <button @click="startPayment('enterprise')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold text-sm shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Start 7-Day Trial'">
+                <button @click="startPayment('enterprise')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold text-sm shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Subscribe Now'">
                 </button>
             </div>
 
@@ -293,7 +249,7 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="x" class="w-4 h-4 text-slate-400 mt-0.5 shrink-0"></i> No Stock Control
                     </li>
                 </ul>
-                <button @click="startPayment('hotel_revenue')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Start 7-Day Trial'">
+                <button @click="startPayment('hotel_revenue')" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-[1.02] transition-all cursor-pointer" :disabled="paying" x-text="paying ? 'Processing...' : 'Subscribe Now'">
                 </button>
             </div>
 
@@ -310,27 +266,26 @@ $dynamic_prices = get_dynamic_prices();
                 <thead>
                     <tr class="bg-slate-50 dark:bg-white/5">
                         <th class="text-left px-6 py-4 font-bold text-slate-700 dark:text-slate-300">Feature</th>
-                        <th class="text-center px-6 py-4 font-bold text-slate-500 dark:text-slate-400">Starter</th>
                         <th class="text-center px-6 py-4 font-bold text-violet-600 dark:text-violet-400">Professional</th>
                         <th class="text-center px-6 py-4 font-bold text-amber-600 dark:text-amber-400">Enterprise</th>
                         <th class="text-center px-6 py-4 font-bold text-blue-600 dark:text-blue-400">Hotel Revenue</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-white/5">
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Users</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">4</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Clients</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">3</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Outlets</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">2</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">30</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Products</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">20</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-400 dark:text-slate-500">N/A</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Departments</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-400 dark:text-slate-500">N/A</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Data Retention</td><td class="px-6 py-3 text-center text-slate-500 dark:text-slate-400">90 Days</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1 Year</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Daily Audit</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Stock Control</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Finance Module</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center text-xs text-slate-500">Revenue + Expenses</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Reports</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center text-xs text-slate-500">Sales + Stock</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">PDF Export</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Station Audit</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Viewer Role</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
-                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Priority Support</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Users</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">4</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Clients</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">3</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Outlets</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">30</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Products</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-400 dark:text-slate-500">N/A</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Departments</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">10</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-400 dark:text-slate-500">N/A</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Data Retention</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">1 Year</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td><td class="px-6 py-3 text-center text-slate-600 dark:text-slate-300">Unlimited</td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Daily Audit</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Stock Control</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Finance Module</td><td class="px-6 py-3 text-center text-xs text-slate-500">Revenue + Expenses</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Reports</td><td class="px-6 py-3 text-center text-xs text-slate-500">Sales + Stock</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">PDF Export</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Station Audit</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Viewer Role</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Priority Support</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
                 </tbody>
             </table>
         </div>
@@ -341,8 +296,8 @@ $dynamic_prices = get_dynamic_prices();
 <section class="py-24 relative overflow-hidden">
     <div class="absolute inset-0 bg-gradient-to-br from-violet-100/50 dark:from-violet-600/10 via-purple-50 dark:via-purple-600/5 to-transparent"></div>
     <div class="relative z-10 max-w-3xl mx-auto px-6 text-center">
-        <h2 class="text-4xl font-black text-slate-800 dark:text-white mb-4">Still Have Questions?</h2>
-        <p class="text-slate-500 dark:text-slate-400 text-lg mb-8">Start with the free plan — no credit card required. Upgrade anytime as your business grows.</p>
+        <h2 class="text-4xl font-black text-slate-800 dark:text-white mb-4">Ready to Optimize?</h2>
+        <p class="text-slate-500 dark:text-slate-400 text-lg mb-8">Select a plan to instantly unlock the ultimate operational control center for your business.</p>
         <a href="auth/signup.php" class="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold rounded-xl shadow-2xl shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-105 transition-all text-sm">
             <i data-lucide="shield-check" class="w-5 h-5"></i> Register Your Company Now
         </a>
