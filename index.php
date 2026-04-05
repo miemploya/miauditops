@@ -178,7 +178,7 @@ try {
     <div class="max-w-7xl mx-auto px-6">
         <div class="text-center mb-16">
             <span class="text-sm font-bold uppercase tracking-[0.2em] text-violet-600 dark:text-violet-400">Core Modules</span>
-            <h2 class="text-2xl sm:text-3xl md:text-4xl font-black text-slate-800 dark:text-white mt-3">Seven Powerful Modules. One Unified Control Center.</h2>
+            <h2 class="text-2xl sm:text-3xl md:text-4xl font-black text-slate-800 dark:text-white mt-3">Eight Powerful Modules. One Unified Control Center.</h2>
             <p class="text-slate-500 dark:text-slate-400 mt-3 max-w-2xl mx-auto">From daily sales reconciliation to filling station pump audits — every module works together to eliminate revenue leakage, prevent stock manipulation, and enforce financial discipline across your entire operation.</p>
         </div>
 
@@ -260,6 +260,37 @@ try {
                             <span class="px-2.5 py-1 rounded-lg bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-300 text-xs font-semibold">Lube Store</span>
                             <span class="px-2.5 py-1 rounded-lg bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-300 text-xs font-semibold">Session Audit</span>
                             <span class="px-2.5 py-1 rounded-lg bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-300 text-xs font-semibold">General Report</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hotel Audit & Fraud Module (Featured) -->
+            <div class="group relative md:col-span-2 lg:col-span-3 bg-gradient-to-br from-indigo-50 via-blue-50 dark:from-indigo-600/10 dark:via-blue-600/5 to-white dark:to-slate-950 rounded-2xl border-2 border-indigo-300 dark:border-indigo-500/30 p-8 lg:p-10 hover:bg-indigo-100/50 dark:hover:bg-indigo-600/15 transition-all duration-300">
+                <div class="absolute top-4 right-4">
+                    <span class="px-3 py-1 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-lg shadow-indigo-500/30">Premium Module</span>
+                </div>
+                <div class="lg:flex lg:items-start lg:gap-10">
+                    <div class="flex-shrink-0 mb-6 lg:mb-0">
+                        <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 via-blue-500 to-cyan-600 flex items-center justify-center shadow-xl shadow-indigo-500/40 group-hover:scale-110 transition-transform">
+                            <i data-lucide="building" class="w-8 h-8 text-white"></i>
+                        </div>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-2xl font-black text-slate-800 dark:text-white mb-3">Hotel Audit & Fraud Module</h3>
+                        <p class="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-4">
+                            Purpose-built for the hospitality industry. Connect to your PMS to extract booking data and cross-reference with actual lodgments. Determine true revenue status on a daily basis.
+                            <strong class="text-slate-700 dark:text-white">Booking Extraction</strong> pulls room revenue directly from third-party booking systems, highlighting any manually voided entries.
+                            <strong class="text-slate-700 dark:text-white">Overtime Tracking</strong> monitors staff hours, shift handovers, and prevents wage manipulations.
+                            <strong class="text-slate-700 dark:text-white">Discrepancy Control</strong> automatically flags differences between expected room rates and settled amounts.
+                            Ensure your hotel stays profitable and your front desk remains accountable with rigorous, automated daily audits.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">PMS Extraction</span>
+                            <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Revenue Assurance</span>
+                            <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Overtime Control</span>
+                            <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Shift Handovers</span>
+                            <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Fraud Detection</span>
                         </div>
                     </div>
                 </div>
