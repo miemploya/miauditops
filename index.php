@@ -279,14 +279,14 @@ try {
                     <div class="flex-1">
                         <h3 class="text-2xl font-black text-slate-800 dark:text-white mb-3">Hotel Audit & Fraud Module</h3>
                         <p class="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-4">
-                            Purpose-built for the hospitality industry. Connect to your PMS to extract booking data and cross-reference with actual lodgments. Determine true revenue status on a daily basis.
-                            <strong class="text-slate-700 dark:text-white">Booking Extraction</strong> pulls room revenue directly from third-party booking systems, highlighting any manually voided entries.
+                            Purpose-built for the hospitality industry. Import booking data from your reservation systems and cross-reference with actual lodgments to determine true revenue status on a daily basis.
+                            <strong class="text-slate-700 dark:text-white">Booking Extraction</strong> parses room revenue files seamlessly, highlighting any manually voided entries.
                             <strong class="text-slate-700 dark:text-white">Overtime Tracking</strong> monitors staff hours, shift handovers, and prevents wage manipulations.
                             <strong class="text-slate-700 dark:text-white">Discrepancy Control</strong> automatically flags differences between expected room rates and settled amounts.
                             Ensure your hotel stays profitable and your front desk remains accountable with rigorous, automated daily audits.
                         </p>
                         <div class="flex flex-wrap gap-2">
-                            <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">PMS Extraction</span>
+                            <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Booking Uploads</span>
                             <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Revenue Assurance</span>
                             <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Overtime Control</span>
                             <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Shift Handovers</span>
