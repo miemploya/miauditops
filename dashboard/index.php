@@ -237,15 +237,16 @@ $expense_values = array_map('floatval', array_column($expense_data, 'total'));
             <?php
             // Use inline styles to avoid Tailwind CDN missing dynamic class names
             $plan_styles = [
-                'starter'      => ['header_bg' => 'linear-gradient(to right, #475569, #1e293b)', 'bar_bg' => '#64748b', 'icon_color' => '#94a3b8', 'glow' => '0 20px 40px rgba(100,116,139,0.15)'],
-                'professional' => ['header_bg' => 'linear-gradient(to right, #7c3aed, #3730a3)', 'bar_bg' => '#8b5cf6', 'icon_color' => '#a78bfa', 'glow' => '0 20px 40px rgba(139,92,246,0.20)'],
-                'enterprise'   => ['header_bg' => 'linear-gradient(to right, #f59e0b, #c2410c)', 'bar_bg' => '#f59e0b', 'icon_color' => '#fbbf24', 'glow' => '0 20px 40px rgba(245,158,11,0.20)'],
+                'starter'       => ['header_bg' => 'linear-gradient(to right, #475569, #1e293b)', 'bar_bg' => '#64748b', 'icon_color' => '#94a3b8', 'glow' => '0 20px 40px rgba(100,116,139,0.15)'],
+                'professional'  => ['header_bg' => 'linear-gradient(to right, #7c3aed, #3730a3)', 'bar_bg' => '#8b5cf6', 'icon_color' => '#a78bfa', 'glow' => '0 20px 40px rgba(139,92,246,0.20)'],
+                'enterprise'    => ['header_bg' => 'linear-gradient(to right, #f59e0b, #c2410c)', 'bar_bg' => '#f59e0b', 'icon_color' => '#fbbf24', 'glow' => '0 20px 40px rgba(245,158,11,0.20)'],
+                'hotel_revenue' => ['header_bg' => 'linear-gradient(to right, #3b82f6, #4338ca)', 'bar_bg' => '#3b82f6', 'icon_color' => '#60a5fa', 'glow' => '0 20px 40px rgba(59,130,246,0.25)'],
             ];
             $pc = $plan_styles[$plan_key] ?? $plan_styles['starter'];
-            $plan_icons = ['starter' => 'rocket', 'professional' => 'zap', 'enterprise' => 'crown'];
+            $plan_icons = ['starter' => 'rocket', 'professional' => 'zap', 'enterprise' => 'crown', 'hotel_revenue' => 'building'];
             $plan_icon = $plan_icons[$plan_key] ?? 'rocket';
             $days_left = $sub_expires ? max(0, (int)((strtotime($sub_expires) - time()) / 86400)) : null;
-            $is_unlimited = ($plan_key === 'enterprise');
+            $is_unlimited = in_array($plan_key, ['enterprise', 'hotel_revenue']);
             ?>
             <div class="mb-6 rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10"
                  style="box-shadow: <?php echo $pc['glow']; ?>;">
@@ -262,7 +263,7 @@ $expense_values = array_map('floatval', array_column($expense_data, 'total'));
                             </div>
                             <div>
                                 <div class="flex items-center gap-2">
-                                    <h3 class="text-lg font-black text-white tracking-tight"><?php echo ucfirst($plan_key); ?> Plan</h3>
+                                    <h3 class="text-lg font-black text-white tracking-tight"><?php echo ($plan_key === 'hotel_revenue') ? 'Hotel Revenue' : ucfirst($plan_key); ?> Plan</h3>
                                     <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider"
                                           style="<?php echo $sub_status === 'active'
                                               ? 'background:rgba(52,211,153,0.25);color:#a7f3d0;'
@@ -285,7 +286,7 @@ $expense_values = array_map('floatval', array_column($expense_data, 'total'));
                                 </p>
                             </div>
                         </div>
-                        <?php if ($plan_key !== 'enterprise'): ?>
+                        <?php if (!in_array($plan_key, ['enterprise', 'hotel_revenue'])): ?>
                         <a href="#" class="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-white text-xs font-bold rounded-xl transition-all shadow-lg"
                            style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.15);"
                            onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
@@ -339,7 +340,7 @@ $expense_values = array_map('floatval', array_column($expense_data, 'total'));
                         <?php endforeach; ?>
                     </div>
 
-                    <?php if ($plan_key !== 'enterprise'): ?>
+                    <?php if (!in_array($plan_key, ['enterprise', 'hotel_revenue'])): ?>
                     <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                         <div class="flex items-center gap-4 text-[11px] text-slate-400">
                             <span class="flex items-center gap-1">

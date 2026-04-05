@@ -196,41 +196,75 @@ $SUBSCRIPTION_PLANS = [
         'label'       => 'Hotel Revenue',
         'tag'         => 'Premium Module',
         'icon'        => 'building',
-        'color'       => 'violet',
+        'color'       => 'blue',
 
-        // ── Limits ──
+        // ── Limits (highest tier — all unlimited) ──
         'max_users'       => 0,    // unlimited
-        'max_clients'     => 1,
-        'max_outlets'     => 1,
-        'max_products'    => 0,
-        'max_departments' => 0,
-        'data_retention_days' => 0,
+        'max_clients'     => 5,
+        'max_outlets'     => 0,    // unlimited
+        'max_products'    => 0,    // unlimited
+        'max_departments' => 0,    // unlimited
+        'data_retention_days' => 0, // unlimited
 
-        // ── Allowed modules ──
+        // ── Allowed modules (ALL Enterprise + Hotel Revenue) ──
         'modules' => [
             'dashboard',
             'company_setup',
-            'hotel_revenue',
+            'audit',
+            'stock',
+            'main_store',
+            'department_store',
+            'finance',
+            'requisitions',
+            'cash',
+            'reports',
             'settings',
+            'trash',
+            'station_audit',
+            'support',
             'billing',
+            'hotel_revenue',     // Exclusive premium module
+            'fixed_assets',
+            'capital_allowance',
+            'bank_recon',
         ],
 
-        // ── Tab restrictions ──
+        // ── No tab restrictions ──
         'tab_locks' => [],
 
-        // ── Feature flags ──
-        'pdf_export'     => true,
-        'viewer_role'    => false,
-        'audit_export'   => true,
-        'station_audit'  => false,
+        // ── Feature flags (all enabled) ──
+        'pdf_export'       => true,
+        'viewer_role'      => true,
+        'audit_export'     => true,
+        'station_audit'    => true,
         'support_services' => true,
 
-        // ── Display features ──
+        // ── Display features (shown on billing/pricing pages) ──
         'features' => [
+            'Everything in Enterprise',
             'Hotel Revenue Audit',
             'Overtime Tracking',
-            'Daily Reports',
+            'Booking Extraction',
             'Unlimited Data Retention',
+            'Unlimited Users',
+            'Unlimited Outlets',
+            'Unlimited Products',
+            'Unlimited Departments',
+            'Sales Audit',
+            'Stock Management',
+            'Main Store',
+            'Department Store',
+            'Financial Reports (Full P&L)',
+            'Requisitions & Procurement',
+            'Reports & Analytics (Full)',
+            'Daily Report',
+            'Monthly P&L Statement',
+            'Station Audit',
+            'Fixed Assets',
+            'Capital Allowance',
+            'PDF Export',
+            'Viewer Role',
+            'Audit Export',
             'Premium Support',
         ],
     ],

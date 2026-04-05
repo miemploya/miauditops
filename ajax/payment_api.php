@@ -249,6 +249,7 @@ try {
                     'monthly'   => $prices[$key . '_monthly'] ?? 0,
                     'quarterly' => $prices[$key . '_quarterly'] ?? 0,
                     'annual'    => $prices[$key . '_annual'] ?? 0,
+                    'triennial' => $prices[$key . '_triennial'] ?? 0,
                     'features'  => $p['features'] ?? [],
                     'limits'    => [
                         'max_users'       => $p['max_users'],

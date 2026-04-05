@@ -68,7 +68,8 @@ require_login();
                                              :class="{
                                                  'bg-gradient-to-br from-slate-500 to-slate-600 shadow-slate-500/30': sub.plan_name === 'starter',
                                                  'bg-gradient-to-br from-violet-500 to-purple-600 shadow-violet-500/30': sub.plan_name === 'professional',
-                                                 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/30': sub.plan_name === 'enterprise'
+                                                 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/30': sub.plan_name === 'enterprise',
+                                                 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-blue-500/30': sub.plan_name === 'hotel_revenue'
                                              }">
                                             <i :data-lucide="sub.plan_icon || 'rocket'" class="w-7 h-7 text-white"></i>
                                         </div>
@@ -438,12 +439,13 @@ require_login();
                             <div class="space-y-4">
                                 <!-- Billing Cycle Selector -->
                                 <div class="flex items-center justify-center gap-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-2">
-                                    <template x-for="cycle in ['monthly', 'quarterly', 'annual']" :key="cycle">
+                                    <template x-for="cycle in ['monthly', 'quarterly', 'annual', 'triennial']" :key="cycle">
                                         <button @click="selectedCycle = cycle" class="px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer"
                                                 :class="selectedCycle === cycle ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/30' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
-                                            <span x-text="cycle.charAt(0).toUpperCase() + cycle.slice(1)"></span>
+                                            <span x-text="cycle === 'triennial' ? '3 Years' : cycle.charAt(0).toUpperCase() + cycle.slice(1)"></span>
                                             <template x-if="cycle === 'quarterly'"><span class="ml-1 text-[10px] opacity-80">-10%</span></template>
                                             <template x-if="cycle === 'annual'"><span class="ml-1 text-[10px] opacity-80">-20%</span></template>
+                                            <template x-if="cycle === 'triennial'"><span class="ml-1 text-[10px] opacity-80">-30%</span></template>
                                         </button>
                                     </template>
                                 </div>
@@ -459,7 +461,8 @@ require_login();
                                                         <div class="w-10 h-10 rounded-xl flex items-center justify-center"
                                                              :class="{
                                                                  'bg-gradient-to-br from-violet-500 to-purple-600': plan.key === 'professional',
-                                                                 'bg-gradient-to-br from-amber-500 to-orange-600': plan.key === 'enterprise'
+                                                                 'bg-gradient-to-br from-amber-500 to-orange-600': plan.key === 'enterprise',
+                                                                 'bg-gradient-to-br from-blue-500 to-indigo-600': plan.key === 'hotel_revenue'
                                                              }">
                                                             <i :data-lucide="plan.icon" class="w-5 h-5 text-white"></i>
                                                         </div>
