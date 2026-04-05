@@ -83,7 +83,37 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script>tailwind.config={darkMode:'class',theme:{extend:{fontFamily:{sans:['Inter','sans-serif']},colors:{brand:{50:'#f5f3ff',100:'#ede9fe',200:'#ddd6fe',300:'#c4b5fd',400:'#a78bfa',500:'#8b5cf6',600:'#7c3aed',700:'#6d28d9',800:'#5b21b6',900:'#4c1d95',950:'#2e1065'}}}}}</script>
-    <style>[x-cloak]{display:none!important}.glass-card{background:linear-gradient(135deg,rgba(255,255,255,.95),rgba(249,250,251,.9));backdrop-filter:blur(20px)}.dark .glass-card{background:linear-gradient(135deg,rgba(15,23,42,.95),rgba(30,41,59,.9))}</style>
+    <style>
+        [x-cloak]{display:none!important}
+        .glass-card{background:linear-gradient(135deg,rgba(255,255,255,.95),rgba(249,250,251,.9));backdrop-filter:blur(20px)}
+        .dark .glass-card{background:linear-gradient(135deg,rgba(15,23,42,.95),rgba(30,41,59,.9))}
+        .print-only { display: none; }
+        @media print {
+            body, html { background: white !important; color: black !important; }
+            aside, header, nav, .print-hidden { display: none !important; }
+            .print-only { display: block !important; }
+            .print-no-border { border: none !important; box-shadow: none !important; background: transparent !important; }
+            .flex, .flex-1, main, #cash-report-content { overflow: visible !important; height: auto !important; width: 100% !important; padding: 0 !important; margin: 0 !important; display: block !important; }
+            div[x-show="currentTab === 'sales'"], div[x-show="currentTab === 'ledger'"], div[x-show="currentTab === 'requisition'"], div[x-show="currentTab === 'analysis'"] { display: none !important; }
+            div[x-show="currentTab === 'report'"] { display: block !important; }
+            table th { background-color: #f8fafc !important; color: #475569 !important; border-bottom: 2px solid #cbd5e1 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            table td { border-bottom: 1px solid #e2e8f0 !important; color: #000 !important; }
+            button, input, select { display: none !important; }
+            
+            /* KPI Backgrounds */
+            .bg-slate-50 { background-color: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .bg-emerald-50 { background-color: #ecfdf5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .bg-amber-50 { background-color: #fffbeb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .bg-blue-50 { background-color: #eff6ff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .bg-indigo-50 { background-color: #eef2ff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            
+            /* Typography adjustments */
+            .text-emerald-700 { color: #047857 !important; }
+            .text-amber-700 { color: #b45309 !important; }
+            .text-blue-700 { color: #1d4ed8 !important; }
+            .text-indigo-700 { color: #4338ca !important; }
+        }
+    </style>
 </head>
 <body class="font-sans bg-slate-100 dark:bg-slate-950 h-full" x-data="cashApp()" x-cloak>
 <div class="flex h-screen w-full">
@@ -94,12 +124,12 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
             <?php display_flash_message(); ?>
 
             <!-- Page Header -->
-            <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center justify-between mb-4 print-hidden">
                 <div><h1 class="text-2xl font-black text-slate-900 dark:text-white">Cash Management</h1><p class="text-sm text-slate-500">Track cash sales, expenses & bank deposits</p></div>
             </div>
 
             <!-- Guide -->
-            <div class="mb-6 rounded-2xl border border-emerald-200/60 dark:border-emerald-800/40 bg-gradient-to-r from-emerald-50 via-green-50/50 to-transparent dark:from-emerald-950/30 dark:via-green-950/20 dark:to-transparent overflow-hidden">
+            <div class="mb-6 rounded-2xl border border-emerald-200/60 dark:border-emerald-800/40 bg-gradient-to-r from-emerald-50 via-green-50/50 to-transparent dark:from-emerald-950/30 dark:via-green-950/20 dark:to-transparent overflow-hidden print-hidden">
                 <div class="px-5 py-4 flex items-start gap-3">
                     <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 flex-shrink-0 mt-0.5"><i data-lucide="banknote" class="w-4 h-4 text-white"></i></div>
                     <div>
@@ -115,7 +145,7 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
             </div>
 
             <!-- KPI Strip -->
-            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6 print-hidden">
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60"><p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Cash In (DR)</p><p class="text-xl font-black text-emerald-600"><?= format_currency($total_in) ?></p></div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60"><p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Cash Out (CR)</p><p class="text-xl font-black text-red-600"><?= format_currency($total_out) ?></p></div>
                 <div class="glass-card rounded-xl p-4 border border-slate-200/60 dark:border-slate-700/60"><p class="text-[10px] font-bold uppercase text-slate-400 mb-1">Balance</p><p class="text-xl font-black text-blue-600"><?= format_currency($total_in - $total_out) ?></p></div>
@@ -124,7 +154,7 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
             </div>
 
             <!-- Tabs -->
-            <div class="flex items-center gap-1 mb-6 bg-slate-200/60 dark:bg-slate-800/60 rounded-xl p-1 w-fit flex-wrap">
+            <div class="flex items-center gap-1 mb-6 bg-slate-200/60 dark:bg-slate-800/60 rounded-xl p-1 w-fit flex-wrap print-hidden">
                 <template x-for="t in tabs" :key="t.id">
                     <button @click="currentTab = t.id; if(t.id==='ledger') loadLedger(); if(t.id==='analysis') loadAnalysis(); if(t.id==='report') loadReport();" :class="currentTab === t.id ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700'" class="px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5">
                         <i :data-lucide="t.icon" class="w-3.5 h-3.5"></i> <span x-text="t.label"></span>
@@ -412,8 +442,19 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
             </div>
 
             <!-- ═══ TAB: CASH REPORT ═══ -->
-            <div x-show="currentTab === 'report'" x-transition>
-                <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden" id="cash-report-content">
+            <div x-show="currentTab === 'report'" x-transition class="w-full">
+                
+                <!-- Print Summary Header -->
+                <div class="print-only mb-8 text-center border-b-2 border-slate-800 pb-6">
+                    <h2 class="text-2xl font-black text-slate-800 uppercase tracking-widest"><?= htmlspecialchars($company_name) ?></h2>
+                    <p class="text-sm font-semibold text-slate-500 mt-1"><?= htmlspecialchars($client_name) ?></p>
+                    <h3 class="text-xl font-bold text-slate-700 mt-4">Cash Management Report</h3>
+                    <p class="text-sm font-medium text-slate-500 mt-1 pb-2">
+                        Period: <strong x-text="new Date(reportMonth + '-15').toLocaleDateString('en-US', {month:'long', year:'numeric'})" class="text-slate-800 text-base"></strong>
+                    </p>
+                </div>
+
+                <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden print-no-border" id="cash-report-content">
                     <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between print-hidden">
                         <div class="flex items-center gap-3">
                             <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg"><i data-lucide="file-text" class="w-4 h-4 text-white"></i></div>
