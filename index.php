@@ -44,6 +44,7 @@ try {
         }
     </script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="assets/js/theme-toggle.js"></script>
     <style>
         @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-20px)} }
@@ -58,6 +59,8 @@ try {
         .slide-up-delay { animation: slide-up 0.8s ease-out 0.2s forwards; opacity: 0; }
         .slide-up-delay-2 { animation: slide-up 0.8s ease-out 0.4s forwards; opacity: 0; }
         .mobile-nav-open { animation: slideDown 0.3s ease-out forwards; }
+        .glass-card { background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(249,250,251,0.9) 100%); backdrop-filter: blur(20px); }
+        .dark .glass-card { background: linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%); }
     </style>
     <!-- PWA Meta Tags -->
     <link rel="manifest" href="/manifest.json">
@@ -178,7 +181,22 @@ try {
     activeTab: 'sales',
     revenue: 4850000,
     variance: -12500,
-    stockValue: 12450000
+    stockValue: 12450000,
+    financeRev: 12500000,
+    get financeCos() { return this.financeRev * 0.656; },
+    get financeProfit() { return this.financeRev - this.financeCos; },
+    cashIn: 2100500,
+    cashOut: 450000,
+    reqDemoArr: [
+        {id:'PO-8821', name:'Stationery Restock', amt:45000, status:'Pending', class:'bg-amber-100 text-amber-700'},
+        {id:'PO-8820', name:'Bar Inventory', amt:420000, status:'Approved', class:'bg-blue-100 text-blue-700'}
+    ],
+    pumpEnd: 45890.25,
+    get pumpVol() { return this.pumpEnd - 42500.00; },
+    hotelBanked: 0,
+    hotelExpected: 1450000,
+    matchHotel() { this.hotelBanked = 1450000; },
+    fmt(n) { return Number(n).toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0}); }
 }">
     <!-- Glassmorphic Dashboard Window -->
     <div class="rounded-3xl border-2 border-white dark:border-white/10 bg-white/40 dark:bg-slate-900/40 backdrop-blur-3xl shadow-2xl overflow-hidden ring-4 ring-slate-100 dark:ring-slate-800">
@@ -195,27 +213,36 @@ try {
         </div>
 
         <!-- Dashboard Layout -->
-        <div class="flex h-[450px]">
+        <div class="flex h-[520px]">
             <!-- Sidebar -->
-            <div class="w-16 sm:w-64 border-r border-slate-200/50 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 p-4 flex flex-col gap-2">
-                <div class="hidden sm:block mb-4 pt-2 px-2">
+            <div class="w-16 sm:w-64 border-r border-slate-200/50 dark:border-white/5 bg-white/50 dark:bg-slate-950/50 p-3 sm:p-4 flex flex-col gap-1.5 overflow-y-auto" style="scrollbar-width: thin;">
+                <div class="hidden sm:block mb-2 pt-1 px-2">
                     <span class="text-[10px] font-black tracking-widest text-violet-600 dark:text-violet-400 uppercase">Interactive Demo</span>
                 </div>
                 
-                <button @click="activeTab='sales'" :class="activeTab==='sales' ? 'bg-violet-600 shadow-lg text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-3 rounded-xl transition-all">
-                    <i data-lucide="line-chart" class="w-5 h-5"></i>
-                    <span class="hidden sm:block text-sm font-semibold">Sales Audit</span>
+                <button @click="activeTab='sales'" :class="activeTab==='sales' ? 'bg-blue-600 shadow-lg shadow-blue-500/30 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-2.5 rounded-xl transition-all">
+                    <i data-lucide="clipboard-check" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Sales Audit</span>
                 </button>
-                <button @click="activeTab='stock'" :class="activeTab==='stock' ? 'bg-emerald-600 shadow-lg text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-3 rounded-xl transition-all">
-                    <i data-lucide="package" class="w-5 h-5"></i>
-                    <span class="hidden sm:block text-sm font-semibold">Stock Control</span>
+                <button @click="activeTab='stock'" :class="activeTab==='stock' ? 'bg-emerald-600 shadow-lg shadow-emerald-500/30 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-2.5 rounded-xl transition-all">
+                    <i data-lucide="package" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Stock Audit</span>
                 </button>
-                <button @click="activeTab='finance'" :class="activeTab==='finance' ? 'bg-amber-600 shadow-lg text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-3 rounded-xl transition-all">
-                    <i data-lucide="pie-chart" class="w-5 h-5"></i>
-                    <span class="hidden sm:block text-sm font-semibold">Financials</span>
+                <button @click="activeTab='finance'" :class="activeTab==='finance' ? 'bg-amber-600 shadow-lg shadow-amber-500/30 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-2.5 rounded-xl transition-all">
+                    <i data-lucide="trending-up" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Financial Control</span>
+                </button>
+                <button @click="activeTab='req'" :class="activeTab==='req' ? 'bg-rose-600 shadow-lg shadow-rose-500/30 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-2.5 rounded-xl transition-all">
+                    <i data-lucide="file-text" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Procurement</span>
+                </button>
+                <button @click="activeTab='cash'" :class="activeTab==='cash' ? 'bg-emerald-600 shadow-lg shadow-emerald-500/30 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-2.5 rounded-xl transition-all">
+                    <i data-lucide="banknote" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Cash Mgmt</span>
+                </button>
+                <button @click="activeTab='station'" :class="activeTab==='station' ? 'bg-orange-600 shadow-lg shadow-orange-500/30 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-2.5 rounded-xl transition-all">
+                    <i data-lucide="fuel" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Station Audit</span>
+                </button>
+                <button @click="activeTab='hotel'" :class="activeTab==='hotel' ? 'bg-fuchsia-600 shadow-lg shadow-fuchsia-500/30 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-2.5 rounded-xl transition-all">
+                    <i data-lucide="building" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Hotel Revenue</span>
                 </button>
             </div>
-
+            
             <!-- Main Content Area -->
             <div class="flex-1 p-6 sm:p-10 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/30">
                 
@@ -234,29 +261,45 @@ try {
 
                     <!-- Metric Cards -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                        <div class="bg-white/90 dark:bg-slate-800/90 p-5 rounded-2xl shadow-sm border border-slate-200/50 dark:border-white/5">
-                            <div class="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Declared Revenue</div>
-                            <div class="text-3xl font-black text-slate-800 dark:text-white">₦<span x-text="revenue.toLocaleString()"></span></div>
-                        </div>
-                        <div class="bg-red-50/90 dark:bg-red-500/10 p-5 rounded-2xl shadow-sm border border-red-200 dark:border-red-500/20 group relative overflow-hidden cursor-pointer hover:bg-red-100 dark:hover:bg-red-500/20 transition-all" @click="variance = 0; revenue = 4862500">
-                            <div class="text-red-500 dark:text-red-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> Variance Detected
+                        <div class="glass-card p-5 rounded-2xl shadow-lg border border-slate-200/60 dark:border-slate-700/60 transition-all hover:-translate-y-1">
+                            <div class="flex justify-between items-start mb-2">
+                                <div><h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider">Declared Revenue</h3></div>
+                                <div class="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/30"><i data-lucide="trending-up" class="w-4 h-4 text-white"></i></div>
                             </div>
-                            <div class="text-3xl font-black text-red-600 dark:text-red-400 transition-all" :class="variance === 0 ? 'text-emerald-600 dark:text-emerald-400' : ''">₦<span x-text="variance.toLocaleString()"></span></div>
+                            <div class="text-3xl font-black text-slate-800 dark:text-white">₦<span x-text="fmt(revenue)"></span></div>
+                        </div>
+
+                        <div class="glass-card p-5 rounded-2xl shadow-lg border relative overflow-hidden cursor-pointer transition-all hover:-translate-y-1 group"
+                             :class="variance === 0 ? 'border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/50' : 'border-red-200 dark:border-red-500/30 bg-red-50/50'"
+                             @click="variance = 0; revenue = 4862500">
+                            <div class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider mb-2" :class="variance === 0 ? 'text-emerald-500' : 'text-red-500'">
+                                <i data-lucide="alert-circle" class="w-4 h-4" x-show="variance !== 0"></i>
+                                <i data-lucide="check-circle" class="w-4 h-4" x-show="variance === 0"></i>
+                                <span x-text="variance === 0 ? 'Resolved & Matched' : 'Variance Detected'"></span>
+                            </div>
+                            <div class="text-3xl font-black transition-all" :class="variance === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">₦<span x-text="fmt(Math.abs(variance))"></span></div>
                             <!-- Interaction Hint -->
-                            <div class="absolute inset-0 bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" x-show="variance !== 0">
-                                <span class="text-white font-bold text-sm tracking-wide">Click to Investigate & Resolve</span>
+                            <div class="absolute inset-0 bg-red-600/90 backdrop-blur-sm flex items-center justify-center opacity-0 transition-opacity" :class="variance !== 0 ? 'group-hover:opacity-100' : ''">
+                                <span class="text-white flex items-center gap-2 font-bold text-sm tracking-wide"><i data-lucide="mouse-pointer-click" class="w-4 h-4"></i> Click to Resolve Variance</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Fake Chart -->
-                    <div class="bg-white/90 dark:bg-slate-800/90 p-5 rounded-2xl shadow-sm border border-slate-200/50 dark:border-white/5 h-32 flex items-end gap-3 px-6">
-                        <div class="w-full bg-violet-100 dark:bg-violet-900/30 h-[40%] rounded-t-lg hover:bg-violet-200 transition-all cursor-pointer"></div>
-                        <div class="w-full bg-violet-500 h-[70%] rounded-t-lg shadow-[0_0_15px_rgba(139,92,246,0.3)]"></div>
-                        <div class="w-full bg-violet-100 dark:bg-violet-900/30 h-[50%] rounded-t-lg hover:bg-violet-200 transition-all cursor-pointer"></div>
-                        <div class="w-full bg-violet-100 dark:bg-violet-900/30 h-[80%] rounded-t-lg hover:bg-violet-200 transition-all cursor-pointer"></div>
-                        <div class="w-full bg-violet-100 dark:bg-violet-900/30 h-[60%] rounded-t-lg hover:bg-violet-200 transition-all cursor-pointer"></div>
+                    <!-- Authentic Table Layout -->
+                    <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden">
+                        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white/50 dark:bg-slate-900/50">
+                            <h4 class="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2"><i data-lucide="list" class="w-4 h-4 text-violet-500"></i> Recent Declared Shifts</h4>
+                        </div>
+                        <table class="w-full text-xs text-left">
+                            <thead class="bg-slate-50 dark:bg-slate-800/80 text-slate-500">
+                                <tr><th class="px-5 py-3 font-bold uppercase tracking-wider">Date</th><th class="px-5 py-3 font-bold uppercase tracking-wider">Source</th><th class="px-5 py-3 font-bold uppercase tracking-wider text-right">Amount</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 transition-colors"><td class="px-5 py-3 font-mono">Today, 10:42 AM</td><td class="px-5 py-3">POS Terminal 1</td><td class="px-5 py-3 text-right font-bold text-slate-800 dark:text-white">₦45,000</td></tr>
+                                <tr class="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 transition-colors"><td class="px-5 py-3 font-mono">Today, 11:15 AM</td><td class="px-5 py-3">Cash Desk</td><td class="px-5 py-3 text-right font-bold text-slate-800 dark:text-white">₦12,500</td></tr>
+                                <tr class="hover:bg-slate-50/50 transition-colors"><td class="px-5 py-3 font-mono">Today, 12:30 PM</td><td class="px-5 py-3">Bank Transfer</td><td class="px-5 py-3 text-right font-bold text-slate-800 dark:text-white">₦85,000</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
@@ -269,48 +312,189 @@ try {
                         </div>
                     </div>
                     
-                    <div class="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-2xl shadow-lg border border-emerald-400/30 text-white mb-6 transform hover:scale-[1.02] transition-all cursor-pointer" @click="stockValue = stockValue * 1.05">
-                        <div class="text-emerald-100 text-xs font-bold mb-2 uppercase tracking-widest flex items-center gap-2"><i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5"></i> Click to Simulate Stock In</div>
-                        <div class="text-4xl font-black">₦<span x-text="stockValue.toLocaleString()"></span></div>
+                    <div class="glass-card bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-2xl shadow-xl border border-emerald-400/30 text-white mb-6 transform hover:-translate-y-1 hover:shadow-emerald-500/40 transition-all cursor-pointer group" @click="stockValue = stockValue + 450000">
+                        <div class="text-emerald-100 text-xs font-bold mb-3 uppercase tracking-widest flex items-center justify-between">
+                            <span>Current Company Valuation</span>
+                            <span class="flex items-center gap-1.5 bg-emerald-700/50 px-3 py-1.5 rounded-lg text-[10px] group-hover:bg-white group-hover:text-emerald-600 transition-colors shadow-sm"><i data-lucide="arrow-down-to-line" class="w-3 h-3"></i> Receive Items</span>
+                        </div>
+                        <div class="text-4xl font-black tracking-tight">₦<span x-text="fmt(stockValue)"></span></div>
                     </div>
 
-                    <div class="space-y-3">
-                        <div class="bg-white/90 dark:bg-slate-800/90 p-4 rounded-xl flex items-center justify-between border border-slate-200/50 dark:border-white/5">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-600 text-lg font-bold">W</div>
-                                <div><div class="font-bold text-slate-800 dark:text-white text-sm">Warehouse Main</div><div class="text-[11px] text-slate-500">1,245 Items</div></div>
+                    <div class="space-y-4">
+                        <div class="glass-card p-4 rounded-xl flex items-center justify-between border border-slate-200/60 dark:border-slate-700/60 shadow-sm hover:shadow-md transition-shadow">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20"><i data-lucide="warehouse" class="w-5 h-5"></i></div>
+                                <div><div class="font-bold text-slate-800 dark:text-white text-sm">Warehouse Main</div><div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mt-0.5">1,245 Items • 42 SKUs</div></div>
                             </div>
-                            <div class="font-bold text-slate-800 dark:text-white text-sm">₦8,450,000</div>
+                            <div class="font-black text-slate-800 dark:text-white text-lg">₦8,450,000</div>
                         </div>
-                        <div class="bg-white/90 dark:bg-slate-800/90 p-4 rounded-xl flex items-center justify-between border border-slate-200/50 dark:border-white/5">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center text-blue-600 text-lg font-bold">F</div>
-                                <div><div class="font-bold text-slate-800 dark:text-white text-sm">Front Bar</div><div class="text-[11px] text-slate-500">320 Items</div></div>
+                        <div class="glass-card p-4 rounded-xl flex items-center justify-between border border-slate-200/60 dark:border-slate-700/60 shadow-sm hover:shadow-md transition-shadow">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/20"><i data-lucide="store" class="w-5 h-5"></i></div>
+                                <div><div class="font-bold text-slate-800 dark:text-white text-sm">Front Bar Outlet</div><div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mt-0.5">320 Items • 18 SKUs</div></div>
                             </div>
-                            <div class="font-bold text-slate-800 dark:text-white text-sm">₦4,000,000</div>
+                            <div class="font-black text-slate-800 dark:text-white text-lg">₦4,000,000</div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Finance Tab -->
                 <div x-show="activeTab==='finance'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" style="display:none;">
-                    <h2 class="text-2xl font-black text-slate-800 dark:text-white mb-2">Automated P&L</h2>
-                    <p class="text-sm text-slate-500 dark:text-slate-400 mb-8">Gross Margin computed efficiently.</p>
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 dark:text-white mb-1">Automated P&L</h2>
+                            <p class="text-sm text-slate-500 dark:text-slate-400">Gross Margin computed efficiently.</p>
+                        </div>
+                        <button class="bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-violet-200 transition-colors flex items-center gap-2" @click="financeRev = financeRev * 1.4">
+                            <i data-lucide="trending-up" class="w-3.5 h-3.5"></i> Surge Month
+                        </button>
+                    </div>
 
-                    <div class="bg-white/90 dark:bg-slate-800/90 rounded-2xl shadow-sm border border-slate-200/50 dark:border-white/5 overflow-hidden">
-                        <div class="p-4 border-b border-slate-100 dark:border-slate-700/50 flex justify-between items-center text-sm">
-                            <span class="text-slate-500 font-semibold text-xs uppercase tracking-wider">Total Revenue</span>
-                            <span class="font-bold text-slate-800 dark:text-white text-base">₦12,500,000</span>
+                    <div class="glass-card rounded-3xl shadow-xl border border-slate-200/60 dark:border-slate-700/60 overflow-hidden">
+                        <div class="p-5 border-b border-slate-100 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 flex justify-between items-center text-sm">
+                            <span class="text-slate-500 font-bold text-xs uppercase tracking-widest flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-4 h-4 text-violet-500"></i> Total Revenue</span>
+                            <span class="font-black text-slate-800 dark:text-white text-lg">₦<span x-text="fmt(financeRev)"></span></span>
                         </div>
-                        <div class="p-4 border-b border-slate-100 dark:border-slate-700/50 flex justify-between items-center text-sm pl-8">
-                            <span class="text-rose-500 font-semibold text-xs tracking-wider">- Cost of Sales (Computed)</span>
-                            <span class="font-bold text-rose-500 text-base">₦8,200,000</span>
+                        <div class="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center text-sm pl-10 bg-slate-50/50 dark:bg-slate-800/20">
+                            <span class="text-rose-500 font-bold text-xs tracking-wider uppercase">- Computed Cost of Sales</span>
+                            <span class="font-black text-rose-500 text-lg">₦<span x-text="fmt(financeCos)"></span></span>
                         </div>
-                        <div class="p-5 bg-amber-50 dark:bg-amber-500/10 flex justify-between items-center">
-                            <span class="font-black text-amber-600 dark:text-amber-500 text-sm uppercase tracking-wider">Gross Profit</span>
-                            <span class="font-black text-amber-600 dark:text-amber-500 text-2xl">₦4,300,000</span>
+                        <div class="p-6 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 flex justify-between items-center">
+                            <span class="font-black text-amber-600 dark:text-amber-500 text-sm uppercase tracking-widest flex items-center gap-2"><i data-lucide="calculator" class="w-5 h-5"></i> Gross Profit</span>
+                            <span class="font-black text-amber-600 dark:text-amber-500 text-3xl" id="demo-gp">₦<span x-text="fmt(financeProfit)"></span></span>
                         </div>
                     </div>
+                </div>
+
+                <!-- Cash Tab -->
+                <div x-show="activeTab==='cash'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" style="display:none;">
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 dark:text-white">Cash Manager</h2>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Real-time ledger and requisitions.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="glass-card p-5 rounded-2xl shadow-lg border border-emerald-200/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/50 to-white dark:from-emerald-900/10 dark:to-slate-800 cursor-pointer hover:-translate-y-1 transition-all group" @click="cashIn += 50000">
+                            <div class="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2 flex justify-between items-center">
+                                Total Inflow
+                                <span class="hidden group-hover:flex items-center gap-1 bg-emerald-100 dark:bg-emerald-800 px-2 py-1 rounded text-[9px]"><i data-lucide="plus" class="w-3 h-3"></i> POS Sale</span>
+                            </div>
+                            <div class="text-3xl font-black text-emerald-700 dark:text-emerald-300">₦<span x-text="fmt(cashIn)"></span></div>
+                        </div>
+                        <div class="glass-card p-5 rounded-2xl shadow-lg border border-rose-200/60 dark:border-rose-500/20 bg-gradient-to-br from-rose-50/50 to-white dark:from-rose-900/10 dark:to-slate-800 cursor-pointer hover:-translate-y-1 transition-all group" @click="cashOut += 35000">
+                            <div class="text-rose-600 dark:text-rose-400 text-xs font-bold uppercase tracking-wider mb-2 flex justify-between items-center">
+                                Outflow (Reqs)
+                                <span class="hidden group-hover:flex items-center gap-1 bg-rose-100 dark:bg-rose-800 px-2 py-1 rounded text-[9px]"><i data-lucide="file-minus" class="w-3 h-3"></i> Post Req</span>
+                            </div>
+                            <div class="text-3xl font-black text-rose-700 dark:text-rose-300">₦<span x-text="fmt(cashOut)"></span></div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg p-5">
+                        <h4 class="font-bold text-sm text-slate-800 dark:text-white mb-4 flex items-center gap-2"><i data-lucide="history" class="w-4 h-4 text-slate-400"></i> Ledger History</h4>
+                        <div class="space-y-3 max-h-[160px] overflow-hidden pr-2">
+                                <div class="flex items-center justify-between p-3.5 bg-slate-50/80 dark:bg-slate-900/80 border border-slate-100 dark:border-slate-800 rounded-xl hover:bg-white dark:hover:bg-slate-800 transition-colors">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 shadow-sm flex items-center justify-center border border-slate-100 dark:border-slate-600"><i data-lucide="file-minus" class="w-4 h-4 text-emerald-500"></i></div>
+                                        <div><div class="text-xs font-bold text-slate-700 dark:text-slate-200">Payment Outflow</div><div class="text-[10px] text-slate-400 font-mono">LDG-002</div></div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-sm font-black text-emerald-600 dark:text-emerald-400">₦25,000</div>
+                                        <div class="text-[9px] font-bold mt-0.5 text-emerald-500 uppercase">Requisition</div>
+                                    </div>
+                                </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Procurement Tab -->
+                <div x-show="activeTab==='req'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" style="display:none;">
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 dark:text-white">Procurement</h2>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Multi-stage purchase order approvals.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="glass-card rounded-2xl shadow-lg border border-slate-200/60 dark:border-slate-700/60 overflow-hidden mb-6">
+                        <div class="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3 bg-white/50 dark:bg-slate-900/50">
+                            <span class="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-500/20 text-rose-600 flex items-center justify-center"><i data-lucide="clipboard-signature" class="w-4 h-4"></i></span>
+                            <span class="font-bold text-sm text-slate-800 dark:text-white">Awaiting Final Approval</span>
+                        </div>
+                        <template x-for="(po, i) in reqDemoArr" :key="po.id">
+                            <div class="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
+                                <div>
+                                    <div class="text-sm font-bold text-slate-800 dark:text-white mb-0.5" x-text="po.name"></div>
+                                    <div class="text-[10px] font-mono text-slate-400" x-text="po.id"></div>
+                                </div>
+                                <div class="flex items-center gap-4">
+                                    <div class="text-right mr-2"><div class="text-xs text-slate-400">Total</div><div class="text-sm font-black text-slate-800 dark:text-white">₦<span x-text="fmt(po.amt)"></span></div></div>
+                                    <button @click="po.status = 'Approved'; po.class = 'bg-emerald-100 text-emerald-700';" 
+                                            class="px-4 py-2 text-xs font-bold rounded-lg transition-colors border"
+                                            :class="po.status==='Approved' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-rose-600 text-white border-transparent hover:bg-rose-700 shadow-md shadow-rose-500/30'"
+                                            x-text="po.status === 'Approved' ? 'Authorized' : 'Approve PO'"></button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Station Audit Tab -->
+                <div x-show="activeTab==='station'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" style="display:none;">
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 dark:text-white">Station Audit</h2>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Pump meters and volume tracking.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="glass-card bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl relative overflow-hidden text-white group cursor-pointer" @click="pumpEnd += 135.5">
+                        <div class="absolute -right-10 -top-10 w-32 h-32 bg-orange-500/20 blur-3xl rounded-full pointer-events-none transition-all group-hover:bg-orange-500/40"></div>
+                        
+                        <div class="flex justify-between items-center mb-6">
+                            <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-orange-500/20 text-orange-500 flex items-center justify-center border border-orange-500/30"><i data-lucide="fuel" class="w-5 h-5"></i></div> <span class="font-bold text-sm tracking-widest text-slate-300 uppercase">PMS Pump 1</span></div>
+                            <span class="text-[10px] font-black uppercase tracking-widest px-2 py-1 bg-orange-500 text-slate-900 rounded select-none group-hover:bg-white transition-colors">Simulate Output</span>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-8 mb-4">
+                            <div><div class="text-[10px] text-slate-500 uppercase tracking-widest mb-1 font-semibold">Start Meter</div><div class="font-mono text-xl text-slate-300">42,500.00</div></div>
+                            <div><div class="text-[10px] text-orange-500 uppercase tracking-widest mb-1 font-semibold flex items-center gap-2">Closing Meter <i data-lucide="activity" class="w-3 h-3 animate-pulse"></i></div><div class="font-mono text-3xl font-bold text-white transition-all"><span x-text="fmt(pumpEnd)"></span></div></div>
+                        </div>
+                        
+                        <div class="border-t border-slate-800 pt-4 flex justify-between items-center">
+                            <span class="text-xs font-semibold text-slate-400">Total Volume Sold</span>
+                            <span class="text-xl font-black text-orange-400"><span x-text="fmt(pumpVol)"></span> LTR</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hotel Revenue Tab -->
+                <div x-show="activeTab==='hotel'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" style="display:none;">
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 dark:text-white">Hotel Revenue</h2>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Multi-channel PMS data reconciliation.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="glass-card p-5 rounded-2xl shadow-lg border border-fuchsia-200/60 dark:border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-50/50 to-white dark:from-fuchsia-900/10 dark:to-slate-800 transition-all">
+                            <div class="text-fuchsia-600 dark:text-fuchsia-400 text-xs font-bold uppercase tracking-wider mb-2 flex justify-between items-center">PMS Expected</div>
+                            <div class="text-3xl font-black text-fuchsia-700 dark:text-fuchsia-300">₦<span x-text="fmt(hotelExpected)"></span></div>
+                        </div>
+                        <div class="glass-card p-5 rounded-2xl shadow-lg border border-slate-200/60 dark:border-slate-700/60 transition-all cursor-pointer group hover:border-emerald-400" @click="matchHotel()">
+                            <div class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2 flex justify-between items-center">Actual Banked <span class="hidden group-hover:flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-[9px] transition-all"><i data-lucide="check-circle-2" class="w-3 h-3"></i> Post</span></div>
+                            <div class="text-3xl font-black transition-colors" :class="hotelBanked === hotelExpected ? 'text-emerald-500' : 'text-slate-400'">₦<span x-text="fmt(hotelBanked)"></span></div>
+                        </div>
+                    </div>
+                    
+                    <div class="glass-card border border-rose-200 bg-rose-50/50 p-4 rounded-xl flex items-center justify-between transition-all" :class="hotelBanked === hotelExpected ? 'opacity-0 scale-95 pointer-events-none h-0 p-0 overflow-hidden border-0 mb-0' : 'opacity-100 scale-100 h-auto mb-4'">
+                        <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-rose-200 text-rose-600 flex items-center justify-center"><i data-lucide="alert-triangle" class="w-4 h-4"></i></div> <span class="text-sm font-bold text-rose-700">Missing Intake Detected</span></div>
+                        <span class="text-lg font-black text-rose-600">₦<span x-text="fmt(hotelExpected - hotelBanked)"></span></span>
+                    </div>
+
                 </div>
 
             </div>
@@ -453,6 +637,22 @@ try {
                 </div>
             </div>
 
+            <!-- Cash Management Hub -->
+            <div class="group relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 hover:border-blue-400 dark:hover:border-blue-500/30 hover:bg-slate-100 dark:hover:bg-white/[0.07] transition-all duration-300 hover:-translate-y-1">
+                <div class="absolute -top-4 -right-4 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-xl shadow-blue-500/30 mb-6 group-hover:scale-110 transition-transform">
+                    <i data-lucide="banknote" class="w-7 h-7 text-white"></i>
+                </div>
+                <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-3">Cash Management Hub</h3>
+                <p class="text-slate-500 dark:text-slate-400 text-sm leading-relaxed mb-4">Complete cash lifecycle visibility. Capture incoming cash sales instantly through our seamless interface, and manage operational expenditure via rigorous cash requisitions. Validate all flows against the dynamically generated cash ledger, print audit-ready PDF status reports, and identify variances with multi-department cash analysis dashboards.</p>
+                <div class="flex flex-wrap gap-2">
+                    <span class="px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300 text-xs font-semibold">Cash Ledger</span>
+                    <span class="px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300 text-xs font-semibold">Expense Requisitions</span>
+                    <span class="px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300 text-xs font-semibold">Bank Deposits</span>
+                    <span class="px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300 text-xs font-semibold">PDF Reports</span>
+                </div>
+            </div>
+
             <!-- Reporting Engine -->
             <div class="group relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 hover:border-cyan-400 dark:hover:border-cyan-500/30 hover:bg-slate-100 dark:hover:bg-white/[0.07] transition-all duration-300 hover:-translate-y-1">
                 <div class="absolute -top-4 -right-4 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
@@ -493,51 +693,11 @@ try {
         <div class="text-center mb-16">
             <span class="text-sm font-bold uppercase tracking-[0.2em] text-violet-600 dark:text-violet-400">Pricing</span>
             <h2 class="text-2xl sm:text-3xl md:text-4xl font-black text-slate-800 dark:text-white mt-3">Simple, Transparent Pricing</h2>
-            <p class="text-slate-500 dark:text-slate-400 mt-3 max-w-xl mx-auto">Start free. Scale as you grow. Every plan includes core audit and stock control.</p>
+            <p class="text-slate-500 dark:text-slate-400 mt-3 max-w-xl mx-auto">Pay once. Get instant access. Every plan includes core audit and stock control.</p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-            <!-- Starter -->
-            <div class="relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 flex flex-col hover:border-slate-400 dark:hover:border-white/20 hover:-translate-y-1 transition-all duration-300">
-                <div class="mb-6">
-                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center shadow-lg shadow-slate-500/20 mb-4">
-                        <i data-lucide="rocket" class="w-6 h-6 text-white"></i>
-                    </div>
-                    <h3 class="text-xl font-black text-slate-800 dark:text-white">Starter</h3>
-                    <span class="inline-block mt-1 px-2 py-0.5 rounded-full bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase tracking-wider">Free Forever</span>
-                </div>
-                <div class="mb-6">
-                    <span class="text-4xl font-black text-slate-800 dark:text-white">₦0</span>
-                    <span class="text-sm text-slate-500 dark:text-slate-400">/month</span>
-                </div>
-                <ul class="space-y-3 mb-8 flex-1">
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 2 Users
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 1 Client / 2 Outlets
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 20 Products
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> Sales Entry + Stock In
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"></i> 90 Days Data Retention
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-500">
-                        <i data-lucide="x" class="w-4 h-4 text-slate-400 mt-0.5 shrink-0"></i> No PDF Export
-                    </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-500">
-                        <i data-lucide="x" class="w-4 h-4 text-slate-400 mt-0.5 shrink-0"></i> No Finance Module
-                    </li>
-                </ul>
-                <a href="auth/signup.php" class="block w-full text-center px-6 py-3 rounded-xl border-2 border-slate-300 dark:border-white/20 text-slate-700 dark:text-white font-bold text-sm hover:bg-slate-100 dark:hover:bg-white/5 transition-all">
-                    Get Started Free
-                </a>
-            </div>
 
             <!-- Professional (Highlighted) -->
             <div class="relative bg-gradient-to-b from-violet-50 dark:from-violet-600/10 to-white dark:to-slate-950 rounded-2xl border-2 border-violet-400 dark:border-violet-500/50 p-8 flex flex-col shadow-xl shadow-violet-500/10 hover:-translate-y-2 transition-all duration-300">
@@ -582,7 +742,7 @@ try {
                     </li>
                 </ul>
                 <a href="pricing.php" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-sm shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-[1.02] transition-all">
-                    Start 7-Day Trial
+                    Subscribe Now
                 </a>
             </div>
 
@@ -626,12 +786,12 @@ try {
                     </li>
                 </ul>
                 <a href="pricing.php" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold text-sm shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-[1.02] transition-all">
-                    Start 7-Day Trial
+                    Subscribe Now
                 </a>
             </div>
 
             <!-- Hotel Revenue -->
-            <div class="relative bg-slate-50 dark:bg-white/5 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-white/10 p-8 flex flex-col hover:border-blue-400 dark:hover:border-blue-500/30 hover:-translate-y-1 transition-all duration-300">
+            <div class="relative bg-gradient-to-b from-blue-50 dark:from-blue-600/10 to-white dark:to-slate-950 rounded-2xl border-2 border-blue-400 dark:border-blue-500/50 p-8 flex flex-col shadow-xl shadow-blue-500/10 hover:-translate-y-2 transition-all duration-300">
                 <div class="mb-6">
                     <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30 mb-4">
                         <i data-lucide="building" class="w-6 h-6 text-white"></i>
@@ -643,34 +803,47 @@ try {
                     <span class="text-4xl font-black text-slate-800 dark:text-white">₦<?php echo $hotel_price; ?></span>
                     <span class="text-sm text-slate-500 dark:text-slate-400">/month</span>
                 </div>
+                <!-- Enterprise Inclusion Badge -->
+                <div class="mb-4 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-center gap-2">
+                    <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0">
+                        <i data-lucide="crown" class="w-3.5 h-3.5 text-white"></i>
+                    </div>
+                    <span class="text-xs font-bold text-amber-700 dark:text-amber-300">Includes Everything in Enterprise</span>
+                </div>
                 <ul class="space-y-3 mb-8 flex-1">
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Unlimited Users
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Unlimited Users & Outlets
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Hotel Revenue Audit
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> All Audit, Stock & Finance Modules
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Overtime Tracking
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Full P&L, Requisitions & Reports
                     </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Daily Reports
+                    <li class="flex items-start gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400">
+                        <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Hotel Revenue Audit
+                    </li>
+                    <li class="flex items-start gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400">
+                        <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Fixed Assets & Capital Allowance
+                    </li>
+                    <li class="flex items-start gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400">
+                        <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Bank Reconciliation
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Unlimited Data Retention
                     </li>
-                    <li class="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-500">
-                        <i data-lucide="x" class="w-4 h-4 text-slate-400 mt-0.5 shrink-0"></i> No Stock Control
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Premium Support
                     </li>
                 </ul>
-                <a href="pricing.php" class="block w-full text-center px-6 py-3 rounded-xl border-2 border-slate-300 dark:border-white/20 text-slate-700 dark:text-white font-bold text-sm hover:bg-slate-100 dark:hover:bg-white/5 transition-all">
-                    View Plan Features
+                <a href="pricing.php" class="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-[1.02] transition-all">
+                    Subscribe Now
                 </a>
             </div>
 
         </div>
 
-        <p class="text-center text-sm text-slate-400 dark:text-slate-500 mt-8">All paid plans include a <strong class="text-violet-600 dark:text-violet-400">7-day free trial</strong>. No credit card required to start. <a href="pricing.php" class="text-violet-600 dark:text-violet-400 font-bold hover:underline">View full comparison →</a></p>
+        <p class="text-center text-sm text-slate-400 dark:text-slate-500 mt-8">All plans are billed upfront. Choose monthly, quarterly, or annual billing. <a href="pricing.php" class="text-violet-600 dark:text-violet-400 font-bold hover:underline">View full comparison →</a></p>
     </div>
 </section>
 

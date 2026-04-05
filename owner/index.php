@@ -945,7 +945,7 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                 <button @click="createForm.plan_name='starter'" class="p-3 rounded-xl border text-center transition-all text-xs font-bold" :class="createForm.plan_name==='starter' ? 'bg-slate-500/20 border-slate-400 text-white ring-2 ring-slate-500/40' : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-500'">
                     <i data-lucide="rocket" class="w-4 h-4 mx-auto mb-1"></i>
                     Starter
-                    <p class="text-[9px] text-slate-500 mt-0.5 font-normal">Free Forever</p>
+                    <p class="text-[9px] text-slate-500 mt-0.5 font-normal">Unpaid</p>
                 </button>
                 <button @click="createForm.plan_name='professional'" class="p-3 rounded-xl border text-center transition-all text-xs font-bold" :class="createForm.plan_name==='professional' ? 'bg-violet-500/20 border-violet-400 text-violet-300 ring-2 ring-violet-500/40' : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-violet-500'">
                     <i data-lucide="briefcase" class="w-4 h-4 mx-auto mb-1"></i>
@@ -1034,7 +1034,7 @@ function ownerApp() {
         createModal: false,
         createSaving: false,
         createError: '',
-        createForm: { company_name: '', first_name: '', last_name: '', email: '', password: '', confirm_password: '', plan_name: 'starter', billing_cycle: 'monthly', status: 'trial', expires_at: '' },
+        createForm: { company_name: '', first_name: '', last_name: '', email: '', password: '', confirm_password: '', plan_name: 'starter', billing_cycle: 'monthly', status: 'pending', expires_at: '' },
 
         async init() {
             await this.loadStats();
@@ -1376,7 +1376,7 @@ function ownerApp() {
             if (r.success) {
                 this.createModal = false;
                 alert('✓ ' + r.message);
-                this.createForm = { company_name: '', first_name: '', last_name: '', email: '', password: '', confirm_password: '', plan_name: 'starter', billing_cycle: 'monthly', status: 'trial', expires_at: '' };
+                this.createForm = { company_name: '', first_name: '', last_name: '', email: '', password: '', confirm_password: '', plan_name: 'starter', billing_cycle: 'monthly', status: 'pending', expires_at: '' };
                 this.loadStats();
                 this.loadCompanies();
             } else {

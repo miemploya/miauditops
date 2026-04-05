@@ -11,7 +11,7 @@ $SUBSCRIPTION_PLANS = [
 
     'starter' => [
         'label'       => 'Starter',
-        'tag'         => 'Free Forever',
+        'tag'         => 'Unpaid / Expired',
         'icon'        => 'rocket',
         'color'       => 'slate',
 
@@ -200,7 +200,7 @@ $SUBSCRIPTION_PLANS = [
 
         // ── Limits (highest tier — all unlimited) ──
         'max_users'       => 0,    // unlimited
-        'max_clients'     => 5,
+        'max_clients'     => 0,    // unlimited
         'max_outlets'     => 0,    // unlimited
         'max_products'    => 0,    // unlimited
         'max_departments' => 0,    // unlimited

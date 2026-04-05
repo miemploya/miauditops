@@ -260,7 +260,7 @@ function register_company_and_user($company_name, $email, $password, $first_name
     } catch (Exception $ignore) {}
     
     // Validate plan
-    $valid_plans = ['starter', 'professional', 'enterprise'];
+    $valid_plans = ['starter', 'professional', 'enterprise', 'hotel_revenue'];
     if (!in_array($plan, $valid_plans)) $plan = 'starter';
     $valid_cycles = ['monthly', 'quarterly', 'annual'];
     if (!in_array($cycle, $valid_cycles)) $cycle = 'monthly';
@@ -349,7 +349,7 @@ function register_company_and_user_google($company_name, $email, $google_id, $fi
     require_once __DIR__ . '/../config/subscription_plans.php';
     
     // Validate plan
-    $valid_plans = ['starter', 'professional', 'enterprise'];
+    $valid_plans = ['starter', 'professional', 'enterprise', 'hotel_revenue'];
     if (!in_array($plan, $valid_plans)) $plan = 'starter';
     $valid_cycles = ['monthly', 'quarterly', 'annual'];
     if (!in_array($cycle, $valid_cycles)) $cycle = 'monthly';

@@ -89,19 +89,12 @@ $nav_sections = [
             ['label' => 'Company Setup', 'icon' => 'building-2', 'href' => 'company_setup.php', 'gradient' => 'from-indigo-500 to-blue-600', 'roles' => 'all'],
         ]
     ],
-    'Audit & Sales' => [
+    'Sales & Inventory Audit' => [
         'items' => [
             ['label' => 'Daily Audit', 'icon' => 'clipboard-check', 'href' => 'audit.php', 'gradient' => 'from-blue-500 to-blue-600', 'roles' => 'all'],
-        ]
-    ],
-    'Inventory' => [
-        'items' => [
             ['label' => 'Stock Audit', 'icon' => 'package', 'href' => 'stock.php', 'gradient' => 'from-emerald-500 to-teal-600', 'roles' => 'all'],
-        ]
-    ],
-    'Finance' => [
-        'items' => [
             ['label' => 'Financial Control', 'icon' => 'trending-up', 'href' => 'finance.php', 'gradient' => 'from-amber-500 to-orange-600', 'roles' => 'all'],
+            ['label' => 'Reports', 'icon' => 'bar-chart-3', 'href' => 'reports.php', 'gradient' => 'from-cyan-500 to-blue-600', 'roles' => 'all'],
         ]
     ],
     'Procurement' => [
@@ -112,11 +105,6 @@ $nav_sections = [
     'Cash' => [
         'items' => [
             ['label' => 'Cash Management', 'icon' => 'banknote', 'href' => 'cash.php', 'gradient' => 'from-green-500 to-emerald-600', 'roles' => 'all', 'badge' => 'NEW'],
-        ]
-    ],
-    'Intelligence' => [
-        'items' => [
-            ['label' => 'Reports', 'icon' => 'bar-chart-3', 'href' => 'reports.php', 'gradient' => 'from-cyan-500 to-blue-600', 'roles' => 'all'],
         ]
     ],
 ];
@@ -230,23 +218,29 @@ $nav_sections['Admin'] = [
     <nav class="flex-1 overflow-y-auto p-3 space-y-1" style="scroll-behavior:smooth; scrollbar-width:thin; scrollbar-color:rgba(148,163,184,0.3) transparent;">
         
         <?php foreach ($nav_sections as $section_name => $section): ?>
-            
-            <?php foreach ($section['items'] as $item): ?>
-                <?php
-                // Permission-based check using the page_permission_map
-                $perm_key = $page_permission_map[$item['href']] ?? null;
-                if ($perm_key && !has_permission($perm_key)) continue;
-                // Viewers cannot see Settings
-                if ($item['href'] === 'settings.php' && is_viewer()) continue;
-                $is_active = ($current_page === $item['href']);
+            <?php 
+                $visible_items = [];
+                $section_active = false;
+                foreach ($section['items'] as $item) {
+                    $perm_key = $page_permission_map[$item['href']] ?? null;
+                    if ($perm_key && !has_permission($perm_key)) continue;
+                    if ($item['href'] === 'settings.php' && is_viewer()) continue;
 
-                // Subscription gating: check if module is in current plan
-                $sub_key = $page_subscription_map[$item['href']] ?? null;
-                $is_locked = $sub_key && !plan_includes_module($_current_plan_key, $sub_key);
-                ?>
-                <?php if ($is_locked): ?>
+                    $sub_key = $page_subscription_map[$item['href']] ?? null;
+                    $item['is_locked'] = $sub_key && !plan_includes_module($_current_plan_key, $sub_key);
+                    $item['is_active'] = ($current_page === $item['href']);
+                    if ($item['is_active']) $section_active = true;
+                    
+                    $visible_items[] = $item;
+                }
+                if (empty($visible_items)) continue;
+            ?>
+
+            <?php if ($section_name === 'main' || count($visible_items) === 1): ?>
+                <?php $item = $visible_items[0]; ?>
+                <?php if ($item['is_locked']): ?>
                 <a href="<?php echo $item['href']; ?>" 
-                   class="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 text-slate-400 dark:text-slate-600 opacity-60 hover:opacity-80 border-l-2 border-transparent cursor-pointer"
+                   class="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 text-slate-400 dark:text-slate-600 opacity-60 hover:opacity-80 border-l-2 border-transparent cursor-pointer mb-1"
                    title="Upgrade to access <?php echo $item['label']; ?>">
                     <span class="w-8 h-8 rounded-lg bg-slate-300 dark:bg-slate-700 flex items-center justify-center shadow-sm">
                         <i data-lucide="lock" class="w-4 h-4 text-slate-400 dark:text-slate-500"></i>
@@ -256,8 +250,8 @@ $nav_sections['Admin'] = [
                 </a>
                 <?php else: ?>
                 <a href="<?php echo $item['href']; ?>" 
-                   class="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 hover:translate-x-0.5
-                   <?php echo $is_active 
+                   class="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 hover:translate-x-0.5 mb-1
+                   <?php echo $item['is_active'] 
                        ? 'text-violet-700 dark:text-violet-300 bg-gradient-to-r from-violet-50 to-violet-100/50 dark:from-violet-900/30 dark:to-violet-800/20 border-l-2 border-violet-500' 
                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800/50 border-l-2 border-transparent'; ?>">
                     <span class="w-8 h-8 rounded-lg bg-gradient-to-br <?php echo $item['gradient']; ?> flex items-center justify-center shadow-md transition-shadow group-hover:shadow-lg">
@@ -265,12 +259,50 @@ $nav_sections['Admin'] = [
                     </span>
                     <span class="font-semibold"><?php echo $item['label']; ?></span>
                     <?php if (!empty($item['badge'])): ?>
-                    <span class="ml-auto px-1.5 py-0.5 rounded-md text-[9px] font-black tracking-wider bg-red-500 text-white shadow-lg shadow-red-500/40 animate-pulse"><?php echo $item['badge']; ?></span>
+                    <span class="ml-auto px-1.5 py-0.5 rounded-md text-[8px] font-black tracking-wider bg-red-500 text-white shadow-lg shadow-red-500/40 animate-pulse"><?php echo $item['badge']; ?></span>
                     <?php endif; ?>
                 </a>
                 <?php endif; ?>
-            <?php endforeach; ?>
-            
+            <?php else: ?>
+                <?php 
+                    $cat_icon = $visible_items[0]['icon'];
+                    $cat_gradient = $visible_items[0]['gradient'];
+                ?>
+                <div x-data="{ expanded: <?php echo $section_active ? 'true' : 'false'; ?> }" class="mb-1">
+                    <button @click="expanded = !expanded" 
+                       class="w-full group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 hover:translate-x-0.5 
+                       <?php echo $section_active ? 'text-violet-700 dark:text-violet-300 bg-gradient-to-r from-violet-50 to-violet-100/50 dark:from-violet-900/30 dark:to-violet-800/20 border-l-2 border-violet-500' : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800/50 border-l-2 border-transparent'; ?>">
+                        <span class="w-8 h-8 rounded-lg bg-gradient-to-br <?php echo $cat_gradient; ?> flex items-center justify-center shadow-md transition-shadow group-hover:shadow-lg">
+                            <i data-lucide="<?php echo $cat_icon; ?>" class="w-4 h-4 text-white"></i>
+                        </span>
+                        <span class="font-semibold flex-1 text-left"><?php echo htmlspecialchars($section_name); ?></span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 transition-transform text-slate-400" :class="expanded ? 'rotate-180' : ''"></i>
+                    </button>
+                    
+                    <div x-show="expanded" x-collapse style="display: <?php echo $section_active ? 'block' : 'none'; ?>;">
+                        <div class="mt-1 space-y-0.5 pb-1">
+                            <?php foreach ($visible_items as $item): ?>
+                                <?php if ($item['is_locked']): ?>
+                                <a href="<?php echo $item['href']; ?>" class="group flex items-center gap-3 px-4 py-2 ml-[3.25rem] text-xs font-semibold rounded-lg opacity-60 text-slate-500 hover:opacity-80 transition-colors">
+                                    <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+                                    <span><?php echo $item['label']; ?></span>
+                                </a>
+                                <?php else: ?>
+                                <a href="<?php echo $item['href']; ?>" 
+                                   class="group flex items-center gap-3 px-4 py-2 ml-[3.25rem] text-[13px] font-medium rounded-lg transition-all duration-200 
+                                   <?php echo $item['is_active'] ? 'text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50'; ?>">
+                                    <div class="w-1.5 h-1.5 rounded-full <?php echo $item['is_active'] ? 'bg-violet-600 dark:bg-violet-400' : 'bg-slate-300 dark:bg-slate-600 group-hover:bg-slate-400'; ?>"></div>
+                                    <span><?php echo $item['label']; ?></span>
+                                    <?php if (!empty($item['badge'])): ?>
+                                    <span class="ml-auto px-1.5 py-0.5 rounded-md text-[8px] font-black tracking-wider bg-red-400/20 text-red-600 dark:bg-red-900/30 dark:text-red-400"><?php echo $item['badge']; ?></span>
+                                    <?php endif; ?>
+                                </a>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
         <?php endforeach; ?>
     </nav>
 

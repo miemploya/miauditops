@@ -18,7 +18,7 @@ $success = '';
 $selected_plan = $_GET['plan'] ?? $_POST['selected_plan'] ?? 'starter';
 $selected_cycle = $_GET['cycle'] ?? $_POST['selected_cycle'] ?? 'monthly';
 // Sanitize
-if (!in_array($selected_plan, ['starter', 'professional', 'enterprise'])) $selected_plan = 'starter';
+if (!in_array($selected_plan, ['starter', 'professional', 'enterprise', 'hotel_revenue'])) $selected_plan = 'starter';
 if (!in_array($selected_cycle, ['monthly', 'quarterly', 'annual'])) $selected_cycle = 'monthly';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -133,8 +133,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <svg class="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     </div>
                     <div>
-                        <p class="text-xs font-bold text-violet-700 dark:text-violet-300"><?= ucfirst($selected_plan) ?> Plan — 7-Day Free Trial</p>
-                        <p class="text-[10px] text-slate-500 dark:text-slate-400">No payment required now. Full access for 7 days.</p>
+                        <p class="text-xs font-bold text-violet-700 dark:text-violet-300"><?= ucfirst($selected_plan) ?> Plan Selected</p>
+                        <p class="text-[10px] text-slate-500 dark:text-slate-400">You'll complete payment after registration.</p>
                     </div>
                 </div>
             <?php endif; ?>

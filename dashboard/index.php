@@ -279,7 +279,7 @@ $expense_values = array_map('floatval', array_column($expense_data, 'total'));
                                     <?php elseif ($sub_status === 'expired'): ?>
                                         Subscription expired
                                     <?php elseif ($plan_key === 'starter'): ?>
-                                        Free forever &middot; No expiry
+                                        No active subscription &middot; <a href="billing.php" class="underline font-bold" style="color:#fff;">Subscribe now</a>
                                     <?php else: ?>
                                         Active subscription
                                     <?php endif; ?>

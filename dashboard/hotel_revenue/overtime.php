@@ -76,14 +76,6 @@ require_subscription('hotel_revenue');
                     </svg>
                     <span>Booking Extraction</span>
                 </a>
-                <a href="overtime.php" class="nav-item active">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <polyline points="12 6 12 12 16 14" />
-                    </svg>
-                    <span>Audit & Imports</span>
-                </a>
                 <a href="reports.php" class="nav-item">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -93,6 +85,15 @@ require_subscription('hotel_revenue');
                         <line x1="16" y1="17" x2="8" y2="17" />
                     </svg>
                     <span>Reports</span>
+                </a>
+                <div class="nav-label">Audit Module</div>
+                <a href="overtime.php" class="nav-item active">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    <span>Audit & Fraud</span>
                 </a>
                 <div class="nav-label">Quick Links</div>
                 <a href="../index.php" class="nav-item" target="_blank">

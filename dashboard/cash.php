@@ -89,11 +89,13 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
         .dark .glass-card{background:linear-gradient(135deg,rgba(15,23,42,.95),rgba(30,41,59,.9))}
         .print-only { display: none; }
         @media print {
-            body, html { background: white !important; color: black !important; }
+            body, html { background: white !important; color: black !important; height: auto !important; min-height: auto !important; overflow: visible !important; }
+            .h-screen, .h-full, .flex-1, .flex-col, .overflow-hidden { height: auto !important; overflow: visible !important; display: block !important; }
             aside, header, nav { display: none !important; }
             .print-only { display: block !important; }
+            .cover-page { display: flex !important; height: 100vh !important; width: 100% !important; align-items: center; justify-content: center; page-break-after: always; }
             .print-no-border { border: none !important; box-shadow: none !important; background: transparent !important; }
-            .flex, .flex-1, main, #cash-report-content { overflow: visible !important; height: auto !important; width: 100% !important; padding: 0 !important; margin: 0 !important; display: block !important; }
+            .flex, main, #cash-report-content { overflow: visible !important; height: auto !important; width: 100% !important; padding: 0 !important; margin: 0 !important; display: block !important; }
             div[x-show="currentTab === 'sales'"], div[x-show="currentTab === 'ledger'"], div[x-show="currentTab === 'requisition'"], div[x-show="currentTab === 'analysis'"] { display: none !important; }
             div[x-show="currentTab === 'report'"] { display: block !important; }
             table th { background-color: #f8fafc !important; color: #475569 !important; border-bottom: 2px solid #cbd5e1 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -113,7 +115,7 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
             .text-blue-700 { color: #1d4ed8 !important; }
             .text-indigo-700 { color: #4338ca !important; }
             
-            /* HIGHEST SPECIFICITY FOR HIDING (to override .flex) */
+            /* HIGHEST SPECIFICITY FOR HIDING */
             .print-hidden, [class*="print-hidden"] { display: none !important; }
         }
     </style>
@@ -447,65 +449,155 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
             <!-- ═══ TAB: CASH REPORT ═══ -->
             <div x-show="currentTab === 'report'" x-transition class="w-full">
                 
-                <!-- Professional Print Header (Cover/Branding Area) -->
-                <div class="print-only" style="margin-bottom: 40px;">
-                    <div style="border: 2px solid #1e293b; padding: 40px; text-align: center; border-radius: 12px; margin-bottom: 20px;">
-                        <h1 style="font-size: 32px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;"><?= htmlspecialchars($company_name) ?></h1>
-                        <h2 style="font-size: 18px; font-weight: 600; color: #475569; margin-bottom: 30px;"><?= htmlspecialchars($client_name) ?></h2>
+                <!-- PROFESSIONAL PRINT DOCUMENT (HIDDEN ON SCREEN) -->
+                <div class="print-only">
+                    <!-- SUMMARY & ANALYSIS PAGE (FIRST PAGE) -->
+                    <div style="page-break-after: always;">
+                        <!-- Report Header -->
+                        <div style="text-align: center; margin-bottom: 30px;">
+                            <h1 style="font-size: 28px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px;"><?= htmlspecialchars($client_name) ?></h1>
+                            <h2 style="font-size: 18px; font-weight: 800; color: #3b82f6; text-transform: uppercase; letter-spacing: 1px;">Comprehensive Cash Report</h2>
+                            <p style="font-size: 12px; font-weight: 600; color: #64748b; margin-top: 5px;">
+                                For the Period: <span x-text="new Date(reportMonth + '-15').toLocaleDateString('en-US', {month:'long', year:'numeric'})"></span>
+                                | Generated: <?= date('F j, Y') ?>
+                            </p>
+                        </div>
+
+                        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">Executive Summary</h3>
                         
-                        <div style="border-top: 2px solid #e2e8f0; width: 60px; margin: 0 auto 30px auto;"></div>
-                        
-                        <h3 style="font-size: 24px; font-weight: 800; color: #3b82f6; text-transform: uppercase; letter-spacing: 1px;">Cash Management Report</h3>
-                        <p style="font-size: 14px; font-weight: 500; color: #64748b; margin-top: 15px;">
-                            For the Period: <span x-text="new Date(reportMonth + '-15').toLocaleDateString('en-US', {month:'long', year:'numeric'})" style="color: #0f172a; font-weight: 700;"></span>
-                        </p>
-                        
-                        <p style="font-size: 10px; color: #94a3b8; margin-top: 60px; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">
-                            Generated Automatically by MiAuditOps System on <?= date('F j, Y') ?>
-                        </p>
+                        <div style="display: flex; gap: 15px; margin-bottom: 40px;">
+                            <div style="flex: 1; padding: 15px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;"><div style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; margin-bottom: 5px;">Opening</div><div style="font-size: 18px; font-weight: 900;" x-text="fmt(reportData.opening||0)"></div></div>
+                            <div style="flex: 1; padding: 15px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px;"><div style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #059669; margin-bottom: 5px;">+ Sales</div><div style="font-size: 18px; font-weight: 900; color: #047857;" x-text="fmt(reportData.total_sales||0)"></div></div>
+                            <div style="flex: 1; padding: 15px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;"><div style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #d97706; margin-bottom: 5px;">− Expenses</div><div style="font-size: 18px; font-weight: 900; color: #b45309;" x-text="fmt(reportData.total_expenses||0)"></div></div>
+                            <div style="flex: 1; padding: 15px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;"><div style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #2563eb; margin-bottom: 5px;">− Deposits</div><div style="font-size: 18px; font-weight: 900; color: #1d4ed8;" x-text="fmt(reportData.total_deposits||0)"></div></div>
+                            <div style="flex: 1; padding: 15px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px;"><div style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #4f46e5; margin-bottom: 5px;">= Closing</div><div style="font-size: 18px; font-weight: 900; color: #4338ca;" x-text="fmt(reportData.closing||0)"></div></div>
+                        </div>
+
+                        <h4 style="font-size: 14px; font-weight: 800; color: #475569; margin-bottom: 10px;">Cash Analysis Breakdown</h4>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 10px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Category</th>
+                                    <th style="padding: 10px; text-align: center; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Type</th>
+                                    <th style="padding: 10px; text-align: right; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Count</th>
+                                    <th style="padding: 10px; text-align: right; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Total Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="(row, i) in analysisBreakdown" :key="i">
+                                    <tr>
+                                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;" x-text="row.category_name"></td>
+                                        <td style="padding: 10px; text-align: center; border-bottom: 1px solid #e2e8f0;" x-text="row.type==='bank_deposit'?'Deposit':'Expense'"></td>
+                                        <td style="padding: 10px; text-align: right; border-bottom: 1px solid #e2e8f0;" x-text="row.count"></td>
+                                        <td style="padding: 10px; text-align: right; font-weight: bold; border-bottom: 1px solid #e2e8f0;" x-text="fmt(row.total_amount)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- LEDGER PAGE -->
+                    <div style="page-break-after: always;">
+                        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">Cash Ledger (Statement)</h3>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Date</th>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Description</th>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Posted By</th>
+                                    <th style="padding: 8px; text-align: right; background: #f8fafc; border-bottom: 2px solid #cbd5e1; color: #059669;">DR (In)</th>
+                                    <th style="padding: 8px; text-align: right; background: #f8fafc; border-bottom: 2px solid #cbd5e1; color: #dc2626;">CR (Out)</th>
+                                    <th style="padding: 8px; text-align: right; background: #f8fafc; border-bottom: 2px solid #cbd5e1; color: #2563eb;">Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="e in ledgerEntries" :key="e.id">
+                                    <tr>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;" x-text="e.entry_date"></td>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; max-width: 250px;" x-text="e.description"></td>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;" x-text="(e.first_name||'')+' '+(e.last_name||'')"></td>
+                                        <td style="padding: 8px; text-align: right; font-weight: bold; border-bottom: 1px solid #e2e8f0; color: #059669;" x-text="parseFloat(e.dr_amount) > 0 ? fmt(e.dr_amount) : ''"></td>
+                                        <td style="padding: 8px; text-align: right; font-weight: bold; border-bottom: 1px solid #e2e8f0; color: #dc2626;" x-text="parseFloat(e.cr_amount) > 0 ? fmt(e.cr_amount) : ''"></td>
+                                        <td style="padding: 8px; text-align: right; font-weight: 900; border-bottom: 1px solid #e2e8f0; color: #2563eb;" x-text="fmt(e.balance)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- SALES PAGE -->
+                    <div style="page-break-after: always;">
+                        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">Cash Sales Transactions</h3>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Date</th>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Description</th>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Posted By</th>
+                                    <th style="padding: 8px; text-align: center; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Status</th>
+                                    <th style="padding: 8px; text-align: right; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="s in (reportData.sales||[])" :key="s.id">
+                                    <tr>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;" x-text="s.sale_date"></td>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;" x-text="s.description"></td>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;" x-text="(s.posted_first||'')+' '+(s.posted_last||'')"></td>
+                                        <td style="padding: 8px; text-align: center; border-bottom: 1px solid #e2e8f0;" x-text="s.status"></td>
+                                        <td style="padding: 8px; text-align: right; font-weight: bold; border-bottom: 1px solid #e2e8f0;" x-text="fmt(s.amount)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- REQUISITIONS PAGE -->
+                    <div>
+                        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">Requisitions & Deposits</h3>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Req #</th>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Type / Category</th>
+                                    <th style="padding: 8px; text-align: left; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Description</th>
+                                    <th style="padding: 8px; text-align: center; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Status</th>
+                                    <th style="padding: 8px; text-align: right; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="r in (reportData.requisitions||[])" :key="r.id">
+                                    <tr>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: bold; color: #ea580c;" x-text="r.requisition_number"></td>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;" x-text="(r.type==='bank_deposit'?'Deposit':'Expense') + (r.category_name ? ' — '+r.category_name : '')"></td>
+                                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; max-width: 250px;" x-text="r.description"></td>
+                                        <td style="padding: 8px; text-align: center; border-bottom: 1px solid #e2e8f0;" x-text="r.status"></td>
+                                        <td style="padding: 8px; text-align: right; font-weight: bold; border-bottom: 1px solid #e2e8f0;" x-text="fmt(r.amount)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
-                <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden print-no-border" id="cash-report-content">
-                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between print-hidden">
+                <!-- ON-SCREEN INTERACTIVE UI (HIDDEN IN PRINT) -->
+                <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden print-hidden">
+                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                         <div class="flex items-center gap-3">
                             <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg"><i data-lucide="file-text" class="w-4 h-4 text-white"></i></div>
-                            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Cash Report</h3>
+                            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Cash Report Builder</h3>
                         </div>
                         <div class="flex items-center gap-2">
                             <input type="month" x-model="reportMonth" @change="loadReport()" class="text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg">
-                            <button @click="printReport()" class="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 text-xs font-bold rounded-lg"><i data-lucide="printer" class="w-3.5 h-3.5"></i> Print / PDF</button>
+                            <button @click="printReport()" class="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 text-xs font-bold rounded-lg"><i data-lucide="printer" class="w-3.5 h-3.5"></i> Comprehensive PDF</button>
                         </div>
                     </div>
                     <div class="p-6">
-                        <!-- Summary -->
-                        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                            <div class="p-4 rounded-xl border border-slate-200 bg-slate-50"><div class="text-[10px] font-bold uppercase text-slate-400 mb-1">Opening</div><div class="text-lg font-black" x-text="fmt(reportData.opening||0)"></div></div>
-                            <div class="p-4 rounded-xl border border-emerald-200 bg-emerald-50"><div class="text-[10px] font-bold uppercase text-emerald-500 mb-1">+ Sales</div><div class="text-lg font-black text-emerald-700" x-text="fmt(reportData.total_sales||0)"></div></div>
-                            <div class="p-4 rounded-xl border border-amber-200 bg-amber-50"><div class="text-[10px] font-bold uppercase text-amber-500 mb-1">− Expenses</div><div class="text-lg font-black text-amber-700" x-text="fmt(reportData.total_expenses||0)"></div></div>
-                            <div class="p-4 rounded-xl border border-blue-200 bg-blue-50"><div class="text-[10px] font-bold uppercase text-blue-500 mb-1">− Deposits</div><div class="text-lg font-black text-blue-700" x-text="fmt(reportData.total_deposits||0)"></div></div>
-                            <div class="p-4 rounded-xl border border-indigo-200 bg-indigo-50"><div class="text-[10px] font-bold uppercase text-indigo-500 mb-1">= Closing</div><div class="text-lg font-black text-indigo-700" x-text="fmt(reportData.closing||0)"></div></div>
+                        <div class="mb-4 text-sm text-slate-500 text-center py-10 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
+                            <i data-lucide="book-open" class="w-12 h-12 text-indigo-200 mx-auto mb-3"></i>
+                            <h4 class="font-bold text-slate-700 dark:text-slate-300">Ready to Print</h4>
+                            <p class="max-w-xs mx-auto mt-2">Click the button above to generate the full, multi-page comprehensive cash report.</p>
                         </div>
-                        <!-- Sales -->
-                        <h4 class="text-[11px] font-bold uppercase text-slate-400 mb-2">Sales Transactions</h4>
-                        <table class="w-full text-xs mb-6 border border-slate-200 rounded-lg overflow-hidden">
-                            <thead class="bg-slate-50"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Description</th><th class="px-3 py-2 text-left">Posted By</th><th class="px-3 py-2 text-center">Status</th><th class="px-3 py-2 text-right">Amount</th></tr></thead>
-                            <tbody>
-                                <template x-for="s in (reportData.sales||[])" :key="s.id">
-                                    <tr class="border-t border-slate-100"><td class="px-3 py-1.5" x-text="s.sale_date"></td><td class="px-3 py-1.5" x-text="s.description"></td><td class="px-3 py-1.5" x-text="(s.posted_first||'')+' '+(s.posted_last||'')"></td><td class="px-3 py-1.5 text-center"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold" :class="s.status==='confirmed'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'" x-text="s.status"></span></td><td class="px-3 py-1.5 text-right font-bold" x-text="fmt(s.amount)"></td></tr>
-                                </template>
-                            </tbody>
-                        </table>
-                        <!-- Requisitions -->
-                        <h4 class="text-[11px] font-bold uppercase text-slate-400 mb-2">Requisitions</h4>
-                        <table class="w-full text-xs border border-slate-200 rounded-lg overflow-hidden">
-                            <thead class="bg-slate-50"><tr><th class="px-3 py-2 text-left">Req #</th><th class="px-3 py-2 text-left">Type</th><th class="px-3 py-2 text-left">Category</th><th class="px-3 py-2 text-left">Description</th><th class="px-3 py-2 text-center">Status</th><th class="px-3 py-2 text-right">Amount</th></tr></thead>
-                            <tbody>
-                                <template x-for="r in (reportData.requisitions||[])" :key="r.id">
-                                    <tr class="border-t border-slate-100"><td class="px-3 py-1.5 font-mono font-bold text-orange-600" x-text="r.requisition_number"></td><td class="px-3 py-1.5" x-text="r.type==='bank_deposit'?'Deposit':'Expense'"></td><td class="px-3 py-1.5" x-text="r.category_name||'—'"></td><td class="px-3 py-1.5" x-text="r.description"></td><td class="px-3 py-1.5 text-center"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold" :class="r.status==='approved'?'bg-emerald-100 text-emerald-700':r.status==='rejected'?'bg-red-100 text-red-700':'bg-amber-100 text-amber-700'" x-text="r.status"></span></td><td class="px-3 py-1.5 text-right font-bold" x-text="fmt(r.amount)"></td></tr>
-                                </template>
-                            </tbody>
-                        </table>
                     </div>
                 </div>
             </div>
