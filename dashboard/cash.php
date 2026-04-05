@@ -90,7 +90,7 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
         .print-only { display: none; }
         @media print {
             body, html { background: white !important; color: black !important; }
-            aside, header, nav, .print-hidden { display: none !important; }
+            aside, header, nav { display: none !important; }
             .print-only { display: block !important; }
             .print-no-border { border: none !important; box-shadow: none !important; background: transparent !important; }
             .flex, .flex-1, main, #cash-report-content { overflow: visible !important; height: auto !important; width: 100% !important; padding: 0 !important; margin: 0 !important; display: block !important; }
@@ -112,6 +112,9 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
             .text-amber-700 { color: #b45309 !important; }
             .text-blue-700 { color: #1d4ed8 !important; }
             .text-indigo-700 { color: #4338ca !important; }
+            
+            /* HIGHEST SPECIFICITY FOR HIDING (to override .flex) */
+            .print-hidden, [class*="print-hidden"] { display: none !important; }
         }
     </style>
 </head>
@@ -444,14 +447,23 @@ $js_cash_allowed = json_encode($cash_allowed_tabs);
             <!-- ═══ TAB: CASH REPORT ═══ -->
             <div x-show="currentTab === 'report'" x-transition class="w-full">
                 
-                <!-- Print Summary Header -->
-                <div class="print-only mb-8 text-center border-b-2 border-slate-800 pb-6">
-                    <h2 class="text-2xl font-black text-slate-800 uppercase tracking-widest"><?= htmlspecialchars($company_name) ?></h2>
-                    <p class="text-sm font-semibold text-slate-500 mt-1"><?= htmlspecialchars($client_name) ?></p>
-                    <h3 class="text-xl font-bold text-slate-700 mt-4">Cash Management Report</h3>
-                    <p class="text-sm font-medium text-slate-500 mt-1 pb-2">
-                        Period: <strong x-text="new Date(reportMonth + '-15').toLocaleDateString('en-US', {month:'long', year:'numeric'})" class="text-slate-800 text-base"></strong>
-                    </p>
+                <!-- Professional Print Header (Cover/Branding Area) -->
+                <div class="print-only" style="margin-bottom: 40px;">
+                    <div style="border: 2px solid #1e293b; padding: 40px; text-align: center; border-radius: 12px; margin-bottom: 20px;">
+                        <h1 style="font-size: 32px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;"><?= htmlspecialchars($company_name) ?></h1>
+                        <h2 style="font-size: 18px; font-weight: 600; color: #475569; margin-bottom: 30px;"><?= htmlspecialchars($client_name) ?></h2>
+                        
+                        <div style="border-top: 2px solid #e2e8f0; width: 60px; margin: 0 auto 30px auto;"></div>
+                        
+                        <h3 style="font-size: 24px; font-weight: 800; color: #3b82f6; text-transform: uppercase; letter-spacing: 1px;">Cash Management Report</h3>
+                        <p style="font-size: 14px; font-weight: 500; color: #64748b; margin-top: 15px;">
+                            For the Period: <span x-text="new Date(reportMonth + '-15').toLocaleDateString('en-US', {month:'long', year:'numeric'})" style="color: #0f172a; font-weight: 700;"></span>
+                        </p>
+                        
+                        <p style="font-size: 10px; color: #94a3b8; margin-top: 60px; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">
+                            Generated Automatically by MiAuditOps System on <?= date('F j, Y') ?>
+                        </p>
+                    </div>
                 </div>
 
                 <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden print-no-border" id="cash-report-content">
