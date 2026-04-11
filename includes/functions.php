@@ -447,6 +447,13 @@ function get_active_client() {
  * Set the active client in session
  */
 function set_active_client($client_id) {
+    // Clear module-specific outlet contexts when switching clients
+    // so stale outlet IDs from the previous client don't cause data loss
+    $previous_client = $_SESSION['active_client_id'] ?? null;
+    if ($previous_client && $previous_client != $client_id) {
+        unset($_SESSION['retail_audit_outlet_id']);
+    }
+
     $_SESSION['active_client_id'] = $client_id;
     // Also store client name for display
     global $pdo;

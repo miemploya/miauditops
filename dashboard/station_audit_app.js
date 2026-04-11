@@ -28,6 +28,20 @@ function stationAudit() {
                 return true;
             });
         },
+        get groupedSessions() {
+            const groups = {};
+            this.filteredSessions.forEach(s => {
+                const name = s.outlet_name || 'Unassigned Station';
+                if (!groups[name]) groups[name] = [];
+                groups[name].push(s);
+            });
+            // Sort each group's sessions by date desc
+            Object.values(groups).forEach(arr => {
+                arr.sort((a, b) => (b.date_to || '').localeCompare(a.date_to || ''));
+            });
+            // Return sorted groups alphabetically by outlet name
+            return Object.keys(groups).sort().map(k => ({ outlet_name: k, sessions: groups[k] }));
+        },
         products: ['PMS', 'AGO', 'DPK', 'LPG'],
         tabs: [
             { id: 'system_sales', label: 'System Sales', icon: 'credit-card', activeClass: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300' },
@@ -52,6 +66,7 @@ function stationAudit() {
         showDenom: false,
         showPosTerminals: false,
         showTransferTerminals: false,
+        openingSession: false,
 
         // Denominations (Nigerian Naira)
         denominations: [
@@ -85,6 +100,7 @@ function stationAudit() {
         _dFuelMode: 'tank',
         _dTruckLBefore: 0,
         _dTruckLAfter: 0,
+
         expenseCategories: [],
         activeExpenseCatId: null,
         newExpenseCatName: '',
@@ -155,42 +171,8 @@ function stationAudit() {
         counterStockCountView: null,
 
         //  Lifecycle 
-        init() {
-            this.$watch('currentTab', val => localStorage.setItem('sa_currentTab', val));
-            this.$watch('lubeSubTab', val => localStorage.setItem('sa_lubeSubTab', val));
-            this.checkDeletePassword();
+        // (Logic merged into final init() at end of file to fix data bleeding)
 
-            // ── Auto-Save: debounced save on any input change ──
-            this.$nextTick(() => {
-                const el = this.$el;
-                if (!el) return;
-                el.addEventListener('input', (e) => {
-                    // Skip inputs inside modals (those have explicit save buttons)
-                    if (e.target.closest('[x-show*="Modal"], [x-show*="modal"], .modal')) return;
-                    // Skip search/filter inputs
-                    if (e.target.type === 'search' || (e.target.placeholder && /search|filter/i.test(e.target.placeholder))) return;
-
-                    const tab = this.currentTab;
-                    if (tab === 'sales') {
-                        this.autoSave('systemSales', () => this.saveSystemSales());
-                    } else if (tab === 'lube') {
-                        const subTab = this.lubeSubTab;
-                        if (subTab === 'store') {
-                            this.autoSave('lubeStore', () => this.saveLubeStoreItems());
-                        }
-                        // Counter items auto-save per section
-                        if (subTab === 'counters') {
-                            const secEl = e.target.closest('[data-section-id]');
-                            if (secEl) {
-                                const sid = secEl.dataset.sectionId;
-                                const sec = this.lubeSections.find(s => s.id == sid);
-                                if (sec) this.autoSave('counter_' + sid, () => this.saveLubeItems(sec));
-                            }
-                        }
-                    }
-                });
-            });
-        },
 
         // Computed
         get systemSalesTotal() {
@@ -650,13 +632,15 @@ function stationAudit() {
             } catch (e) { console.error('permanentDeleteTrash error', e); }
         },
         async loadSession(id) {
-            const fd = new FormData();
-            fd.append('action', 'get_session_data');
-            fd.append('session_id', id);
-            const res = await fetch('../ajax/station_audit_api.php', { method: 'POST', body: fd });
-            const r = await res.json();
-            if (r.success) {
-                this.activeSession = id;
+            this.openingSession = true;
+            try {
+                const fd = new FormData();
+                fd.append('action', 'get_session_data');
+                fd.append('session_id', id);
+                const res = await fetch('../ajax/station_audit_api.php', { method: 'POST', body: fd });
+                const r = await res.json();
+                if (r.success) {
+                    this.activeSession = id;
                 this.sessionData = r;
                 // Persist session in URL hash
                 this._updateHash();
@@ -743,6 +727,12 @@ function stationAudit() {
                 });
                 this.$nextTick(() => lucide.createIcons());
             } else { this.toast(r.message, false); }
+            } catch (e) {
+                console.error('loadSession error', e);
+                this.toast('Failed to load session data', false);
+            } finally {
+                this.openingSession = false;
+            }
         },
 
         // 
@@ -1382,6 +1372,7 @@ function stationAudit() {
                 this.activeDebtorId = r.id;
                 this.newDebtorName = '';
                 this.toast('Debtor account created');
+                this.$nextTick(() => lucide.createIcons());
             } else { this.toast(r.message, false); }
         },
         async addDebtorEntry() {
@@ -1402,6 +1393,7 @@ function stationAudit() {
                 if (acct) acct.ledger.push({ id: r.id, entry_date: e.entry_date, description: e.description, debit: e.debit, credit: e.credit });
                 this.newLedgerEntry = { entry_date: new Date().toISOString().slice(0, 10), description: '', debit: 0, credit: 0 };
                 this.toast('Ledger entry added');
+                this.$nextTick(() => lucide.createIcons());
             } else { this.toast(r.message, false); }
         },
         toggleEditDebtorEntry(entry) {
@@ -1416,6 +1408,7 @@ function stationAudit() {
                     credit: parseFloat(entry.credit) || 0
                 };
             }
+            this.$nextTick(() => lucide.createIcons());
         },
         async saveDebtorEntry(entry) {
             const e = entry._edit;
@@ -1435,6 +1428,7 @@ function stationAudit() {
                 entry.credit = e.credit;
                 entry._editing = false;
                 this.toast('Entry updated');
+                this.$nextTick(() => lucide.createIcons());
             } else { this.toast(r.message, false); }
         },
         async deleteDebtorEntry(entryId) {
@@ -1444,6 +1438,7 @@ function stationAudit() {
                 const acct = this.debtorAccounts.find(a => a.id == this.activeDebtorId);
                 if (acct) acct.ledger = acct.ledger.filter(e => e.id != entryId);
                 this.toast('Entry deleted');
+                this.$nextTick(() => lucide.createIcons());
             } else { this.toast(r.message, false); }
         },
         // Aggregate debtor entries by description across ALL accounts
@@ -1467,6 +1462,7 @@ function stationAudit() {
                 this.debtorAccounts = this.debtorAccounts.filter(a => a.id != accountId);
                 if (this.activeDebtorId == accountId) this.activeDebtorId = this.debtorAccounts.length ? this.debtorAccounts[0].id : null;
                 this.toast('Debtor account deleted');
+                this.$nextTick(() => lucide.createIcons());
             } else { this.toast(r.message, false); }
         },
         async renameDebtorAccount(accountId) {
@@ -1749,6 +1745,49 @@ function stationAudit() {
         get lubeConsolidationTotalValue() {
             return this.lubeConsolidation.reduce((s, r) => s + r.total_value, 0);
         },
+        //  Margin Analysis: Profit Sold (Realized) & Expected Unsold (Unrealized) 
+        get lubeMarginAnalysis() {
+            const map = {};
+            this.lubeConsolidation.forEach(lc => {
+                const key = lc.product_name;
+                const cp = parseFloat(lc.cost_price || 0);
+                const product = this.lubeProducts.find(p => p.product_name === key);
+                const sp = product ? parseFloat(product.selling_price || 0) : parseFloat(this.lubeStoreItems.find(s=>s.item_name===key)?.selling_price || 0);
+                
+                map[key] = {
+                    product_name: key, cp: cp, sp: sp, unit_margin: sp - cp,
+                    sold_qty: 0, unsold_qty: lc.total_closing,
+                    realized_margin: 0, unrealized_margin: lc.total_closing * (sp - cp)
+                };
+            });
+
+            this.lubeSections.forEach(ls => {
+                (ls.items || []).forEach(it => {
+                    const key = it.item_name;
+                    const sold = this.counterItemSold(it);
+                    if (!map[key]) {
+                        const product = this.lubeProducts.find(p => p.product_name === key);
+                        const cp = parseFloat(product?.cost_price || 0);
+                        const sp = parseFloat(product?.selling_price || it.selling_price || 0);
+                        map[key] = {
+                            product_name: key, cp: cp, sp: sp, unit_margin: sp - cp,
+                            sold_qty: sold, unsold_qty: 0,
+                            realized_margin: sold * (sp - cp), unrealized_margin: 0
+                        };
+                    } else {
+                        map[key].sold_qty += sold;
+                        map[key].realized_margin = map[key].sold_qty * map[key].unit_margin;
+                    }
+                });
+            });
+            return Object.values(map);
+        },
+        get lubeMarginAnalysisTotalRealized() {
+            return this.lubeMarginAnalysis.reduce((s, r) => s + r.realized_margin, 0);
+        },
+        get lubeMarginAnalysisTotalUnrealized() {
+            return this.lubeMarginAnalysis.reduce((s, r) => s + r.unrealized_margin, 0);
+        },
         async signOff(role) {
             if (!confirm('Confirm sign-off as ' + role + '?')) return;
             const r = await this.api('sign_off', { session_id: this.activeSession, role: role, comments: this.signoffComments });
@@ -1874,6 +1913,28 @@ function stationAudit() {
             const r = await this.api('delete_lube_grn', { id: g.id });
             if (r.success) { this.lubeGrns = this.lubeGrns.filter(x => x.id !== g.id); this.toast('GRN deleted'); }
             else { this.toast(r.message, false); }
+        },
+        async pushLubeGrn(g) {
+            if (!confirm('Push GRN ' + (g.grn_number || g.id) + ' to Lube Store? This will increase your inventory.')) return;
+            const r = await this.api('push_lube_grn', { id: g.id });
+            if (r.success) {
+                g.status = 'pushed';
+                this.toast('GRN pushed successfully');
+                await this.loadLubeData();
+                if (this.activeSession) await this.loadSession(this.activeSession);
+                this.$nextTick(() => lucide.createIcons());
+            } else { this.toast(r.message, false); }
+        },
+        async reverseLubeGrn(g) {
+            if (!confirm('Reverse GRN ' + (g.grn_number || g.id) + '? This will remove the received items from your Lube Store.')) return;
+            const r = await this.api('reverse_lube_grn', { id: g.id });
+            if (r.success) {
+                g.status = 'reversed';
+                this.toast('GRN reversed');
+                await this.loadLubeData();
+                if (this.activeSession) await this.loadSession(this.activeSession);
+                this.$nextTick(() => lucide.createIcons());
+            } else { this.toast(r.message, false); }
         },
 
         //  Stock Count methods 
@@ -2062,6 +2123,7 @@ function stationAudit() {
             if (rsc.success) this.lubeStockCounts = rsc.counts || [];
             this.lubeGrnLoaded = true;
             this.syncStoreFromProducts();
+            this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
         },
 
         //  Report PDF Builder 
@@ -2875,6 +2937,37 @@ function stationAudit() {
                 </div>`;
             }
 
+            const marginRows = this.lubeMarginAnalysis.map(m => {
+                const colorRealized = m.realized_margin < 0 ? '#ef4444' : '#166534';
+                const bgRealized = m.realized_margin < 0 ? '#fef2f2' : '#f0fdf4';
+                const colorUnrealized = m.unrealized_margin < 0 ? '#ef4444' : '#a16207';
+                const bgUnrealized = m.unrealized_margin < 0 ? '#fef2f2' : '#fefce8';
+                return `<tr>
+                    <td style="padding:4px 10px;font-weight:700;font-size:9px;border-bottom:1px solid #e2e8f0">${esc(m.product_name)}</td>
+                    <td class="font-mono" style="text-align:right;padding:4px 10px;font-size:9px;border-bottom:1px solid #e2e8f0">${fmt(m.sp)}</td>
+                    <td class="font-mono" style="text-align:right;padding:4px 10px;font-size:9px;border-bottom:1px solid #e2e8f0">${fmt(m.cp)}</td>
+                    <td class="font-mono" style="text-align:center;padding:4px 10px;font-weight:700;font-size:9px;border-bottom:1px solid #e2e8f0">${m.sold_qty}</td>
+                    <td class="font-mono" style="text-align:center;padding:4px 10px;font-weight:700;font-size:9px;border-bottom:1px solid #e2e8f0">${m.unsold_qty}</td>
+                    <td class="font-mono" style="background:${bgRealized};color:${colorRealized};text-align:right;padding:4px 10px;font-weight:800;font-size:9px;border-bottom:1px solid #e2e8f0">${fmt(m.realized_margin)}</td>
+                    <td class="font-mono" style="background:${bgUnrealized};color:${colorUnrealized};text-align:right;padding:4px 10px;font-weight:800;font-size:9px;border-bottom:1px solid #e2e8f0">${fmt(m.unrealized_margin)}</td>
+                </tr>`;
+            }).join('');
+            
+            let section07 = '';
+            if (this.lubeMarginAnalysis.length > 0) {
+                section07 = `
+                <div style="margin-top:24px;">
+                    ${sectionTitle(7, 'Margin Analysis', 'Lubricant Profitability')}
+                    ${tbl(
+                    [{ label: 'Product' }, { label: 'Sell Price', right: true }, { label: 'Cost Price', right: true }, { label: 'Qty Sold', right: false }, { label: 'Qty Unsold', right: false }, { label: 'Profit Sold', right: true }, { label: 'Expected Unsold', right: true }],
+                    marginRows,
+                    `<td colspan="5" style="padding:10px 12px;font-weight:900;font-size:10px;text-transform:uppercase;background:#f8fafc;color:#0f172a">Total Profit Margins</td>
+                     <td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:10px;color:#166534;background:#f0fdf4">${fmt(this.lubeMarginAnalysisTotalRealized)}</td>
+                     <td class="font-mono" style="text-align:right;padding:10px 12px;font-weight:900;font-size:10px;color:#a16207;background:#fefce8">${fmt(this.lubeMarginAnalysisTotalUnrealized)}</td>`
+                )}
+                </div>`;
+            }
+
             const page4 = `
             <div class="page">
                 ${sectionTitle(5, 'Variance Analysis', 'Pump vs Tank Comparison')}
@@ -2890,6 +2983,7 @@ function stationAudit() {
                 </div>
 
                 ${section06}
+                ${section07}
                 ${pageFooter(4)}
             </div>`;
 
@@ -3212,59 +3306,13 @@ function stationAudit() {
             return { html, station, dateFrom, dateTo };
         },
 
-        //  Preview Final Report (fullscreen overlay) 
+        //  Preview Final Report (New Tab)
         previewFinalReport() {
             const { html } = this._buildFinalReportHTML();
-            const existing = document.getElementById('final-rpt-preview-overlay');
-            if (existing) existing.remove();
-
-            const overlay = document.createElement('div');
-            overlay.id = 'final-rpt-preview-overlay';
-            overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.92);backdrop-filter:blur(8px);display:flex;flex-direction:column;';
-            overlay.innerHTML = `
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:#000;border-bottom:1px solid rgba(255,255,255,.1);flex-shrink:0">
-                    <div style="display:flex;align-items:center;gap:10px">
-                        <div style="width:34px;height:34px;border-radius:8px;background:#f59e0b;display:flex;align-items:center;justify-content:center">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" width="18" height="18"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                        </div>
-                        <div>
-                            <h3 style="color:#fff;font-size:13px;font-weight:800;margin:0">Final Report Preview</h3>
-                            <p style="color:#94a3b8;font-size:10px;margin:0">Scroll to review all pages &bull; Zoom to adjust</p>
-                        </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:8px">
-                        <button id="frpt-zoom-out" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700"></button>
-                        <span id="frpt-zoom-label" style="color:#94a3b8;font-size:11px;min-width:38px;text-align:center">100%</span>
-                        <button id="frpt-zoom-in" style="width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:15px;font-weight:700">+</button>
-                        <div style="width:1px;height:24px;background:rgba(255,255,255,.1);margin:0 4px"></div>
-                        <button id="frpt-preview-download" style="padding:7px 14px;border-radius:8px;background:#f59e0b;border:none;color:#000;cursor:pointer;font-size:11px;font-weight:800"> Download PDF</button>
-                        <button id="frpt-preview-close" style="width:30px;height:30px;border-radius:6px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;font-size:16px;line-height:1"></button>
-                    </div>
-                </div>
-                <div style="flex:1;overflow-y:auto;padding:24px;display:flex;justify-content:center">
-                    <div id="frpt-preview-scaler" style="transform-origin:top center;transition:transform .2s">
-                        <iframe id="frpt-preview-frame" style="width:860px;border:none;border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,.5);background:#fff;" scrolling="no"></iframe>
-                    </div>
-                </div>`;
-
-            document.body.appendChild(overlay);
-
-            const frame = document.getElementById('frpt-preview-frame');
-            frame.srcdoc = html;
-            frame.onload = () => { frame.style.height = (frame.contentDocument.body.scrollHeight + 32) + 'px'; };
-
-            let zoom = 100;
-            const scaler = document.getElementById('frpt-preview-scaler');
-            const label = document.getElementById('frpt-zoom-label');
-            const updateZoom = () => { scaler.style.transform = `scale(${zoom / 100})`; label.textContent = zoom + '%'; };
-
-            document.getElementById('frpt-zoom-in').addEventListener('click', () => { if (zoom < 150) { zoom += 10; updateZoom(); } });
-            document.getElementById('frpt-zoom-out').addEventListener('click', () => { if (zoom > 50) { zoom -= 10; updateZoom(); } });
-            document.getElementById('frpt-preview-close').addEventListener('click', () => overlay.remove());
-            document.getElementById('frpt-preview-download').addEventListener('click', () => this.downloadFinalReport());
-
-            const esc2 = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc2); } };
-            document.addEventListener('keydown', esc2);
+            const pw = window.open('', '_blank');
+            if (!pw) return this.toast('Pop-up blocked  please allow pop-ups', false);
+            pw.document.write(html);
+            pw.document.close();
         },
 
         //  Download Final Report PDF 
@@ -3291,15 +3339,96 @@ function stationAudit() {
             }
         },
 
+        // ── Lube History (Undo/Redo) ──
+        async undoLube() {
+            this.loading = true;
+            const r = await this.api('undo_lube_action', { session_id: this.activeSession });
+            this.loading = false;
+            if (r.success) {
+                this.toast('Action undone: ' + (r.description || ''));
+                await this.loadSession(this.activeSession);
+            } else { this.toast(r.message || 'Nothing to undo', false); }
+        },
+        async redoLube() {
+            this.loading = true;
+            const r = await this.api('redo_lube_action', { session_id: this.activeSession });
+            this.loading = false;
+            if (r.success) {
+                this.toast('Action redone: ' + (r.description || ''));
+                await this.loadSession(this.activeSession);
+            } else { this.toast(r.message || 'Nothing to redo', false); }
+        },
+        async rollbackLube(hours) {
+            if (!confirm(`Are you sure you want to rollback all Lubricant data to its state ${hours} hours ago? This cannot be easily reversed if multiple actions occurred since then.`)) return;
+            this.loading = true;
+            const r = await this.api('rollback_lube_to_time', { session_id: this.activeSession, hours: hours });
+            this.loading = false;
+            if (r.success) {
+                this.toast(`Rolled back Lubricant data to ${hours}h ago`);
+                await this.loadSession(this.activeSession);
+            } else { this.toast(r.message, false); }
+        },
+        async unpushLubeGrn(grn) {
+            if (!confirm('Return this GRN to Draft? This will subtract these quantities from your current stock levels.')) return;
+            this.saving = true;
+            const r = await this.api('unpush_lube_grn', { id: grn.id, session_id: this.activeSession });
+            this.saving = false;
+            if (r.success) {
+                grn.status = 'draft';
+                this.toast('GRN returned to draft and stock updated');
+                await this.loadLubeData();
+            } else { this.toast(r.message, false); }
+        },
+
         init() {
-            this.$nextTick(() => lucide.createIcons());
+            // Restore watches & listeners from the original first init()
+            this.$watch('currentTab', (val) => {
+                localStorage.setItem('sa_currentTab', val);
+                this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+            });
+            this.$watch('lubeSubTab', (val) => {
+                localStorage.setItem('sa_lubeSubTab', val);
+                this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+            });
+            this.checkDeletePassword();
+
+            // ── Auto-Save ──
+            this.$nextTick(() => {
+                const el = this.$el;
+                if (!el) return;
+                el.addEventListener('input', (e) => {
+                    if (e.target.closest('[x-show*="Modal"], [x-show*="modal"], .modal')) return;
+                    if (e.target.type === 'search' || (e.target.placeholder && /search|filter/i.test(e.target.placeholder))) return;
+
+                    const tab = this.currentTab;
+                    if (tab === 'sales') {
+                        this.autoSave('systemSales', () => this.saveSystemSales());
+                    } else if (tab === 'lube') {
+                        const subTab = this.lubeSubTab;
+                        if (subTab === 'store') {
+                            this.autoSave('lubeStore', () => this.saveLubeStoreItems());
+                        }
+                        if (subTab === 'counters') {
+                            const secEl = e.target.closest('[data-section-id]');
+                            if (secEl) {
+                                const sid = secEl.dataset.sectionId;
+                                const sec = this.lubeSections.find(s => s.id == sid);
+                                if (sec) this.autoSave('counter_' + sid, () => this.saveLubeItems(sec));
+                            }
+                        }
+                    }
+                });
+            });
+
+            // ── Logic from the second init() ──
+            this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
             this.$watch('currentTab', (tab) => {
-                this.$nextTick(() => lucide.createIcons());
+                this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
                 if (tab === 'lubricants' && !this.lubeGrnLoaded) this.loadLubeData();
                 this._updateHash();
             });
 
-            // Restore session & tab from URL hash on reload
+            // Restore from URL hash
             const hash = window.location.hash.slice(1);
             if (hash) {
                 const params = Object.fromEntries(hash.split('&').map(p => p.split('=')));

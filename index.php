@@ -239,7 +239,7 @@ try {
                     <i data-lucide="fuel" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Station Audit</span>
                 </button>
                 <button @click="activeTab='hotel'" :class="activeTab==='hotel' ? 'bg-fuchsia-600 shadow-lg shadow-fuchsia-500/30 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5'" class="w-full flex items-center justify-center sm:justify-start gap-3 p-2.5 rounded-xl transition-all">
-                    <i data-lucide="building" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Hotel Revenue</span>
+                    <i data-lucide="building" class="w-4 h-4"></i><span class="hidden sm:block text-sm font-semibold">Hotel Audit & Fraud Suite</span>
                 </button>
             </div>
             
@@ -470,11 +470,11 @@ try {
                     </div>
                 </div>
 
-                <!-- Hotel Revenue Tab -->
+                <!-- Hotel Audit & Fraud Suite Tab -->
                 <div x-show="activeTab==='hotel'" x-transition:enter="transition-all duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" style="display:none;">
                     <div class="flex items-center justify-between mb-8">
                         <div>
-                            <h2 class="text-2xl font-black text-slate-800 dark:text-white">Hotel Revenue</h2>
+                            <h2 class="text-2xl font-black text-slate-800 dark:text-white">Hotel Audit & Fraud Suite</h2>
                             <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Multi-channel PMS data reconciliation.</p>
                         </div>
                     </div>
@@ -590,14 +590,19 @@ try {
                             <span class="px-2.5 py-1 rounded-lg bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-300 text-xs font-semibold">Session Audit</span>
                             <span class="px-2.5 py-1 rounded-lg bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-300 text-xs font-semibold">General Report</span>
                         </div>
+                        <div class="mt-6">
+                            <a href="station_audit_guide.html" target="_blank" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-600 text-white text-sm font-bold shadow-lg shadow-orange-500/30 hover:scale-105 transition-all">
+                                <i data-lucide="file-down" class="w-4 h-4"></i> Official Operations Guide (PDF)
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Hotel Audit & Fraud Module (Featured) -->
+            <!-- Hotel Audit & Fraud Suite (Featured) -->
             <div class="group relative md:col-span-2 lg:col-span-3 bg-gradient-to-br from-indigo-50 via-blue-50 dark:from-indigo-600/10 dark:via-blue-600/5 to-white dark:to-slate-950 rounded-2xl border-2 border-indigo-300 dark:border-indigo-500/30 p-8 lg:p-10 hover:bg-indigo-100/50 dark:hover:bg-indigo-600/15 transition-all duration-300">
                 <div class="absolute top-4 right-4">
-                    <span class="px-3 py-1 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-lg shadow-indigo-500/30">Premium Module</span>
+                    <span class="px-3 py-1 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-lg shadow-indigo-500/30">Premium Suite</span>
                 </div>
                 <div class="lg:flex lg:items-start lg:gap-10">
                     <div class="flex-shrink-0 mb-6 lg:mb-0">
@@ -606,7 +611,7 @@ try {
                         </div>
                     </div>
                     <div class="flex-1">
-                        <h3 class="text-2xl font-black text-slate-800 dark:text-white mb-3">Hotel Audit & Fraud Module</h3>
+                        <h3 class="text-2xl font-black text-slate-800 dark:text-white mb-3">Hotel Audit & Fraud Suite</h3>
                         <p class="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-4">
                             The ultimate financial control suite for the hospitality industry. This module seamlessly ingests your daily expected room revenues and directly cross-references them against actual declared payment (CSV/Excel) to instantly expose missing funds, unrecorded inflows, and rate variances as well as overtime. Beyond strict financial reconciliation, it integrates rigorous Overtime Control and Check-in & Check-out tracking to prevent unauthorized manipulations. Complete with intelligent PDF parsing and professional, audit-ready cash management reports, this system ensures total financial integrity from your front desk to the bank.
                         </p>
@@ -616,6 +621,11 @@ try {
                             <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Overtime Control</span>
                             <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Shift Handovers</span>
                             <span class="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">Fraud Detection</span>
+                        </div>
+                        <div class="mt-6">
+                            <a href="hotel_audit_guide.html" target="_blank" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-bold shadow-lg shadow-slate-900/20 hover:scale-105 transition-all">
+                                <i data-lucide="file-down" class="w-4 h-4"></i> Official Operations Guide (PDF)
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -669,21 +679,7 @@ try {
                 </div>
             </div>
 
-            <!-- Executive Dashboard -->
-            <div class="group relative bg-gradient-to-br from-violet-100 dark:from-violet-600/20 to-purple-100 dark:to-purple-600/20 backdrop-blur-sm rounded-2xl border border-violet-300 dark:border-violet-500/30 p-8 hover:bg-violet-200/50 dark:hover:bg-violet-600/30 transition-all duration-300 hover:-translate-y-1">
-                <div class="absolute -top-4 -right-4 w-32 h-32 bg-violet-500/20 rounded-full blur-2xl"></div>
-                <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-xl shadow-violet-500/40 mb-6 group-hover:scale-110 transition-transform">
-                    <i data-lucide="layout-dashboard" class="w-7 h-7 text-white"></i>
-                </div>
-                <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-3">Executive Dashboard</h3>
-                <p class="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-4">A CEO-level command center with real-time KPIs — total revenue, expenses, net profit, stock value, open variances, and pending requisitions. Interactive charts visualize daily sales trends, outlet performance comparisons, and expense breakdowns. One screen, complete operational visibility — no spreadsheets needed.</p>
-                <div class="flex flex-wrap gap-2">
-                    <span class="px-2 py-1 rounded-lg bg-violet-200 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 text-xs font-semibold">Real-time KPIs</span>
-                    <span class="px-2 py-1 rounded-lg bg-violet-200 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 text-xs font-semibold">Interactive Charts</span>
-                    <span class="px-2 py-1 rounded-lg bg-violet-200 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 text-xs font-semibold">Outlet Comparisons</span>
-                    <span class="px-2 py-1 rounded-lg bg-violet-200 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 text-xs font-semibold">One-Screen View</span>
-                </div>
-            </div>
+
         </div>
     </div>
 </section>
@@ -727,6 +723,9 @@ try {
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Full Audit + Stock Modules
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Retail Audit Module
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Revenue & Expenses Tracking
@@ -779,6 +778,9 @@ try {
                         <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Station Audit Module
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Retail Audit Module
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Unlimited Data Retention
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
@@ -790,14 +792,14 @@ try {
                 </a>
             </div>
 
-            <!-- Hotel Revenue -->
+            <!-- Hotel Audit & Fraud Suite -->
             <div class="relative bg-gradient-to-b from-blue-50 dark:from-blue-600/10 to-white dark:to-slate-950 rounded-2xl border-2 border-blue-400 dark:border-blue-500/50 p-8 flex flex-col shadow-xl shadow-blue-500/10 hover:-translate-y-2 transition-all duration-300">
                 <div class="mb-6">
                     <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30 mb-4">
                         <i data-lucide="building" class="w-6 h-6 text-white"></i>
                     </div>
-                    <h3 class="text-xl font-black text-slate-800 dark:text-white">Hotel Revenue</h3>
-                    <span class="inline-block mt-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300 text-[10px] font-bold uppercase tracking-wider">Premium Module</span>
+                    <h3 class="text-xl font-black text-slate-800 dark:text-white">Hotel Audit & Fraud Suite</h3>
+                    <span class="inline-block mt-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300 text-[10px] font-bold uppercase tracking-wider">Premium Suite</span>
                 </div>
                 <div class="mb-6">
                     <span class="text-4xl font-black text-slate-800 dark:text-white">₦<?php echo $hotel_price; ?></span>
@@ -821,7 +823,7 @@ try {
                         <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Full P&L, Requisitions & Reports
                     </li>
                     <li class="flex items-start gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400">
-                        <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Hotel Revenue Audit
+                        <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Hotel Audit & Fraud Suite
                     </li>
                     <li class="flex items-start gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400">
                         <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Fixed Assets & Capital Allowance

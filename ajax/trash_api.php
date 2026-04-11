@@ -7,7 +7,7 @@ require_once '../includes/functions.php';
 require_once '../includes/trash_helper.php';
 header('Content-Type: application/json');
 
-if (!is_logged_in()) { echo json_encode(['success' => false, 'message' => 'Unauthorized']); exit; }
+if (!is_logged_in() || !is_admin_role()) { echo json_encode(['success' => false, 'message' => 'Unauthorized access']); exit; }
 
 $company_id = $_SESSION['company_id'];
 $user_id    = $_SESSION['user_id'];

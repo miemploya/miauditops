@@ -9,9 +9,20 @@ let auditData = [];      // All parsed records
 let overtimeData = [];   // Only overtime records
 let doubleSalesData = []; // Suspected double sold instances
 let reconAdjustments = []; // Custom recon line items
+let mgtSalesData = []; // Management Sales reports
+let earlyCheckinData = []; // Checked-in during 1 AM to 12 PM
 let currentSessionId = null; // ID of the currently active investigation
 let currentFileName = '';    // Source file name of active investigation
 let investigationStatus = 'under_investigation'; // under_investigation | concluded | final
+
+// Mapping State
+let currentlyParsedRows = null;
+let customHeaders = [];
+
+// Policy State
+let policyGraceMins = parseInt(localStorage.getItem('policyGraceMins')) || 0;
+let policyHalfHours = parseFloat(localStorage.getItem('policyHalfHours')) || 3.0;
+let policyFullHours = parseFloat(localStorage.getItem('policyFullHours')) || 8.0;
 
 // ============ DOM REFS ============
 const uploadZone = document.getElementById('uploadZone');
@@ -67,7 +78,7 @@ function handleFile(file) {
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             if (rows.length < 2) { alert('File is empty.'); spinner.classList.remove('show'); return; }
-            processAudit(rows);
+            detectAndRouteData(rows);
         } catch (err) {
             alert('Error: ' + err.message);
         } finally {
@@ -75,6 +86,38 @@ function handleFile(file) {
         }
     };
     reader.readAsArrayBuffer(file);
+}
+
+// ============ ROUTING ============
+function detectAndRouteData(rows) {
+    const headers = rows[0].map(h => String(h).trim().toLowerCase());
+    
+    // Check for Option 1 Features (PMS)
+    let hasPMSCheckin = headers.some(h => h.includes('time of check') || (h.includes('check') && h.includes('in') && h.includes('out')));
+    let hasPMSActualOut = headers.some(h => h.includes('default check') || h.includes('default checkout') || h.includes('actual check'));
+
+    if (hasPMSCheckin && hasPMSActualOut) {
+        if(typeof showToast === 'function') showToast('Detected PMS Export Format');
+        processAudit(rows);
+        return;
+    }
+
+    // Check for Option 2 Features (Standard Template)
+    let hasTplRoom = headers.includes('room no');
+    let hasTplCheckIn = headers.includes('check-in date/time');
+    let hasTplExpOut = headers.includes('expected check-out');
+    let hasTplActOut = headers.includes('actual check-out');
+
+    if (hasTplRoom && hasTplCheckIn && hasTplExpOut && hasTplActOut) {
+        if(typeof showToast === 'function') showToast('Detected Standard Template Format');
+        processTemplateUpload(rows, headers);
+        return;
+    }
+
+    // Fallback: Option 3 (Custom Mapping)
+    currentlyParsedRows = rows;
+    customHeaders = rows[0].map(h => String(h).trim());
+    openMappingModal(customHeaders);
 }
 
 // ============ PROCESS AUDIT ============
@@ -86,6 +129,7 @@ function processAudit(rows) {
     let actualOutCol = -1; // "Default Check-Out Time"
     let roomTypeCol = -1;  // "Room type" (contains room rate)
     let roomCol = -1;      // "Room" (for double sales grouping)
+    let nameCol = -1;      // "Customer Name" or "Guest"
 
     for (let i = 0; i < headers.length; i++) {
         const h = headers[i];
@@ -100,6 +144,9 @@ function processAudit(rows) {
         }
         if (h === 'room' || h === 'room no' || h === 'room number') {
             roomCol = i;
+        }
+        if (h.includes('name') || h.includes('guest') || h.includes('customer')) {
+            nameCol = i;
         }
     }
 
@@ -119,6 +166,7 @@ function processAudit(rows) {
         const actualRaw = String(rows[r][actualOutCol] || '').trim();
         const roomTypeRaw = roomTypeCol !== -1 ? String(rows[r][roomTypeCol] || '').trim() : '';
         const roomNameRaw = roomCol !== -1 ? String(rows[r][roomCol] || '').trim() : '';
+        const customerName = nameCol !== -1 ? String(rows[r][nameCol] || '').trim() : 'N/A';
 
         if (!checkinRaw || !actualRaw) continue;
 
@@ -149,13 +197,27 @@ function processAudit(rows) {
 
         // Calculate overtime
         const diffMs = actualOut.getTime() - dates.expectedOut.getTime();
-        const diffHours = diffMs / (1000 * 60 * 60);
-        const isOvertime = diffHours > 0;
+        let diffHours = diffMs / (1000 * 60 * 60);
+        let isOvertime = diffHours > 0;
 
-        // Overtime charge: proportional to daily rate
+        if (isOvertime && (diffMs / 60000) <= policyGraceMins) {
+            isOvertime = false;
+        }
+
+        // Overtime charge: tiered billing logic
         let overtimeCharge = 0;
+        let capType = 'None';
         if (isOvertime && dailyRate > 0) {
-            overtimeCharge = (dailyRate / 24) * diffHours;
+            if (diffHours <= policyHalfHours) {
+                capType = 'Fractional';
+                overtimeCharge = (dailyRate / 24) * diffHours;
+            } else if (diffHours > policyHalfHours && diffHours <= policyFullHours) {
+                capType = 'Half-Day';
+                overtimeCharge = dailyRate * 0.50;
+            } else {
+                capType = 'Full-Day';
+                overtimeCharge = dailyRate;
+            }
         }
 
         auditData.push({
@@ -163,6 +225,7 @@ function processAudit(rows) {
             expectedOut: dates.expectedOut,
             actualOut,
             roomName: roomNameRaw,
+            customerName,
             roomType,
             amount,
             stayNights,
@@ -170,27 +233,37 @@ function processAudit(rows) {
             diffHours,
             isOvertime,
             overtimeCharge,
+            capType,
             checkinRaw,
             actualRaw
         });
     }
 
+    finalizeAudit();
+}
+
+// ============ FINALIZE AUDIT ============
+function finalizeAudit() {
     if (auditData.length === 0) { alert('No records could be parsed.'); return; }
 
     // Filter overtime records
     overtimeData = auditData.filter(d => d.isOvertime);
 
     // Calculate Double Sales
+    // Calculate Double Sales and Early Check-ins
     calculateDoubleSales();
+    calculateEarlyCheckins();
 
     // Reset recon fields
     document.getElementById('reconCash').value = '';
     document.getElementById('reconPOS').value = '';
     document.getElementById('reconTransfer').value = '';
     reconAdjustments = [];
+    mgtSalesData = [];
 
     renderSummary();
     renderDoubleSalesTable();
+    renderEarlyCheckinsTable();
     renderOvertimeTable();
     renderAllTable();
 
@@ -213,7 +286,7 @@ function processAudit(rows) {
     showToast('Investigation saved: ' + currentFileName);
 }
 
-// ============ CALCULATE DOUBLE SALES ============
+// ============ CALCULATE DOUBLE SALES (HYBRID ENGINE) ============
 function calculateDoubleSales() {
     doubleSalesData = [];
     const roomsMap = {};
@@ -236,22 +309,59 @@ function calculateDoubleSales() {
             dateGroups[dateStr].push(b);
         });
 
+        // Isolate each specific calendar day
         Object.keys(dateGroups).forEach(dateStr => {
-            if (dateGroups[dateStr].length > 1) {
-                // Sort by checkIn time
-                const dayBookings = dateGroups[dateStr].sort((a, b) => a.checkIn - b.checkIn);
-
-                // Calculate total fraud value (sum of dailyRates for 2nd booking onwards)
-                let fraudVal = 0;
+            const dayBookings = dateGroups[dateStr];
+            
+            // Only care if there are MULTIPLE check-ins on the exact same day
+            if (dayBookings.length > 1) {
+                // Sort chronologically
+                dayBookings.sort((a, b) => a.checkIn - b.checkIn);
+                
+                let dayFraudVal = 0;
+                
+                // Compare subsequent bookings against the previous one on that day
                 for (let i = 1; i < dayBookings.length; i++) {
-                    fraudVal += dayBookings[i].dailyRate;
+                    const current = dayBookings[i];
+                    const prev = dayBookings[i-1];
+                    const anchor = dayBookings[0];
+                    
+                    // 1. CRITICAL: Time Overlap (Current checked in BEFORE Previous checked out)
+                    if (current.checkIn < prev.actualOut) {
+                        current.dsFlagType = 'CRITICAL (Time Overlap)';
+                    }
+                    // 2. WARNING: Same-Day, but no explicit time overlap (sequential short-time)
+                    else {
+                        current.dsFlagType = 'WARNING (Same-Day Back-to-Back)';
+                    }
+                    
+                    // Auto-clear ones that are already captured perfectly in Base Room Revenue
+                    if (current.dailyRate > 0 && current.isVerified === undefined) {
+                        current.isVerified = true;
+                        current.autoCleared = true;
+                    }
+                    
+                    // The financial value of the fraud is the actual price of the room
+                    const trueLoss = anchor.dailyRate || current.dailyRate;
+                    current.trueLossValue = trueLoss;
+                    current.uncapturedLoss = Math.max(0, trueLoss - (current.dailyRate || 0));
+                    
+                    // Add fraud value for unverified double sales
+                    if (!current.isVerified) {
+                        dayFraudVal += trueLoss;
+                        
+                        if (current.dailyRate === 0) {
+                            current.dsFlagType += ' [UNPRICED]';
+                        }
+                    }
                 }
-
+                
+                // Push the single specific date group to the UI array
                 doubleSalesData.push({
                     roomName: room,
                     dateStr: dateStr,
                     checkInLogs: dayBookings,
-                    fraudValue: fraudVal
+                    fraudValue: dayFraudVal
                 });
             }
         });
@@ -259,6 +369,55 @@ function calculateDoubleSales() {
 
     // Sort by highest fraud value
     doubleSalesData.sort((a, b) => b.fraudValue - a.fraudValue);
+}
+
+// ============ CALCULATE EARLY CHECK-INS ============
+function calculateEarlyCheckins() {
+    earlyCheckinData = [];
+    
+    auditData.forEach(d => {
+        if (!d.checkIn) return;
+        const hr = d.checkIn.getHours();
+        const min = d.checkIn.getMinutes();
+        
+        let riskLvl = null; // null | 'high' | 'warning'
+        
+        if (hr >= 0 && hr < 7) {
+            // 12:00 AM (Midnight) to 6:59 AM
+            riskLvl = 'high';
+        }
+        
+        if (riskLvl) {
+            // Detect "Stealth Checkout" pattern
+            let isStealthCheckout = false;
+            if (d.actualOut) {
+                const sameDay = d.checkIn.toDateString() === d.actualOut.toDateString();
+                const outHr = d.actualOut.getHours();
+                if (sameDay && outHr < 9) {
+                    isStealthCheckout = true;
+                }
+            }
+
+            // Automatch with Base Revenue: if the cashier priced the room normally, auto-strike it
+            if (d.dailyRate > 0 && d.isEarlyVerified === undefined) {
+                d.isEarlyVerified = true;
+                d.autoClearedEarly = true;
+            }
+
+            earlyCheckinData.push({
+                record: d,
+                risk: riskLvl,
+                stealthOut: isStealthCheckout
+            });
+        }
+    });
+
+    // Sort by most extreme early time (closest to 1 AM)
+    earlyCheckinData.sort((a, b) => {
+        const timeA = a.record.checkIn.getHours() * 60 + a.record.checkIn.getMinutes();
+        const timeB = b.record.checkIn.getHours() * 60 + b.record.checkIn.getMinutes();
+        return timeA - timeB;
+    });
 }
 
 // ============ PARSE CHECKIN PERIOD ============
@@ -342,10 +501,26 @@ function calculateRecon() {
     const pos = parseFloat(document.getElementById('reconPOS').value) || 0;
     const transfer = parseFloat(document.getElementById('reconTransfer').value) || 0;
 
-    const sysBase = auditData.reduce((s, d) => s + d.dailyRate, 0);
+    const sysBase = auditData.reduce((s, d) => s + (!d.revenueExemptType ? d.dailyRate : 0), 0);
     const sysOT = overtimeData.reduce((s, d) => s + (d.isRectified ? d.rectifiedAmount : d.overtimeCharge), 0);
     const sysFraud = doubleSalesData.reduce((s, d) => s + (d.isRectified ? d.rectifiedAmount : d.fraudValue), 0);
-    const sysTotal = sysBase + sysOT + sysFraud;
+    
+    // Only add fraud that WAS NOT already exported in the Base Room Revenue (to avoid double charging cashiers)
+    let uncapturedFraud = 0;
+    doubleSalesData.forEach(d => {
+        if (d.isRectified && d.rectifiedAmount > 0) {
+            // For forced manual rectifications, trust the auditor
+            uncapturedFraud += d.rectifiedAmount;
+        } else if (d.checkInLogs) {
+            d.checkInLogs.forEach((log, j) => {
+                if (j > 0 && !log.isVerified && log.uncapturedLoss) {
+                    uncapturedFraud += log.uncapturedLoss;
+                }
+            });
+        }
+    });
+
+    const sysTotal = sysBase + sysOT + uncapturedFraud;
 
     document.getElementById('reconBase').textContent = '₦' + formatNum(sysBase);
     document.getElementById('reconOT').textContent = '₦' + formatNum(sysOT);
@@ -354,6 +529,10 @@ function calculateRecon() {
 
     const declaredTotal = cash + pos + transfer;
     document.getElementById('reconDeclaredTotal').textContent = '₦' + formatNum(declaredTotal);
+
+    let mgtTotal = 0;
+    mgtSalesData.forEach(m => mgtTotal += m.amount);
+    document.getElementById('reconMgtTotal').textContent = '₦' + formatNum(mgtTotal);
 
     let adjNet = 0;
     reconAdjustments.forEach(adj => {
@@ -364,13 +543,34 @@ function calculateRecon() {
     const netExpected = sysTotal + adjNet;
     document.getElementById('reconNetExpected').textContent = '₦' + formatNum(netExpected);
 
-    const variance = declaredTotal - netExpected;
+    // Hit 1: Declared vs Management
+    const hit1 = declaredTotal - mgtTotal;
+    const h1AmtEl = document.getElementById('reconHit1Amt');
+    const h1StatEl = document.getElementById('reconHit1Status');
+    h1AmtEl.textContent = (hit1 < 0 ? '-' : '') + '₦' + formatNum(Math.abs(hit1));
+    if (hit1 === 0 && mgtTotal > 0) { h1AmtEl.style.color = 'var(--text)'; h1StatEl.className = 'v-status balanced'; h1StatEl.textContent = 'BALANCED'; }
+    else if (hit1 < 0) { h1AmtEl.style.color = '#ef5350'; h1StatEl.className = 'v-status shortage'; h1StatEl.textContent = 'SHORTAGE'; }
+    else if (hit1 > 0) { h1AmtEl.style.color = '#29b6f6'; h1StatEl.className = 'v-status surplus'; h1StatEl.textContent = 'SURPLUS'; }
+    else { h1AmtEl.style.color = 'var(--text)'; h1StatEl.className = 'v-status balanced'; h1StatEl.textContent = '-'; }
+
+    // Hit 2: Management vs Net Adjusted System
+    const hit2 = mgtTotal - netExpected;
+    const h2AmtEl = document.getElementById('reconHit2Amt');
+    const h2StatEl = document.getElementById('reconHit2Status');
+    h2AmtEl.textContent = (hit2 < 0 ? '-' : '') + '₦' + formatNum(Math.abs(hit2));
+    if (hit2 === 0 && mgtTotal > 0) { h2AmtEl.style.color = 'var(--text)'; h2StatEl.className = 'v-status balanced'; h2StatEl.textContent = 'BALANCED'; }
+    else if (hit2 < 0) { h2AmtEl.style.color = '#ef5350'; h2StatEl.className = 'v-status shortage'; h2StatEl.textContent = 'SHORTAGE'; }
+    else if (hit2 > 0) { h2AmtEl.style.color = '#29b6f6'; h2StatEl.className = 'v-status surplus'; h2StatEl.textContent = 'SURPLUS'; }
+    else { h2AmtEl.style.color = 'var(--text)'; h2StatEl.className = 'v-status balanced'; h2StatEl.textContent = '-'; }
+
+    // Final Variance
+    const variance = hit1 + hit2; // exactly equals (declared - netExpected)
     const vAmtEl = document.getElementById('reconVarianceAmt');
     const vStatusEl = document.getElementById('reconVarianceStatus');
 
     vAmtEl.textContent = (variance < 0 ? '-' : '') + '₦' + formatNum(Math.abs(variance));
 
-    if (variance === 0) {
+    if (variance === 0 && declaredTotal > 0) {
         vAmtEl.style.color = 'var(--text)';
         vStatusEl.className = 'v-status balanced';
         vStatusEl.textContent = 'PERFECTLY BALANCED';
@@ -378,15 +578,56 @@ function calculateRecon() {
         vAmtEl.style.color = '#ef5350';
         vStatusEl.className = 'v-status shortage';
         vStatusEl.textContent = 'SHORTAGE';
-    } else {
+    } else if (variance > 0) {
         vAmtEl.style.color = '#29b6f6';
         vStatusEl.className = 'v-status surplus';
         vStatusEl.textContent = 'SURPLUS';
+    } else {
+        vAmtEl.style.color = 'var(--text)';
+        vStatusEl.className = 'v-status balanced';
+        vStatusEl.textContent = 'BALANCED';
     }
 
     // Auto-save on any recon change (debounced)
     clearTimeout(calculateRecon._debounce);
     calculateRecon._debounce = setTimeout(() => saveAuditState(false), 800);
+}
+
+function addMgtSales() {
+    const lbl = document.getElementById('mgtSalesLabel').value.trim();
+    const amt = parseFloat(document.getElementById('mgtSalesAmt').value) || 0;
+    if (!lbl || amt <= 0) return;
+
+    mgtSalesData.push({ id: Date.now(), label: lbl, amount: amt });
+    document.getElementById('mgtSalesLabel').value = '';
+    document.getElementById('mgtSalesAmt').value = '';
+    renderMgtSales();
+    calculateRecon();
+    if (typeof saveAuditState === 'function') saveAuditState(false);
+}
+
+function removeMgtSales(id) {
+    mgtSalesData = mgtSalesData.filter(m => m.id !== id);
+    renderMgtSales();
+    calculateRecon();
+    if (typeof saveAuditState === 'function') saveAuditState(false);
+}
+
+function renderMgtSales() {
+    const list = document.getElementById('mgtSalesList');
+    if (mgtSalesData.length === 0) {
+        list.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:10px;text-align:center">No entries added.</div>';
+        return;
+    }
+    list.innerHTML = mgtSalesData.map(a => `
+        <div class="adj-item">
+            <span>${escHtml(a.label)}</span>
+            <div style="display:flex;gap:10px;align-items:center">
+                <span style="font-weight:600;color:var(--text)">₦${formatNum(a.amount)}</span>
+                <span class="a-del" onclick="removeMgtSales(${a.id})">✖</span>
+            </div>
+        </div>
+    `).join('');
 }
 
 function addAdjustment() {
@@ -458,6 +699,7 @@ function renderSummary() {
 // ============ RENDER DOUBLE SALES TABLE ============
 function renderDoubleSalesTable() {
     const tbody = document.getElementById('doubleSalesBody');
+    if (!tbody) return;
     if (doubleSalesData.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#66bb6a;font-weight:600">No double sales detected! All room check-ins appear legitimate today.</td></tr>';
         return;
@@ -465,28 +707,33 @@ function renderDoubleSalesTable() {
 
     let html = '';
     doubleSalesData.forEach((d, i) => {
-        // Build the mini logs of all bookings — with clickable verification toggle
+        // Build the mini logs of all bookings
         let logsHTML = d.checkInLogs.map((log, j) => {
-            const isFraud = j > 0; // First is legit, rest are fraud
             const isVerified = !!log.isVerified;
             const strikeStyle = isVerified ? 'text-decoration:line-through;opacity:0.5;' : '';
-            const color = isVerified ? '#66bb6a' : (isFraud ? '#ef5350' : '#b4b4d2');
-            const flag = isFraud && !isVerified ? '<span style="color:#ef5350;border:1px solid rgba(239,83,80,0.3);padding:1px 4px;border-radius:3px;font-size:10px;margin-left:5px">UNREMITTED</span>' : '';
-            const verifiedBadge = isVerified ? '<span style="color:#66bb6a;border:1px solid rgba(102,187,106,0.3);padding:1px 4px;border-radius:3px;font-size:10px;margin-left:5px">✓ CLEARED</span>' : '';
-            const clickAttr = `onclick="toggleLogVerified(${i}, ${j})" style="cursor:pointer;${strikeStyle}font-size:0.75rem;margin-bottom:4px;color:${color}" title="Click to ${isVerified ? 'unmark' : 'mark as audited/cleared'}"`;
+            const isFraud = !!log.dsFlagType;
+            let color = '#b4b4d2'; 
+            if (isFraud) color = log.dsFlagType.includes('CRITICAL') ? '#ef5350' : '#ffa726';
+            if (isVerified) color = '#66bb6a';
+
+            const flagInfo = isFraud ? `<span style="color:${color};border:1px solid ${color};padding:1px 4px;border-radius:3px;font-size:9px;margin-left:5px;font-weight:bold">${log.dsFlagType}</span>` : '';
+            const badgeText = log.autoCleared ? 'AUTO-CLEARED' : 'EXEMPTED';
+            const verifiedBadge = isVerified ? `<span style="color:#66bb6a;border:1px solid rgba(102,187,106,0.3);padding:1px 4px;border-radius:3px;font-size:10px;margin-left:5px" title="${log.autoCleared ? 'System matched this to Base Room Revenue' : ''}">✓ ${badgeText}</span>` : '';
+            
+            const clickAttr = `onclick="toggleLogVerified(${i}, ${j})" style="cursor:pointer;${strikeStyle}font-size:0.75rem;margin-bottom:4px;color:${color}" title="Click to ${isVerified ? 'unmark' : 'mark as audited/exempted'}"`;
             return `<div ${clickAttr}>
                 <strong>${j + 1}.</strong>
                 Check-in: ${fmtDT(log.checkIn)} — Out: ${fmtDT(log.actualOut)}<br>
-                <div style="padding-left:14px">Rate: ₦${formatNum(log.dailyRate)} / expected out: ${fmtDT(log.expectedOut)} ${flag}${verifiedBadge}</div>
+                <div style="padding-left:14px">Rate: ₦${formatNum(log.dailyRate)} / expected out: ${fmtDT(log.expectedOut)} ${flagInfo}${verifiedBadge}</div>
             </div>`;
         }).join('');
 
         const firstType = d.checkInLogs[0].roomType;
         const rate = d.checkInLogs[0].dailyRate;
 
-        // Calculate fraud value & count excluding verified logs
-        const unverifiedFraudLogs = d.checkInLogs.filter((log, j) => j > 0 && !log.isVerified);
-        let computedFraudValue = unverifiedFraudLogs.reduce((sum, log) => sum + (log.dailyRate || 0), 0);
+        // Calculate fraud value excluding verified logs
+        const unverifiedFraudLogs = d.checkInLogs.filter((log) => log.dsFlagType && !log.isVerified);
+        let computedFraudValue = unverifiedFraudLogs.reduce((sum, log) => sum + (log.trueLossValue || log.dailyRate || 0), 0);
         const activeValue = d.isRectified ? d.rectifiedAmount : computedFraudValue;
 
         let fraudCount = 0;
@@ -520,28 +767,86 @@ function renderDoubleSalesTable() {
     tbody.innerHTML = html;
 }
 
+// ============ RENDER EARLY CHECK-INS TABLE ============
+function renderEarlyCheckinsTable() {
+    const tbody = document.getElementById('earlyCheckinsBody');
+    if (!tbody) return;
+    if (earlyCheckinData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-muted);font-weight:600">No early check-ins detected.</td></tr>';
+        return;
+    }
+
+    let html = '';
+    earlyCheckinData.forEach((item, i) => {
+        const d = item.record;
+        const isVerified = !!d.isEarlyVerified;
+        const strikeStyle = isVerified ? 'text-decoration:line-through;opacity:0.5;' : '';
+        const color = item.risk === 'high' ? '#ef5350' : '#ffa726';
+        let badge = 'CRITICAL (12AM - 6AM)';
+        if (d.dailyRate === 0) badge += ' [UNPRICED FRAUD]';
+        
+        if (d.autoClearedEarly) {
+            badge += `<br><span style="display:inline-block;margin-top:3px;color:#66bb6a;border:1px solid #66bb6a;padding:1px 4px;border-radius:3px;font-size:9px" title="System matched this to Base Room Revenue">✓ AUTO-CLEARED</span>`;
+        } else if (d.isEarlyVerified) {
+            badge += `<br><span style="display:inline-block;margin-top:3px;color:#66bb6a;border:1px solid rgba(102,187,106,0.3);padding:1px 4px;border-radius:3px;font-size:9px">✓ EXEMPTED</span>`;
+        }
+        
+        if (item.stealthOut) {
+            badge += `<br><span style="display:inline-block;margin-top:3px;color:#d32f2f;background:rgba(211,47,47,0.1);border:1px solid #d32f2f;padding:1px 4px;border-radius:3px;font-size:8px">⚠️ STEALTH CHECKOUT</span>`;
+        }
+
+        html += `<tr style="${strikeStyle}">
+            <td style="font-weight:600;font-size:.82rem">${d.checkIn.toDateString()}</td>
+            <td style="font-weight:800;color:var(--text-main);font-size:.85rem">${escHtml(d.roomName)}</td>
+            <td style="font-size:.8rem;color:var(--text-main)">${escHtml(d.customerName)}</td>
+            <td>
+                <span style="color:${color};border:1px solid ${color};padding:2px 6px;border-radius:4px;font-size:.7rem;font-weight:bold">
+                    ${badge}
+                </span>
+            </td>
+            <td style="font-size:.8rem;font-weight:bold;color:${color}">${fmtDT(d.checkIn)}</td>
+            <td class="amt" style="font-weight:600;color:var(--text-main)">₦${formatNum(d.dailyRate)}</td>
+            <td class="amt">
+                <button class="btn-rectify ${isVerified ? 'done' : ''}" onclick="toggleEarlyVerified(${i})">
+                    ${isVerified ? 'Un-mark' : 'Mark Verified'}
+                </button>
+            </td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+function toggleEarlyVerified(idx) {
+    const item = earlyCheckinData[idx];
+    if (!item) return;
+    item.record.isEarlyVerified = !item.record.isEarlyVerified;
+    renderEarlyCheckinsTable();
+    saveAuditState(false);
+}
+
 // ============ TOGGLE LOG VERIFIED (AUDIT CLEARANCE) ============
 function toggleLogVerified(dsIdx, logIdx) {
     const d = doubleSalesData[dsIdx];
     if (!d || !d.checkInLogs || !d.checkInLogs[logIdx]) return;
-    
+
     // Toggle verification
     d.checkInLogs[logIdx].isVerified = !d.checkInLogs[logIdx].isVerified;
-    
+    if (!d.checkInLogs[logIdx].isVerified) d.checkInLogs[logIdx].autoCleared = false; // drop autoClear flag if manually unmarked
+
     // Recalculate fraud value based on unverified logs only
-    const unverifiedLogs = d.checkInLogs.filter((log, j) => j > 0 && !log.isVerified);
-    d.fraudValue = unverifiedLogs.reduce((sum, log) => sum + (log.dailyRate || 0), 0);
-    
+    const unverifiedLogs = d.checkInLogs.filter((log) => log.dsFlagType && !log.isVerified);
+    d.fraudValue = unverifiedLogs.reduce((sum, log) => sum + (log.trueLossValue || log.dailyRate || 0), 0);
+
     // Clear rectification if fraud value changed (user should re-rectify)
     if (!d.isRectified) {
         // no action needed
     }
-    
+
     renderDoubleSalesTable();
     calculateRecon();
     saveAuditState(false);
-    
-    const status = d.checkInLogs[logIdx].isVerified ? 'cleared' : 'unmarked';
+
+    const status = d.checkInLogs[logIdx].isVerified ? 'exempted' : 'unmarked';
     showToast(`Log entry ${logIdx + 1} ${status} — double sales recalculated.`);
 }
 
@@ -557,7 +862,7 @@ function updateInvestigationStatus(val) {
 function renderOvertimeTable() {
     const tbody = document.getElementById('overtimeBody');
     if (overtimeData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-muted)">No overtime records found — all guests checked out on time!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted)">No overtime records found — all guests checked out on time!</td></tr>';
         return;
     }
 
@@ -574,6 +879,7 @@ function renderOvertimeTable() {
 
         html += `<tr>
             <td class="row-num">${i + 1}</td>
+            <td style="font-weight:800;font-size:.82rem;color:var(--accent2)">${escHtml(d.roomName || 'N/A')}</td>
             <td style="font-weight:600;font-size:.82rem">${escHtml(d.roomType)}</td>
             <td style="font-size:.78rem;color:var(--text-sub)">${fmtDT(d.checkIn)}</td>
             <td style="font-size:.78rem;color:var(--text-sub)">${fmtDT(d.expectedOut)}</td>
@@ -588,6 +894,8 @@ function renderOvertimeTable() {
                         ${d.rectifiedNote ? `<span class="rect-note" title="${escHtml(d.rectifiedNote)}">🗒️ Sighted</span>` : ''}
                     </div>
                 ` : `<span style="color:#ef5350;font-weight:800">₦${formatNum(d.overtimeCharge)}</span>`}
+                ${d.capType === 'Half-Day' ? '<div style="font-size:0.55rem;color:var(--text-muted);font-weight:700">CAPPED: HALF-DAY</div>' : ''}
+                ${d.capType === 'Full-Day' ? '<div style="font-size:0.55rem;color:var(--text-muted);font-weight:700">CAPPED: FULL-DAY</div>' : ''}
             </td>
             <td><span style="padding:3px 10px;border-radius:5px;font-size:.68rem;font-weight:700;background:${severityColor}18;color:${severityColor}">${severityLabel}</span></td>
             <td class="amt">
@@ -602,26 +910,279 @@ function renderOvertimeTable() {
 function renderAllTable() {
     const tbody = document.getElementById('allBody');
     const label = document.getElementById('allCountLabel');
-    label.textContent = auditData.length + ' records';
+    const searchVal = document.getElementById('allSearchInput') ? document.getElementById('allSearchInput').value.toLowerCase().trim() : '';
+
+    let filteredData = auditData;
+    if (searchVal) {
+        filteredData = auditData.filter(d => {
+            const str = (d.roomName + ' ' + (d.customerName || '') + ' ' + d.roomType + ' ' + (d.isOvertime?'overtime':'on time') + ' ' + fmtDT(d.checkIn) + ' ' + fmtDT(d.expectedOut) + ' ' + fmtDT(d.actualOut)).toLowerCase();
+            return str.includes(searchVal);
+        });
+    }
+
+    label.textContent = filteredData.length + ' records';
 
     let html = '';
-    auditData.forEach((d, i) => {
+    filteredData.forEach((d, i) => {
         const statusColor = d.isOvertime ? '#ef5350' : '#00d4aa';
         const statusLabel = d.isOvertime ? 'OVERTIME' : 'ON TIME';
         const diffStr = d.isOvertime ? '+' + formatOvertimeDuration(d.diffHours)
             : d.diffHours < 0 ? formatOvertimeDuration(Math.abs(d.diffHours)) + ' early' : 'On time';
 
-        html += `<tr>
+        const otChargeDisplay = d.isOvertime && d.overtimeCharge > 0 ? '₦' + formatNum(d.overtimeCharge) : '-';
+
+        const otCapLabel = (d.isOvertime && (d.capType === 'Half-Day' || d.capType === 'Full-Day')) 
+            ? `<div style="font-size:0.6rem;opacity:0.6">${d.capType}</div>` 
+            : '';
+
+        const originalIndex = auditData.indexOf(d);
+        const exemptSelect = `
+            <select class="input" style="padding:2px 5px; font-size:0.7rem; border-radius:4px" onchange="toggleRevenueExempt(${originalIndex}, this)">
+                <option value="" ${!d.revenueExemptType ? 'selected' : ''}>Standard Billable</option>
+                <option value="Complimentary" ${d.revenueExemptType === 'Complimentary' ? 'selected' : ''}>Complimentary</option>
+                <option value="Voucher" ${d.revenueExemptType === 'Voucher' ? 'selected' : ''}>Voucher</option>
+                <option value="Gift" ${d.revenueExemptType === 'Gift' ? 'selected' : ''}>Gift</option>
+                <option value="Maintenance" ${d.revenueExemptType === 'Maintenance' ? 'selected' : ''}>Maintenance</option>
+                <option value="Out Of Order" ${d.revenueExemptType === 'Out Of Order' ? 'selected' : ''}>Out Of Order</option>
+                <option value="Canceled" ${d.revenueExemptType === 'Canceled' ? 'selected' : ''}>Canceled</option>
+            </select>
+        `;
+
+        html += `<tr ${d.revenueExemptType ? 'style="opacity:0.65;background:var(--bg-card)" title="Excluded from Base Revenue due to '+d.revenueExemptType+'"' : ''}>
             <td class="row-num">${i + 1}</td>
+            <td style="font-weight:800;font-size:.82rem;color:var(--accent2)">${escHtml(d.roomName || 'N/A')}</td>
+            <td style="font-weight:600;font-size:.82rem">${escHtml(d.customerName || 'N/A')}</td>
             <td style="font-weight:600;font-size:.82rem">${escHtml(d.roomType)}</td>
-            <td style="font-size:.78rem;color:var(--text-sub)">${fmtDT(d.checkIn)}</td>
-            <td style="font-size:.78rem;color:var(--text-sub)">${fmtDT(d.expectedOut)}</td>
-            <td style="font-size:.78rem;color:var(--text-sub)">${fmtDT(d.actualOut)}</td>
-            <td style="font-size:.78rem;color:${statusColor};font-weight:600">${diffStr}</td>
+            <td style="font-size:.78rem;color:var(--text-sub);white-space:nowrap">${fmtDT(d.checkIn)}</td>
+            <td style="font-size:.78rem;color:var(--text-sub);white-space:nowrap">${fmtDT(d.expectedOut)}</td>
+            <td style="font-size:.78rem;color:var(--text-sub);white-space:nowrap">${fmtDT(d.actualOut)}</td>
+            <td style="font-size:.78rem;color:${statusColor};font-weight:600;white-space:nowrap">${diffStr}</td>
+            <td style="font-weight:800;font-size:.78rem;color:${d.isOvertime ? '#ef5350' : 'var(--text-muted)'}">${d.revenueExemptType ? '<strike>'+otChargeDisplay+'</strike>' : otChargeDisplay}${otCapLabel}</td>
             <td><span style="padding:3px 10px;border-radius:5px;font-size:.68rem;font-weight:700;background:${statusColor}18;color:${statusColor}">${statusLabel}</span></td>
+            <td>${exemptSelect}</td>
         </tr>`;
     });
+
+    if (filteredData.length === 0) {
+        html = '<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text-muted)">No matching records found.</td></tr>';
+    }
+
     tbody.innerHTML = html;
+}
+
+// ============ EXEMPTION TOGGLE ============
+window.toggleRevenueExempt = function(idx, selectEl) {
+    if (auditData[idx]) {
+        auditData[idx].revenueExemptType = selectEl.value; // '', 'Complimentary', 'Voucher', 'Gift'
+        renderAllTable();
+        calculateRecon();
+    }
+};
+
+// ============ EXPORT OVERTIME RECORDS PDF ============
+function exportOvertimeRecordsPDF() {
+    if (!overtimeData || overtimeData.length === 0) {
+        alert('No overtime records to export.');
+        return;
+    }
+
+    try {
+        const sorted = [...overtimeData].sort((a, b) => b.diffHours - a.diffHours);
+
+        const doc = new jspdf.jsPDF('l', 'mm', 'a4');
+        const W = doc.internal.pageSize.getWidth();
+        const H = doc.internal.pageSize.getHeight();
+        const m = 15;
+        const dateStr = new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+        let totalExportOT = 0;
+        
+        const rows = sorted.map((d, i) => {
+            const chargeVal = d.isRectified ? d.rectifiedAmount : d.overtimeCharge;
+            totalExportOT += chargeVal;
+            
+            const otHrs = d.diffHours;
+            const severity = otHrs > 12 ? 'CRITICAL' : otHrs > 4 ? 'WARNING' : 'MINOR';
+            
+            let chargeDisplay = 'N' + formatNum(chargeVal);
+            if(d.isRectified) chargeDisplay += ' (Rectified)';
+            else if(d.capType && d.capType !== 'Fractional') chargeDisplay += ' (Cap: ' + d.capType + ')';
+
+            return [
+                String(i + 1),
+                d.roomName || 'N/A',
+                d.customerName || 'N/A',
+                d.roomType,
+                fmtDT(d.checkIn),
+                fmtDT(d.expectedOut),
+                fmtDT(d.actualOut),
+                formatOvertimeDuration(otHrs),
+                chargeDisplay,
+                severity
+            ];
+        });
+
+        doc.setFillColor(15, 15, 35);
+        doc.rect(0, 0, W, 28, 'F');
+        doc.setFillColor(239, 83, 80); // Red line indicator
+        doc.rect(0, 28, W, 1.5, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('OVERTIME RECORDS EXPORT', m, 18);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(180, 180, 210);
+        doc.text('Total Records: ' + sorted.length + '  •  Total OT Value: N' + formatNum(totalExportOT) + '  •  ' + dateStr, m, 24);
+
+        doc.autoTable({
+            startY: 34,
+            head: [['#', 'Room #', 'Guest Name', 'Room Type', 'Check-In', 'Expected Out', 'Actual Out', 'Duration Diff', 'OT Charge', 'Severity']],
+            body: rows,
+            foot: [['', '', '', '', '', '', '', 'TOTAL EXPORT OT', 'N' + formatNum(totalExportOT), '']],
+            margin: { left: m, right: m },
+            styles: { font: 'helvetica', fontSize: 7, cellPadding: 3, lineColor: [220, 220, 235], lineWidth: 0.2 },
+            headStyles: { fillColor: [24, 24, 40], textColor: [255, 255, 255], fontStyle: 'bold' },
+            footStyles: { fillColor: [255, 235, 238], textColor: [239, 83, 80], fontStyle: 'bold' },
+            columnStyles: {
+                0: { halign: 'center', cellWidth: 10 },
+                1: { fontStyle: 'bold', textColor: [0, 212, 170] },
+                2: { fontStyle: 'normal' },
+                7: { fontStyle: 'bold', textColor: [239, 83, 80] },
+                8: { halign: 'right', fontStyle: 'bold', textColor: [239, 83, 80] },
+                9: { fontStyle: 'bold' }
+            },
+            didParseCell: function(data) {
+                if(data.section === 'body' && data.column.index === 9) {
+                    if (data.row.raw[9] === 'CRITICAL') data.cell.styles.textColor = [239, 83, 80];
+                    else if (data.row.raw[9] === 'WARNING') data.cell.styles.textColor = [255, 167, 38];
+                    else data.cell.styles.textColor = [102, 187, 106];
+                }
+            }
+        });
+
+        const pages = doc.internal.getNumberOfPages();
+        for (let p = 1; p <= pages; p++) {
+            doc.setPage(p);
+            doc.setFontSize(6);
+            doc.setTextColor(150);
+            doc.text(`Page ${p} of ${pages} — Generated securely by MiAuditOps`, m, H - 10);
+        }
+
+        doc.save(`Overtime_Records_${new Date().getTime()}.pdf`);
+    } catch(err) {
+        alert('PDF Export Failed: ' + err.message);
+        console.error(err);
+    }
+}
+
+// ============ EXPORT ALL RECORDS PDF ============
+function exportAllRecordsPDF() {
+    if (!auditData || auditData.length === 0) {
+        alert('No data to export.');
+        return;
+    }
+    
+    const searchVal = document.getElementById('allSearchInput').value.toLowerCase().trim();
+    let filteredData = auditData;
+    if (searchVal) {
+        filteredData = auditData.filter(d => {
+            const str = (d.roomName + ' ' + d.customerName + ' ' + d.roomType + ' ' + (d.isOvertime?'overtime':'on time') + ' ' + fmtDT(d.checkIn) + ' ' + fmtDT(d.expectedOut) + ' ' + fmtDT(d.actualOut)).toLowerCase();
+            return str.includes(searchVal);
+        });
+    }
+
+    try {
+        const doc = new jspdf.jsPDF('l', 'mm', 'a4');
+        const W = doc.internal.pageSize.getWidth();
+        const H = doc.internal.pageSize.getHeight();
+        const m = 15;
+        const dateStr = new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+        let totalExportOT = 0;
+        
+        const rows = filteredData.map((d, i) => {
+            const diffStr = d.isOvertime ? '+' + formatOvertimeDuration(d.diffHours) : d.diffHours < 0 ? formatOvertimeDuration(Math.abs(d.diffHours)) + ' early' : 'On time';
+            const chargeVal = d.isOvertime ? (d.isRectified ? d.rectifiedAmount : d.overtimeCharge) : 0;
+            totalExportOT += chargeVal;
+            
+            const otChargeDisplay = chargeVal > 0 ? 'N' + formatNum(chargeVal) : '-';
+            const statusLabel = d.isOvertime ? 'OVERTIME' : 'ON TIME';
+
+            return [
+                String(i + 1),
+                d.roomName || 'N/A',
+                d.customerName || 'N/A',
+                d.roomType,
+                fmtDT(d.checkIn),
+                fmtDT(d.expectedOut),
+                fmtDT(d.actualOut),
+                diffStr,
+                otChargeDisplay,
+                statusLabel
+            ];
+        });
+
+        doc.setFillColor(15, 15, 35);
+        doc.rect(0, 0, W, 28, 'F');
+        doc.setFillColor(108, 99, 255);
+        doc.rect(0, 28, W, 1.5, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('ALL RECORDS EXPORT', m, 18);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(180, 180, 210);
+        doc.text('Total Records: ' + filteredData.length + '  •  Total OT Value: N' + formatNum(totalExportOT) + '  •  ' + dateStr, m, 24);
+
+        if (searchVal) {
+            doc.setTextColor(50, 50, 70);
+            doc.setFont('helvetica', 'italic');
+            doc.text('Filtered by: "' + searchVal + '"', m, 36);
+        }
+
+        doc.autoTable({
+            startY: searchVal ? 40 : 34,
+            head: [['#', 'Room #', 'Guest Name', 'Room Type', 'Check-In', 'Expected Out', 'Actual Out', 'Duration Diff', 'OT Charge', 'Status']],
+            body: rows,
+            foot: [['', '', '', '', '', '', '', 'TOTAL EXPORT', 'N' + formatNum(totalExportOT), '']],
+            margin: { left: m, right: m },
+            styles: { font: 'helvetica', fontSize: 7, cellPadding: 3, lineColor: [220, 220, 235], lineWidth: 0.2 },
+            headStyles: { fillColor: [24, 24, 40], textColor: [255, 255, 255], fontStyle: 'bold' },
+            footStyles: { fillColor: [248, 248, 252], textColor: [239, 83, 80], fontStyle: 'bold' },
+            columnStyles: {
+                0: { halign: 'center', cellWidth: 10 },
+                1: { fontStyle: 'bold', textColor: [0, 212, 170] },
+                2: { fontStyle: 'normal' },
+                7: { fontStyle: 'bold' },
+                8: { halign: 'right', fontStyle: 'bold', textColor: [239, 83, 80] },
+                9: { fontStyle: 'bold' }
+            },
+            didParseCell: function(data) {
+                if(data.section === 'body') {
+                    if (data.column.index === 7 || data.column.index === 9) {
+                        const isOvertime = data.row.raw[9] === 'OVERTIME';
+                        if (isOvertime) data.cell.styles.textColor = [239, 83, 80];
+                        else data.cell.styles.textColor = [102, 187, 106];
+                    }
+                }
+            }
+        });
+
+        const pages = doc.internal.getNumberOfPages();
+        for (let p = 1; p <= pages; p++) {
+            doc.setPage(p);
+            doc.setFontSize(7);
+            doc.setTextColor(140, 140, 165);
+            doc.text('Page ' + p + ' of ' + pages, W - m, H - 6, { align: 'right' });
+        }
+
+        doc.save('All_Records_' + Date.now() + '.pdf');
+    } catch (err) {
+        alert("PDF Generation Error: " + err.message);
+        console.error(err);
+    }
 }
 
 // ============ EXPORT DATA CALCULATIONS ============
@@ -730,17 +1291,17 @@ function exportOvertimePDF() {
         const pdfBgColorHex = document.getElementById('pdfBgColor') ? document.getElementById('pdfBgColor').value : '#0f0f23';
         const pdfTextColorHex = document.getElementById('pdfTextColor') ? document.getElementById('pdfTextColor').value : '#ffffff';
         const pdfReportTitle = document.getElementById('pdfReportTitle') ? document.getElementById('pdfReportTitle').value || 'AUDIT & DOUBLE SALES\nIMPORT REPORT' : 'AUDIT & DOUBLE SALES\nIMPORT REPORT';
-        
+
         function hexToRgb(h) {
-            let r=15, g=15, b=35;
+            let r = 15, g = 15, b = 35;
             if (h && h.length === 7) {
-                r = parseInt(h[1]+h[2], 16);
-                g = parseInt(h[3]+h[4], 16);
-                b = parseInt(h[5]+h[6], 16);
+                r = parseInt(h[1] + h[2], 16);
+                g = parseInt(h[3] + h[4], 16);
+                b = parseInt(h[5] + h[6], 16);
             }
             return [r, g, b];
         }
-        
+
         const bgRgb = hexToRgb(pdfBgColorHex);
         const textRgb = hexToRgb(pdfTextColorHex);
 
@@ -757,10 +1318,10 @@ function exportOvertimePDF() {
         doc.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
         doc.setFontSize(32);
         doc.setFont('helvetica', 'bold');
-        
+
         const splitTitle = doc.splitTextToSize(pdfReportTitle, W - 40);
         doc.text(splitTitle, W / 2, 80, { align: 'center' });
-        
+
         const titleHeightMod = splitTitle.length;
         const lineY = 80 + (titleHeightMod * 12) + 6;
 
@@ -772,7 +1333,7 @@ function exportOvertimePDF() {
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
         doc.text(`ID: ${authId}  •  ${dateStr}`, W / 2, lineY + 15, { align: 'center' });
-        
+
         const badgeY = lineY + 24;
 
         // Investigation Status Badge
@@ -1026,25 +1587,47 @@ function exportOvertimePDF() {
         doc.setTextColor(50, 50, 70);
 
         // System Expected Box
-        doc.setFont('helvetica', 'bold'); doc.text('SYSTEM EXPECTED REVENUE', m, y);
+        const m1 = m;
+        const m2 = m + 65;
+        const m3 = m + 130;
+
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold'); doc.text('SYSTEM EXPECTED', m1, y);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Base Room Sales:`, m, y + 6); doc.text(`N${formatNum(sysBase)}`, m + 60, y + 6, { align: 'right' });
-        doc.text(`Overtime Charges:`, m, y + 12); doc.text(`N${formatNum(sysOT)}`, m + 60, y + 12, { align: 'right' });
-        doc.text(`Double Sales:`, m, y + 18); doc.text(`N${formatNum(sysFraud)}`, m + 60, y + 18, { align: 'right' });
+        doc.text(`Base Room Sales:`, m1, y + 5); doc.text(`N${formatNum(sysBase)}`, m1 + 55, y + 5, { align: 'right' });
+        doc.text(`Overtime Charges:`, m1, y + 10); doc.text(`N${formatNum(sysOT)}`, m1 + 55, y + 10, { align: 'right' });
+        doc.text(`Double Sales:`, m1, y + 15); doc.text(`N${formatNum(sysFraud)}`, m1 + 55, y + 15, { align: 'right' });
         doc.setFont('helvetica', 'bold');
-        doc.text(`TOTAL SYSTEM BASE:`, m, y + 26); doc.text(`N${formatNum(sysTotal)}`, m + 60, y + 26, { align: 'right' });
+        doc.text(`TOTAL SYSTEM BASE:`, m1, y + 23); doc.text(`N${formatNum(sysTotal)}`, m1 + 55, y + 23, { align: 'right' });
 
         // Tenders
-        const m2 = m + 80;
-        doc.setFont('helvetica', 'bold'); doc.text('DECLARED TENDERS', m2, y);
+        doc.text('DECLARED TENDERS', m2, y);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Cash:`, m2, y + 6); doc.text(`N${formatNum(cash)}`, m2 + 55, y + 6, { align: 'right' });
-        doc.text(`POS:`, m2, y + 12); doc.text(`N${formatNum(pos)}`, m2 + 55, y + 12, { align: 'right' });
-        doc.text(`Transfer:`, m2, y + 18); doc.text(`N${formatNum(transfer)}`, m2 + 55, y + 18, { align: 'right' });
+        doc.text(`Cash:`, m2, y + 5); doc.text(`N${formatNum(cash)}`, m2 + 55, y + 5, { align: 'right' });
+        doc.text(`POS:`, m2, y + 10); doc.text(`N${formatNum(pos)}`, m2 + 55, y + 10, { align: 'right' });
+        doc.text(`Transfer:`, m2, y + 15); doc.text(`N${formatNum(transfer)}`, m2 + 55, y + 15, { align: 'right' });
         doc.setFont('helvetica', 'bold');
-        doc.text(`TOTAL DECLARED:`, m2, y + 26); doc.text(`N${formatNum(declaredTotal)}`, m2 + 55, y + 26, { align: 'right' });
+        doc.text(`TOTAL DECLARED:`, m2, y + 23); doc.text(`N${formatNum(declaredTotal)}`, m2 + 55, y + 23, { align: 'right' });
 
-        y += 35;
+        // Mgt Sales
+        let mgtTotal = 0;
+        mgtSalesData.forEach(m => mgtTotal += m.amount);
+        doc.text('MANAGEMENT SALES (PMS)', m3, y);
+        doc.setFont('helvetica', 'normal');
+        let my = y + 5;
+        if (mgtSalesData.length === 0) {
+            doc.text('None added', m3, my); my += 5;
+        } else {
+            mgtSalesData.forEach(mEntry => {
+                if (my < y + 18) {
+                    doc.text(`${mEntry.label.substring(0, 15)}:`, m3, my); doc.text(`N${formatNum(mEntry.amount)}`, m3 + 55, my, { align: 'right' }); my += 5;
+                }
+            });
+        }
+        doc.setFont('helvetica', 'bold');
+        doc.text(`TOTAL MANAGEMENT:`, m3, y + 23); doc.text(`N${formatNum(mgtTotal)}`, m3 + 55, y + 23, { align: 'right' });
+
+        y += 33;
         // Adjustments & Final Variance
         doc.setFont('helvetica', 'bold'); doc.text('NET ADJUSTMENTS', m, y);
         doc.setFont('helvetica', 'normal');
@@ -1061,19 +1644,39 @@ function exportOvertimePDF() {
         doc.text(`ADJUSTED EXPECTED: N${formatNum(netExpected)}`, m, ay);
 
         y = ay + 15;
-        // Variance display
-        doc.setFillColor(240, 240, 248);
-        doc.rect(m, y, W - m * 2, 14, 'F');
-        const statusText = variance === 0 ? 'BALANCED' : variance < 0 ? 'SHORTAGE' : 'SURPLUS';
+        // Variance display (Two Hits)
+        const hit1 = declaredTotal - mgtTotal;
+        const hit2 = mgtTotal - netExpected;
+
+        const h1StatusText = hit1 === 0 ? 'BALANCED' : hit1 < 0 ? 'SHORTAGE' : 'SURPLUS';
+        const h1Col = hit1 === 0 ? [100, 100, 120] : hit1 < 0 ? [239, 83, 80] : [41, 182, 246];
+
+        const h2StatusText = hit2 === 0 ? 'BALANCED' : hit2 < 0 ? 'SHORTAGE' : 'SURPLUS';
+        const h2Col = hit2 === 0 ? [100, 100, 120] : hit2 < 0 ? [239, 83, 80] : [41, 182, 246];
+
+        const valStatusText = variance === 0 ? 'BALANCED' : variance < 0 ? 'SHORTAGE' : 'SURPLUS';
         const vCol = variance === 0 ? [102, 187, 106] : variance < 0 ? [239, 83, 80] : [41, 182, 246];
 
-        doc.setFontSize(10);
-        doc.setTextColor(80, 80, 100);
-        doc.text('FINAL AUDIT VARIANCE:', m + 5, y + 9);
-        doc.setFontSize(12);
-        doc.setTextColor(vCol[0], vCol[1], vCol[2]);
-        const vSign = variance < 0 ? '-' : '';
-        doc.text(`${statusText}   ${vSign}N${formatNum(Math.abs(variance))}`, W - m - 5, y + 9, { align: 'right' });
+        // Hit 1 Box
+        doc.setFillColor(248, 248, 252); doc.rect(m, y, (W - m * 2)/2 - 2, 18, 'F');
+        doc.setFontSize(8); doc.setTextColor(80, 80, 100); doc.text('1ST HIT : CASHIER DISCREPANCY', m + 5, y + 7);
+        doc.setFontSize(10); doc.setTextColor(...h1Col); 
+        doc.text(`${h1StatusText}   ${hit1 < 0 ? '-' : ''}N${formatNum(Math.abs(hit1))}`, m + 5, y + 14);
+
+        // Hit 2 Box
+        const midX = m + (W - m * 2)/2 + 2;
+        doc.setFillColor(248, 248, 252); doc.rect(midX, y, (W - m * 2)/2 - 2, 18, 'F');
+        doc.setFontSize(8); doc.setTextColor(80, 80, 100); doc.text('2ND HIT : SYSTEM DISCREPANCY', midX + 5, y + 7);
+        doc.setFontSize(10); doc.setTextColor(...h2Col); 
+        doc.text(`${h2StatusText}   ${hit2 < 0 ? '-' : ''}N${formatNum(Math.abs(hit2))}`, midX + 5, y + 14);
+
+        y += 22;
+
+        // Final Master Variance
+        doc.setFillColor(240, 240, 248); doc.rect(m, y, W - m * 2, 14, 'F');
+        doc.setFontSize(10); doc.setTextColor(80, 80, 100); doc.text('FINAL NET AUDIT VARIANCE:', m + 5, y + 9);
+        doc.setFontSize(12); doc.setTextColor(...vCol);
+        doc.text(`${valStatusText}   ${variance < 0 ? '-' : ''}N${formatNum(Math.abs(variance))}`, W - m - 5, y + 9, { align: 'right' });
 
         // ==========================================
         // PAGE 6: DOUBLE SOLD ROOMS
@@ -1106,18 +1709,16 @@ function exportOvertimePDF() {
                     fraudCount = unverifiedLogs.length;
                 }
 
-                // Build check-in logs text block — with verification status
+                // Build check-in logs text block — exactly mirroring dashboard strings
                 const logsText = logs.map((log, j) => {
                     const isVerified = !!log.isVerified;
-                    const isFraud = j > 0;
                     let tag = '';
                     if (isVerified) {
-                        tag = '  [CLEARED]';
-                    } else if (isFraud) {
-                        tag = '  [UNREMITTED]';
+                        tag = log.autoCleared ? ' [AUTO-CLEARED]' : ' [EXEMPTED]';
+                    } else if (log.dsFlagType) {
+                        tag = ` [${log.dsFlagType}]`;
                     }
-                    const prefix = isVerified ? '~' : '';
-                    return `${prefix}${j + 1}. In: ${fmtDT(log.checkIn)}  Out: ${fmtDT(log.actualOut)}\n   Rate: N${formatNum(log.dailyRate || 0)} / Exp: ${fmtDT(log.expectedOut)}${tag}`;
+                    return `${j + 1}. Check-in: ${fmtDT(log.checkIn)} — Out: ${fmtDT(log.actualOut)}\n     Rate: N${formatNum(log.dailyRate || 0)} / expected out: ${fmtDT(log.expectedOut)}${tag}`;
                 }).join('\n');
 
                 // DS value display — two lines if rectified
@@ -1156,7 +1757,7 @@ function exportOvertimePDF() {
                     columnStyles: {
                         0: { cellWidth: 28 },
                         1: { cellWidth: 30, fontStyle: 'bold' },
-                        2: { cellWidth: 20, halign: 'center', fontStyle: 'bold', textColor: [255, 186, 8] },
+                        2: { cellWidth: 20, halign: 'center', fontStyle: 'bold', textColor: [0, 0, 0] },
                         3: { cellWidth: 30 },
                         4: { cellWidth: 'auto', fontSize: 6.5, textColor: [30, 30, 50] },
                         5: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
@@ -1193,22 +1794,65 @@ function exportOvertimePDF() {
                             }
                         }
 
-                        // Draw strikethrough lines on verified/cleared log entries
+                        // Overhaul column 4 text drawing to perfectly mirror dashboard colors and alignments
                         if (data.column.index === 4 && meta.logs) {
                             const cellX = data.cell.x;
                             const cellY = data.cell.y;
                             const cellW = data.cell.width;
+                            const cellH = data.cell.height;
                             const padding = data.cell.styles.cellPadding || 3;
+                            
+                            // 1. Wipe out autoTable's native black text using background fill
+                            const bColor = data.cell.styles.fillColor || [255, 255, 255];
+                            doc.setFillColor(...(Array.isArray(bColor) ? bColor : [bColor]));
+                            doc.rect(cellX + 0.1, cellY + 0.1, cellW - 0.2, cellH - 0.2, 'F');
+                            
+                            // 2. Draw our own precision colored string exactly like the Dashboard!
                             const totalLogs = meta.logs.length;
-                            const logBlockH = (data.cell.height - padding * 2) / Math.max(totalLogs, 1);
+                            const logBlockH = (cellH - padding * 2) / Math.max(totalLogs, 1);
+                            doc.setFontSize(data.cell.styles.fontSize);
 
                             meta.logs.forEach((log, j) => {
-                                if (log.isVerified) {
-                                    // Draw strikethrough line across the log entry
-                                    const entryY = cellY + padding + (j * logBlockH) + logBlockH / 2;
-                                    doc.setDrawColor(102, 187, 106);
+                                const isVerified = !!log.isVerified;
+                                const isFraud = !!log.dsFlagType;
+                                const blockStartY = cellY + padding + (j * logBlockH);
+                                
+                                const str1 = `${j + 1}. Check-in: ${fmtDT(log.checkIn)} — Out: ${fmtDT(log.actualOut)}`;
+                                let tag = '';
+                                if (isVerified) tag = log.autoCleared ? ' [AUTO-CLEARED]' : ' [EXEMPTED]';
+                                else if (isFraud) tag = ` [${log.dsFlagType}]`;
+                                
+                                const str2 = `     Rate: N${formatNum(log.dailyRate || 0)} / expected out: ${fmtDT(log.expectedOut)}${tag}`;
+                                
+                                if (isVerified) {
+                                    doc.setTextColor(150, 200, 155); // Muted green like dashboard string
+                                    doc.setDrawColor(150, 200, 155);
+                                } else if (isFraud) {
+                                    if (log.dsFlagType.includes('CRITICAL')) doc.setTextColor(239, 83, 80);
+                                    else doc.setTextColor(255, 167, 38);
+                                } else {
+                                    doc.setTextColor(50, 50, 70); // default text
+                                }
+                                
+                                // Precise jsPDF text baselines (approximate vertical centers)
+                                const line1Y = blockStartY + (logBlockH * 0.4);
+                                const line2Y = blockStartY + (logBlockH * 0.85);
+                                
+                                doc.text(str1, cellX + padding, line1Y);
+                                doc.text(str2, cellX + padding, line2Y);
+                                
+                                if (isVerified) {
                                     doc.setLineWidth(0.3);
-                                    doc.line(cellX + padding, entryY, cellX + cellW - padding, entryY);
+                                    
+                                    const w1 = doc.getTextWidth(str1);
+                                    // Ignore the 5-space indentation prefix for drawing the second strikethrough!
+                                    const indentX = doc.getTextWidth("     ");
+                                    const w2 = doc.getTextWidth(str2) - indentX;
+                                    
+                                    const sOffset = data.cell.styles.fontSize * 0.3527 * 0.28;
+                                    
+                                    doc.line(cellX + padding, line1Y - sOffset, cellX + padding + w1, line1Y - sOffset);
+                                    doc.line(cellX + padding + indentX, line2Y - sOffset, cellX + padding + indentX + w2, line2Y - sOffset);
                                 }
                             });
                         }
@@ -1221,6 +1865,7 @@ function exportOvertimePDF() {
             doc.setFontSize(10); doc.setTextColor(30, 30, 50); doc.text("No double sales detected.", m, 45);
         }
 
+
         // ==========================================
         // PAGE 7: OVERTIME RECORDS
         // ==========================================
@@ -1229,73 +1874,55 @@ function exportOvertimePDF() {
 
         if (overtimeData.length > 0) {
             const sorted = [...overtimeData].sort((a, b) => b.diffHours - a.diffHours);
-            const otRectMeta = []; // track rectification per row
+            let totalExportOT = 0;
+            
             const otRows = sorted.map((d, i) => {
-                // Show both values on separate lines if rectified
-                let chargeDisplay = 'N' + formatNum(d.overtimeCharge);
-                if (d.isRectified) {
-                    chargeDisplay = 'N' + formatNum(d.overtimeCharge) + '\nN' + formatNum(d.rectifiedAmount);
-                }
-                otRectMeta.push({
-                    isRectified: !!d.isRectified,
-                    originalVal: 'N' + formatNum(d.overtimeCharge),
-                    rectifiedVal: 'N' + formatNum(d.rectifiedAmount || 0),
-                    note: d.rectifiedNote || ''
-                });
+                const chargeVal = d.isRectified ? d.rectifiedAmount : d.overtimeCharge;
+                totalExportOT += chargeVal;
+                
+                const otHrs = d.diffHours;
+                const severity = otHrs > 12 ? 'CRITICAL' : otHrs > 4 ? 'WARNING' : 'MINOR';
+                
+                let chargeDisplay = 'N' + formatNum(chargeVal);
+                if(d.isRectified) chargeDisplay += ' (Rectified)';
+                else if(d.capType && d.capType !== 'Fractional') chargeDisplay += ' (Cap: ' + d.capType + ')';
+
                 return [
                     String(i + 1),
+                    d.roomName || 'N/A',
+                    d.customerName || 'N/A',
                     d.roomType,
                     fmtDT(d.checkIn),
                     fmtDT(d.expectedOut),
                     fmtDT(d.actualOut),
-                    formatOvertimeDuration(d.diffHours),
-                    'N' + formatNum(d.dailyRate) + '/ng',
-                    chargeDisplay
+                    formatOvertimeDuration(otHrs),
+                    chargeDisplay,
+                    severity
                 ];
             });
 
             doc.autoTable({
                 startY: 40,
-                head: [['#', 'Room Type', 'Check-In', 'Expected Out', 'Actual Out', 'Overtime', 'Daily Rate', 'OT Charge']],
+                head: [['#', 'Room #', 'Guest Name', 'Room Type', 'Check-In', 'Expected Out', 'Actual Out', 'Duration Diff', 'OT Charge', 'Severity']],
                 body: otRows,
+                foot: [['', '', '', '', '', '', '', 'TOTAL OT VALUE', 'N' + formatNum(totalExportOT), '']],
                 margin: { left: m, right: m },
-                styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 3, lineColor: [220, 220, 235], lineWidth: 0.3 },
-                headStyles: { fillColor: [15, 15, 35], textColor: [255, 255, 255], fontStyle: 'bold' },
+                styles: { font: 'helvetica', fontSize: 7, cellPadding: 3, lineColor: [220, 220, 235], lineWidth: 0.2 },
+                headStyles: { fillColor: [24, 24, 40], textColor: [255, 255, 255], fontStyle: 'bold' },
+                footStyles: { fillColor: [255, 235, 238], textColor: [239, 83, 80], fontStyle: 'bold' },
                 columnStyles: {
                     0: { halign: 'center', cellWidth: 10 },
-                    1: { fontStyle: 'bold' },
-                    5: { fontStyle: 'bold', textColor: [239, 83, 80] },
-                    7: { halign: 'right', fontStyle: 'bold', textColor: [239, 83, 80] }
+                    1: { fontStyle: 'bold', textColor: [0, 212, 170] },
+                    2: { fontStyle: 'normal' },
+                    7: { fontStyle: 'bold', textColor: [239, 83, 80] },
+                    8: { halign: 'right', fontStyle: 'bold', textColor: [239, 83, 80] },
+                    9: { fontStyle: 'bold' }
                 },
-                didDrawCell: (data) => {
-                    // Strikethrough on original OT charge for rectified entries
-                    if (data.column.index === 7 && data.section === 'body') {
-                        const meta = otRectMeta[data.row.index];
-                        if (meta && meta.isRectified) {
-                            const cellX = data.cell.x;
-                            const cellY = data.cell.y;
-                            const cellW = data.cell.width;
-                            const padding = data.cell.styles.cellPadding || 3;
-
-                            // Strikethrough line on original value
-                            const lineY = cellY + padding + 2.5;
-                            doc.setDrawColor(150, 150, 150);
-                            doc.setLineWidth(0.4);
-                            doc.line(cellX + cellW - padding - doc.getTextWidth(meta.originalVal) - 1, lineY, cellX + cellW - padding + 1, lineY);
-
-                            // Green rectified value below
-                            const rectY = lineY + 5;
-                            doc.setTextColor(102, 187, 106);
-                            doc.setFontSize(7.5);
-                            doc.setFont('helvetica', 'bold');
-                            doc.text(meta.rectifiedVal, cellX + cellW - padding, rectY, { align: 'right' });
-
-                            if (meta.note) {
-                                doc.setFontSize(5);
-                                doc.setTextColor(180, 180, 200);
-                                doc.text('Sighted', cellX + cellW - padding, rectY + 4, { align: 'right' });
-                            }
-                        }
+                didParseCell: function(data) {
+                    if(data.section === 'body' && data.column.index === 9) {
+                        if (data.row.raw[9] === 'CRITICAL') data.cell.styles.textColor = [239, 83, 80];
+                        else if (data.row.raw[9] === 'WARNING') data.cell.styles.textColor = [255, 167, 38];
+                        else data.cell.styles.textColor = [102, 187, 106];
                     }
                 }
             });
@@ -1356,6 +1983,206 @@ function exportOvertimePDF() {
 
             y += 34;
         });
+
+        // ==========================================
+        // COMPLIMENTARY & EXEMPTIONS
+        // ==========================================
+        const exemptData = auditData.filter(d => d.revenueExemptType);
+        if (exemptData.length > 0) {
+            y += 10;
+            if (y > H - 40) { doc.addPage(); y = m; }
+            doc.setFillColor(24, 24, 40);
+            doc.rect(m, y, W - m * 2, 9, 'F');
+            doc.setTextColor(255);
+            doc.setFontSize(8);
+            doc.setFont('helvetica', 'bold');
+            doc.text("COMPLIMENTARY, VOUCHER & GIFT LOGS", m + 5, y + 6.5);
+            
+            doc.autoTable({
+                startY: y + 12,
+                head: [['#', 'Room #', 'Guest', 'Date', 'Exemption Type', 'Waived Value']],
+                body: exemptData.map((d, i) => [
+                    String(i + 1),
+                    d.roomName || 'N/A',
+                    d.customerName || 'N/A',
+                    fmtDT(d.checkIn),
+                    d.revenueExemptType,
+                    'N' + formatNum(d.dailyRate)
+                ]),
+                margin: { left: m, right: m },
+                styles: { font: 'helvetica', fontSize: 7, cellPadding: 3 },
+                headStyles: { fillColor: [240, 240, 245], textColor: [50, 50, 70] },
+                columnStyles: { 5: { textColor: [239, 83, 80], fontStyle: 'bold' } }
+            });
+            y = doc.lastAutoTable.finalY + 10;
+        }
+
+        // ==========================================
+        // PAGE: EARLY CHECK-INS ANOMALY
+        // ==========================================
+        if (typeof earlyCheckinData !== 'undefined' && earlyCheckinData.length > 0) {
+            doc.addPage('a4', 'l');
+            W = doc.internal.pageSize.getWidth();
+            H = doc.internal.pageSize.getHeight();
+            renderHeader('SUSPICIOUS EARLY CHECK-INS (12 AM - 7 AM)');
+            
+            const ecuRows = earlyCheckinData.map((item, i) => {
+                const d = item.record;
+                let isVerified = '';
+                if (d.autoClearedEarly) isVerified = '[AUTO-CLEARED]\n';
+                else if (d.isEarlyVerified) isVerified = '[EXEMPTED]\n';
+                
+                let badge = 'CRITICAL (12AM - 6AM)';
+                if (d.dailyRate === 0) badge += '\n[UNPRICED FRAUD]';
+                if (item.stealthOut) badge += '\n[STEALTH CHECKOUT]';
+                
+                return [
+                    String(i + 1),
+                    d.checkIn.toDateString(),
+                    d.roomName || 'N/A',
+                    d.customerName || 'N/A',
+                    isVerified + badge,
+                    fmtDT(d.checkIn),
+                    'N' + formatNum(d.dailyRate)
+                ];
+            });
+
+            doc.autoTable({
+                startY: 40,
+                head: [['#', 'Date', 'Room #', 'Guest Name', 'Risk Level', 'Time Checked In', 'Nightly Rate']],
+                body: ecuRows,
+                margin: { left: m, right: m },
+                styles: { font: 'helvetica', fontSize: 8, cellPadding: 3, lineColor: [220, 220, 235], lineWidth: 0.2 },
+                headStyles: { fillColor: [24, 24, 40], textColor: [255, 255, 255], fontStyle: 'bold' },
+                columnStyles: {
+                    0: { cellWidth: 15, halign: 'center' },
+                    2: { fontStyle: 'bold', textColor: [0, 212, 170] },
+                    4: { fontStyle: 'bold' },
+                    5: { fontStyle: 'bold', textColor: [239, 83, 80] },
+                    6: { halign: 'right', fontStyle: 'bold' }
+                },
+                didParseCell: function(data) {
+                    if (data.section === 'body') {
+                        const cellStr = data.row.raw[4] || '';
+                        const isVerified = cellStr.includes('[EXEMPTED]') || cellStr.includes('[AUTO-CLEARED]');
+                        if (isVerified) {
+                            if (data.column.index === 4) {
+                                data.cell.styles.textColor = [0, 100, 0]; // Dark Green for Auto-cleared
+                            } else {
+                                data.cell.styles.textColor = [0, 0, 0]; // Black for the rest of the row
+                            }
+                        } else if (data.column.index === 4) {
+                            if (cellStr.includes('CRITICAL')) data.cell.styles.textColor = [239, 83, 80];
+                        }
+                    }
+                }
+            });
+            y = doc.lastAutoTable.finalY + 10;
+        }
+
+        // ==========================================
+        // AUDITOR'S WRITTEN REPORT
+        // ==========================================
+        const writtenReportStr = document.getElementById('pdfWrittenReport') ? document.getElementById('pdfWrittenReport').value.trim() : '';
+        if (writtenReportStr) {
+            y += 10;
+            doc.setFillColor(24, 24, 40);
+            doc.rect(m, y, W - m * 2, 9, 'F');
+            doc.setTextColor(255);
+            doc.setFontSize(8);
+            doc.setFont('helvetica', 'bold');
+            doc.text("AUDITOR'S WRITTEN REPORT", m + 5, y + 6.5);
+            
+            y += 16;
+            doc.setTextColor(40, 40, 60);
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            
+            const splitReport = doc.splitTextToSize(writtenReportStr, W - m * 2);
+            doc.text(splitReport, m, y);
+        }
+
+        // ==========================================
+        // PAGE 9: ALL RECORDS EXPORT
+        // ==========================================
+        const includeAll = document.getElementById('pdfIncludeAll') ? document.getElementById('pdfIncludeAll').checked : true;
+        
+        if (includeAll) {
+            doc.addPage('a4', 'l');
+            W = doc.internal.pageSize.getWidth();
+            H = doc.internal.pageSize.getHeight();
+            renderHeader('ALL RECORDS (MASTER LEDGER)');
+
+        if (auditData && auditData.length > 0) {
+            const filteredData = [...auditData];
+            let totalExportAll = 0;
+            
+            const rowsAll = filteredData.map((d, i) => {
+                let chargeVal = d.overtimeCharge || 0;
+                if(d.isRectified) chargeVal = d.rectifiedAmount || 0;
+                
+                totalExportAll += chargeVal;
+                
+                const stayHrs = d.stayNights * 24;
+                const otHrs = d.diffHours;
+                
+                let otChargeDisplay = 'N' + formatNum(chargeVal);
+                if (d.isOvertime || d.isRectified) {
+                    if(d.isRectified) otChargeDisplay += ' (Rectified)';
+                    else if(d.capType && d.capType !== 'Fractional') otChargeDisplay += ' (Cap: ' + d.capType + ')';
+                } else {
+                    otChargeDisplay = '—';
+                }
+
+                let statusLabel = 'CLEARED';
+                if(d.isDoubleSold) statusLabel = 'DOUBLE SOLD';
+                else if(d.isOvertime) statusLabel = 'OVERTIME';
+
+                return [
+                    String(i + 1),
+                    d.roomName || 'N/A',
+                    d.customerName || 'N/A',
+                    d.roomType,
+                    fmtDT(d.checkIn),
+                    fmtDT(d.expectedOut),
+                    fmtDT(d.actualOut),
+                    stayHrs + 'h  +(' + (otHrs>0 ? formatOvertimeDuration(otHrs) : '0h') + ')',
+                    otChargeDisplay,
+                    statusLabel
+                ];
+            });
+
+            doc.autoTable({
+                startY: 40,
+                head: [['#', 'Room #', 'Guest Name', 'Room Type', 'Check-In', 'Expected Out', 'Actual Out', 'Total Stay & OT', 'OT Charge', 'Status']],
+                body: rowsAll,
+                foot: [['', '', '', '', '', '', '', 'TOTAL EXPORT OT', 'N' + formatNum(totalExportAll), '']],
+                margin: { left: m, right: m },
+                styles: { font: 'helvetica', fontSize: 7, cellPadding: 3, lineColor: [220, 220, 235], lineWidth: 0.2 },
+                headStyles: { fillColor: [24, 24, 40], textColor: [255, 255, 255], fontStyle: 'bold' },
+                footStyles: { fillColor: [240, 240, 250], textColor: [108, 99, 255], fontStyle: 'bold' },
+                columnStyles: {
+                    0: { halign: 'center', cellWidth: 8 },
+                    1: { fontStyle: 'bold', textColor: [0, 212, 170] },
+                    2: { cellWidth: 25 },
+                    7: { fontStyle: 'bold' },
+                    8: { halign: 'right', fontStyle: 'bold' },
+                    9: { fontStyle: 'bold' }
+                },
+                didParseCell: function(data) {
+                    if(data.section === 'body' && data.column.index === 9) {
+                        if (data.row.raw[9] === 'DOUBLE SOLD') data.cell.styles.textColor = [239, 83, 80];
+                        else if (data.row.raw[9] === 'OVERTIME') data.cell.styles.textColor = [255, 167, 38];
+                        else data.cell.styles.textColor = [102, 187, 106];
+                    }
+                    if(data.section === 'body' && data.column.index === 8) {
+                        if(data.row.raw[8] !== '—') data.cell.styles.textColor = [239, 83, 80];
+                    }
+                }
+            });
+        }
+        
+        } // close includeAll block
 
         // FOOTER FOR ALL PAGES (EXCEPT COVER)
         const pages = doc.internal.getNumberOfPages();
@@ -1473,6 +2300,238 @@ function closeRectifyModal() {
     document.getElementById('rectifyModal').classList.remove('show');
 }
 
+// ============ 3-TIER UPLOAD LOGIC ============
+function processTemplateUpload(rows, headers) {
+    let checkinCol = headers.indexOf('check-in date/time');
+    let expOutCol = headers.indexOf('expected check-out');
+    let actOutCol = headers.indexOf('actual check-out');
+    let rateCol = headers.indexOf('daily rate');
+    let roomCol = headers.indexOf('room no');
+    let typeCol = headers.indexOf('room type');
+    let nameCol = headers.findIndex(h => h.includes('name') || h.includes('guest') || h.includes('customer'));
+
+    auditData = [];
+    for (let r = 1; r < rows.length; r++) {
+        const row = rows[r];
+        if(!row || typeof row[checkinCol] === 'undefined') continue;
+
+        const checkinRaw = String(row[checkinCol] || '').trim();
+        const expOutRaw = String(row[expOutCol] || '').trim();
+        const actualRaw = String(row[actOutCol] || '').trim();
+        
+        if (!checkinRaw || !expOutRaw || !actualRaw) continue;
+
+        const checkIn = parseDatetime(checkinRaw);
+        const expectedOut = parseDatetime(expOutRaw);
+        const actualOut = parseDatetime(actualRaw);
+
+        if (!checkIn || !expectedOut || !actualOut) continue;
+
+        const roomType = String(row[typeCol] || 'Unknown').trim();
+        const roomNameRaw = String(row[roomCol] || '').trim();
+        const customerName = nameCol !== -1 ? String(row[nameCol] || '').trim() : 'N/A';
+        const amount = parseFloat(String(row[rateCol]||'').replace(/,/g, '')) || 0;
+
+        const stayMs = expectedOut.getTime() - checkIn.getTime();
+        const stayNights = Math.max(1, Math.round(stayMs / (1000 * 60 * 60 * 24)));
+        const dailyRate = amount > 0 ? amount : 0;
+
+        const diffMs = actualOut.getTime() - expectedOut.getTime();
+        let diffHours = diffMs / (1000 * 60 * 60);
+        let isOvertime = diffHours > 0;
+
+        if (isOvertime && (diffMs / 60000) <= policyGraceMins) {
+            isOvertime = false;
+        }
+
+        let overtimeCharge = 0;
+        let capType = 'None';
+        if (isOvertime && dailyRate > 0) {
+            if (diffHours <= policyHalfHours) {
+                capType = 'Fractional';
+                overtimeCharge = (dailyRate / 24) * diffHours;
+            } else if (diffHours > policyHalfHours && diffHours <= policyFullHours) {
+                capType = 'Half-Day';
+                overtimeCharge = dailyRate * 0.50;
+            } else {
+                capType = 'Full-Day';
+                overtimeCharge = dailyRate;
+            }
+        }
+
+        auditData.push({
+            checkIn, expectedOut, actualOut,
+            roomName: roomNameRaw, customerName, roomType, amount,
+            stayNights, dailyRate, diffHours, isOvertime, overtimeCharge, capType,
+            checkinRaw, actualRaw
+        });
+    }
+    finalizeAudit();
+}
+
+function openMappingModal(headers) {
+    const container = document.getElementById('mappingFieldsContainer');
+    if(!container) return;
+    
+    let optionsHtml = '<option value="">-- Skip / Auto-detect --</option>';
+    headers.forEach((h, i) => {
+        if(h) optionsHtml += `<option value="${i}">${h}</option>`;
+    });
+
+    const fields = [
+        { id: 'mapRoom', label: 'Room Number (Required)' },
+        { id: 'mapName', label: 'Guest / Customer Name' },
+        { id: 'mapType', label: 'Room Type' },
+        { id: 'mapRate', label: 'Daily Rate' },
+        { id: 'mapCheckin', label: 'Check-In DateTime' },
+        { id: 'mapExpected', label: 'Expected Checkout' },
+        { id: 'mapActual', label: 'Actual Checkout' }
+    ];
+
+    container.innerHTML = fields.map(f => `
+        <div style="display:flex;flex-direction:column;gap:5px">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text-main)">${f.label}</label>
+            <select id="${f.id}" style="padding:8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.1);color:var(--text)">
+                ${optionsHtml}
+            </select>
+        </div>
+    `).join('');
+
+    document.getElementById('mappingModal').classList.add('show');
+}
+
+function closeMappingModal() {
+    document.getElementById('mappingModal').classList.remove('show');
+}
+
+function applyCustomMapping() {
+    const colRoom = document.getElementById('mapRoom').value;
+    const colName = document.getElementById('mapName').value;
+    const colType = document.getElementById('mapType').value;
+    const colRate = document.getElementById('mapRate').value;
+    const colCheckin = document.getElementById('mapCheckin').value;
+    const colExpected = document.getElementById('mapExpected').value;
+    const colActual = document.getElementById('mapActual').value;
+
+    if (!colRoom || !colCheckin || !colActual) {
+        alert('Room Number, Check-In DateTime, and Actual Checkout are mandatory mappings.');
+        return;
+    }
+
+    closeMappingModal();
+    spinner.classList.add('show');
+
+    setTimeout(() => {
+        try {
+            auditData = [];
+            const rows = currentlyParsedRows;
+            
+            for (let r = 1; r < rows.length; r++) {
+                const row = rows[r];
+                if (!row) continue;
+
+                let checkIn = parseDatetime(row[colCheckin] || '');
+                let actualOut = parseDatetime(row[colActual] || '');
+                let expectedOut = colExpected !== '' ? parseDatetime(row[colExpected] || '') : null;
+                
+                // Fallback: If Expected Checkout is blank, try parsing Checkin as range 
+                if(!expectedOut) {
+                   const dates = parseCheckinPeriod(String(row[colCheckin]||''));
+                   if(dates) {
+                       checkIn = dates.checkIn;
+                       expectedOut = dates.expectedOut;
+                   }
+                }
+
+                if (!checkIn || !actualOut || !expectedOut) continue;
+
+                const roomNameRaw = String(row[colRoom] || '').trim();
+                const customerName = colName !== '' ? String(row[colName] || '').trim() : 'N/A';
+                const actualRaw = String(row[colActual] || '').trim();
+                const checkinRaw = String(row[colCheckin] || '').trim();
+
+                let roomType = 'Unknown';
+                let amount = 0;
+
+                // If type is mapped, we can extract rate from it maybe
+                if (colType !== '') {
+                    const parsed = extractAmount(String(row[colType] || ''));
+                    roomType = parsed.roomType || 'Unknown';
+                    // if rate isn't mapped, fallback to type embedded amount
+                    if (colRate === '') amount = parsed.amount || 0;
+                }
+
+                if (colRate !== '') {
+                    amount = parseFloat(String(row[colRate]||'').replace(/,/g, '')) || 0;
+                }
+
+                const stayMs = expectedOut.getTime() - checkIn.getTime();
+                const stayNights = Math.max(1, Math.round(stayMs / (1000 * 60 * 60 * 24)));
+                const dailyRate = amount > 0 ? amount : 0;
+
+                const diffMs = actualOut.getTime() - expectedOut.getTime();
+                let diffHours = diffMs / (1000 * 60 * 60);
+                let isOvertime = diffHours > 0;
+
+                if (isOvertime && (diffMs / 60000) <= policyGraceMins) {
+                    isOvertime = false;
+                }
+
+                let overtimeCharge = 0;
+                let capType = 'None';
+                if (isOvertime && dailyRate > 0) {
+                    if (diffHours <= policyHalfHours) {
+                        capType = 'Fractional';
+                        overtimeCharge = (dailyRate / 24) * diffHours;
+                    } else if (diffHours > policyHalfHours && diffHours <= policyFullHours) {
+                        capType = 'Half-Day';
+                        overtimeCharge = dailyRate * 0.50;
+                    } else {
+                        capType = 'Full-Day';
+                        overtimeCharge = dailyRate;
+                    }
+                }
+
+                auditData.push({
+                    checkIn, expectedOut, actualOut,
+                    roomName: roomNameRaw, customerName, roomType, amount,
+                    stayNights, dailyRate, diffHours, isOvertime, overtimeCharge, capType,
+                    checkinRaw, actualRaw
+                });
+            }
+            
+            finalizeAudit();
+        } catch (err) {
+            alert('Mapping error: ' + err.message);
+        } finally {
+            spinner.classList.remove('show');
+        }
+    }, 100);
+}
+
+function downloadStandardTemplate() {
+    const ws_data = [
+        ["Room No", "Guest Name", "Room Type", "Daily Rate", "Check-In Date/Time", "Expected Check-Out", "Actual Check-Out"],
+        ["101", "John Doe", "Executive Deluxe", "150000", "2026-04-01 10:00:00", "2026-04-02 12:00:00", "2026-04-02 15:30:00"],
+        ["102", "Jane Smith", "Standard Room", "50000", "2026-04-01 14:00:00", "2026-04-03 12:00:00", "2026-04-03 12:15:00"]
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+    
+    // Set some column widths
+    ws['!cols'] = [
+        {wch: 10}, 
+        {wch: 20}, 
+        {wch: 12}, 
+        {wch: 22}, 
+        {wch: 22}, 
+        {wch: 22}
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Standard Template");
+    XLSX.writeFile(wb, "Miauditops_Standard_Template.xlsx");
+}
+
 function saveRectification() {
     const source = document.getElementById('rectSource').value;
     const idx = parseInt(document.getElementById('rectIdx').value, 10);
@@ -1548,6 +2607,8 @@ function saveAuditState(manual = false) {
         overtimeData,
         doubleSalesData,
         reconAdjustments,
+        mgtSalesData,
+        earlyCheckinData,
         tenders: {
             cash: document.getElementById('reconCash').value,
             pos: document.getElementById('reconPOS').value,
@@ -1602,6 +2663,7 @@ function loadInvestigation(id) {
 
         inv.auditData.forEach(hydrateDates);
         inv.overtimeData.forEach(hydrateDates);
+        if(inv.earlyCheckinData) inv.earlyCheckinData.forEach(hydrateDates);
         inv.doubleSalesData.forEach(d => {
             if (d.checkInLogs) d.checkInLogs.forEach(hydrateDates);
         });
@@ -1610,6 +2672,8 @@ function loadInvestigation(id) {
         overtimeData = inv.overtimeData;
         doubleSalesData = inv.doubleSalesData;
         reconAdjustments = inv.reconAdjustments || [];
+        mgtSalesData = inv.mgtSalesData || [];
+        earlyCheckinData = inv.earlyCheckinData || [];
         currentSessionId = inv.id;
         currentFileName = inv.fileName || '';
         investigationStatus = inv.investigationStatus || 'under_investigation';
@@ -1625,9 +2689,11 @@ function loadInvestigation(id) {
 
         renderSummary();
         renderDoubleSalesTable();
+        renderEarlyCheckinsTable();
         renderOvertimeTable();
         renderAllTable();
         renderAdjustments();
+        renderMgtSales();
         calculateRecon();
 
         document.getElementById('auditHeader').classList.add('show');
@@ -1949,3 +3015,38 @@ document.addEventListener('DOMContentLoaded', () => {
     renderSavedInvestigations();
     loadAuditState();
 });
+
+// ============ POLICY SETTINGS ============
+function openPolicyModal() {
+    let modal = document.getElementById('policyModal');
+    if (!modal) return;
+    
+    document.getElementById('polGrace').value = policyGraceMins;
+    document.getElementById('polHalf').value = policyHalfHours;
+    document.getElementById('polFull').value = policyFullHours;
+    
+    modal.classList.add('show');
+}
+
+function closePolicyModal() {
+    const modal = document.getElementById('policyModal');
+    if(modal) modal.classList.remove('show');
+}
+
+function applyPolicySettings() {
+    const g = parseInt(document.getElementById('polGrace').value) || 0;
+    const h = parseFloat(document.getElementById('polHalf').value) || 3.0;
+    const f = parseFloat(document.getElementById('polFull').value) || 8.0;
+    
+    localStorage.setItem('policyGraceMins', g);
+    localStorage.setItem('policyHalfHours', h);
+    localStorage.setItem('policyFullHours', f);
+    
+    policyGraceMins = g;
+    policyHalfHours = h;
+    policyFullHours = f;
+    
+    closePolicyModal();
+    if(typeof showToast === 'function') showToast('Hotel Policy Settings updated!');
+    alert('Rules saved! Please re-upload your file to apply these custom rules to the audit.');
+}

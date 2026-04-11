@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * MIAUDITOPS  Filling Station Audit Module
  * 5 Tabs: System Sales, Pump Sales, Tank Dipping, Haulage, General Report
@@ -20,8 +20,10 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_audit_sessions (
     date_from DATE, date_to DATE, status ENUM('draft','submitted','approved') DEFAULT 'draft',
     created_by INT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     auditor_id INT NULL, auditor_signed_at DATETIME NULL, auditor_comments TEXT NULL,
-    manager_id INT NULL, manager_signed_at DATETIME NULL, manager_comments TEXT NULL
+    manager_id INT NULL, manager_signed_at DATETIME NULL, manager_comments TEXT NULL,
+    updated_at DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+try { $pdo->exec("ALTER TABLE station_audit_sessions ADD COLUMN updated_at DATETIME NULL AFTER manager_comments"); } catch(Exception $e) {}
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_system_sales (
     id INT AUTO_INCREMENT PRIMARY KEY, session_id INT NOT NULL, company_id INT NOT NULL,
     pos_amount DECIMAL(15,2) DEFAULT 0, cash_amount DECIMAL(15,2) DEFAULT 0,
@@ -94,6 +96,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_issues (
 // Add store_item_id to lube_items if missing (existing installs)
 try { $pdo->exec("ALTER TABLE station_lube_items ADD COLUMN store_item_id INT NULL AFTER section_id"); } catch(Exception $e) {}
 try { $pdo->exec("ALTER TABLE station_lube_store_items ADD COLUMN adjustment DECIMAL(12,2) DEFAULT 0 AFTER return_out"); } catch(Exception $e) {}
+try { $pdo->exec("ALTER TABLE station_lube_store_items ADD COLUMN total DECIMAL(12,2) DEFAULT 0 AFTER adjustment"); } catch(Exception $e) {}
+try { $pdo->exec("ALTER TABLE station_lube_store_items ADD COLUMN closing DECIMAL(12,2) DEFAULT 0 AFTER total"); } catch(Exception $e) {}
 //  Issue log for audit history 
 $pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_issue_log (
     id INT AUTO_INCREMENT PRIMARY KEY, store_item_id INT NOT NULL, section_id INT NOT NULL,
@@ -178,7 +182,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_outlet_terminals (
 $client_outlets = get_client_outlets($client_id, $company_id);
 $js_outlets = json_encode($client_outlets, JSON_HEX_TAG | JSON_HEX_APOS);
 
-$stmt = $pdo->prepare("SELECT s.*, co.name as outlet_name FROM station_audit_sessions s LEFT JOIN client_outlets co ON s.outlet_id = co.id WHERE s.company_id = ? AND s.client_id = ? ORDER BY s.created_at DESC LIMIT 50");
+$stmt = $pdo->prepare("SELECT s.*, co.name as outlet_name FROM station_audit_sessions s LEFT JOIN client_outlets co ON s.outlet_id = co.id WHERE s.company_id = ? AND s.client_id = ? ORDER BY COALESCE(s.updated_at, s.created_at) DESC LIMIT 50");
 $stmt->execute([$company_id, $client_id]);
 $sessions = $stmt->fetchAll();
 $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
@@ -202,6 +206,28 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
     </style>
 </head>
 <body class="font-sans bg-slate-100 dark:bg-slate-950 h-full" x-data="stationAudit()" x-cloak>
+    <!-- Loading Overlay for Opening Session -->
+    <div x-show="openingSession" 
+         class="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-all"
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
+        <div class="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full border border-white/20 dark:border-slate-800">
+            <div class="relative">
+                <div class="w-16 h-16 border-4 border-orange-500/20 border-t-orange-500 rounded-full animate-spin"></div>
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <i data-lucide="fuel" class="w-6 h-6 text-orange-500 animate-pulse"></i>
+                </div>
+            </div>
+            <div class="text-center">
+                <h3 class="text-lg font-bold text-slate-900 dark:text-white">Opening Session</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Please wait while we hydrate your audit data...</p>
+            </div>
+        </div>
+    </div>
 <div class="flex h-screen w-full">
     <?php include '../includes/dashboard_sidebar.php'; ?>
     <div class="flex-1 flex flex-col h-full overflow-hidden w-full relative">
@@ -275,20 +301,45 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             </div>
                         </div>
                         <div class="divide-y divide-slate-100 dark:divide-slate-800 max-h-[400px] overflow-y-auto">
-                            <template x-for="s in filteredSessions" :key="s.id">
-                                <div class="px-6 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer group" @click="loadSession(s.id)">
-                                    <div>
-                                        <p class="text-sm font-bold text-slate-800 dark:text-white" x-text="(s.outlet_name || 'Station') + '  ' + s.date_from + ' to ' + s.date_to"></p>
-                                        <p class="text-[10px] text-slate-400" x-text="'Created: ' + s.created_at"></p>
-                                    </div>
-                                    <div class="flex items-center gap-2 flex-shrink-0">
-                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold"
-                                              :class="s.status==='approved'?'bg-emerald-100 text-emerald-700':s.status==='submitted'?'bg-blue-100 text-blue-700':'bg-amber-100 text-amber-700'"
-                                              x-text="s.status"></span>
-                                        <button @click.stop.prevent="deleteSession(s.id, s.outlet_name)" type="button" class="flex items-center gap-1 px-2 py-1 text-xs font-bold text-red-500 hover:text-white hover:bg-red-500 border border-red-300 rounded-lg transition-all" title="Delete this audit session">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                                            Delete
-                                        </button>
+                            <template x-for="group in groupedSessions" :key="group.outlet_name">
+                                <div x-data="{ expanded: false }" class="border-b border-slate-100 dark:border-slate-800 last:border-0">
+                                    <!-- Group Header -->
+                                    <button @click="expanded = !expanded; if(expanded) $nextTick(() => lucide.createIcons());" class="w-full px-6 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-all text-left">
+                                        <div class="flex items-center gap-2">
+                                            <i data-lucide="building-2" class="w-4 h-4 text-slate-400"></i>
+                                            <span class="text-sm font-bold text-slate-800 dark:text-white" x-text="group.outlet_name"></span>
+                                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300" x-text="group.sessions.length"></span>
+                                        </div>
+                                        <i :data-lucide="expanded ? 'chevron-up' : 'chevron-down'" class="w-4 h-4 text-slate-400"></i>
+                                    </button>
+                                    
+                                    <!-- Group Sessions -->
+                                    <div x-show="expanded" x-collapse class="bg-slate-50/50 dark:bg-slate-900/30 divide-y divide-slate-100/50 dark:divide-slate-800/50">
+                                        <template x-for="s in group.sessions" :key="s.id">
+                                            <div class="px-6 py-3 flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-800/50 cursor-pointer group/item" @click="loadSession(s.id)">
+                                                <div class="pl-6 border-l-2 border-orange-500/30 group-hover/item:border-orange-500 transition-colors">
+                                                    <p class="text-sm font-bold text-slate-800 dark:text-white" x-text="s.date_from + ' to ' + s.date_to"></p>
+                                                    <div class="flex items-center gap-3 flex-wrap">
+                                                        <p class="text-[10px] text-slate-400" x-text="'Created: ' + s.created_at"></p>
+                                                        <template x-if="s.updated_at">
+                                                            <p class="text-[10px] text-amber-500 dark:text-amber-400 flex items-center gap-1">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                                                <span x-text="'Last edited: ' + s.updated_at"></span>
+                                                            </p>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                                <div class="flex items-center gap-2 flex-shrink-0">
+                                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold"
+                                                          :class="s.status==='approved'?'bg-emerald-100 text-emerald-700':s.status==='submitted'?'bg-blue-100 text-blue-700':'bg-amber-100 text-amber-700'"
+                                                          x-text="s.status"></span>
+                                                    <button @click.stop.prevent="deleteSession(s.id, s.outlet_name)" type="button" class="flex items-center gap-1 px-2 py-1 text-xs font-bold text-red-500 hover:text-white hover:bg-red-500 border border-red-300 rounded-lg transition-all opacity-0 group-hover/item:opacity-100 focus:opacity-100" title="Delete this audit session">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </div>
                             </template>
@@ -298,6 +349,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                     </div>
 
                     <!--  Trash Section  -->
+                    <?php if (is_admin_role()): ?>
                     <div class="glass-card rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg overflow-hidden mt-6">
                         <div class="px-6 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between cursor-pointer"
                              @click="showTrash = !showTrash; if(showTrash && trashItems.length === 0) loadTrash()">
@@ -341,6 +393,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             <p class="text-[10px] text-slate-400 text-center">Items are automatically purged after 60 days</p>
                         </div>
                     </div>
+                    <?php endif; ?>
 
                     <!-- Security Settings (CEO/Admin only) -->
                     <template x-if="isAdminUser">
@@ -1158,7 +1211,44 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                             </div>
 
                             <!-- Sub-tab pills -->
+                            <!-- ── Lubricant Time Machine Toolbar ── -->
+                            <div class="flex items-center gap-2 mb-4 bg-white/60 dark:bg-slate-900/40 backdrop-blur-md p-2 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm sticky top-0 z-[40]">
+                                <div class="flex items-center gap-1.5 px-3 border-r border-slate-200 dark:border-slate-700 mr-1">
+                                    <div class="w-6 h-6 bg-indigo-500 rounded-lg flex items-center justify-center shadow-lg transform -rotate-12">
+                                        <i data-lucide="history" class="w-3.5 h-3.5 text-white"></i>
+                                    </div>
+                                    <span class="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 tracking-wider">Time Machine</span>
+                                </div>
+                                <button @click="undoLube()" class="group flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl text-[10px] font-bold transition-all border border-slate-200 dark:border-slate-700 shadow-sm active:scale-95">
+                                    <i data-lucide="undo-2" class="w-3.5 h-3.5 text-indigo-500 group-hover:-rotate-45 transition-transform"></i> Undo
+                                </button>
+                                <button @click="redoLube()" class="group flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl text-[10px] font-bold transition-all border border-slate-200 dark:border-slate-700 shadow-sm active:scale-95">
+                                    <i data-lucide="redo-2" class="w-3.5 h-3.5 text-emerald-500 group-hover:rotate-45 transition-transform"></i> Redo
+                                </button>
+                                <div class="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1"></div>
+                                <div class="relative" x-data="{ open: false }" @click.away="open = false">
+                                    <button @click="open = !open" class="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white rounded-xl text-[10px] font-black shadow-lg shadow-indigo-500/20 hover:bg-indigo-600 transition-all border-none active:scale-95">
+                                        <i data-lucide="timer" class="w-3.5 h-3.5"></i> Rollback
+                                        <i data-lucide="chevron-down" class="w-3 h-3 transition-transform" :class="open ? 'rotate-180' : ''"></i>
+                                    </button>
+                                    <div x-show="open" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="transform opacity-0 scale-95" x-transition:enter-end="transform opacity-100 scale-100" class="absolute left-0 mt-2 w-44 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-[99] overflow-hidden">
+                                        <div class="px-4 py-2 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[9px] font-black uppercase text-slate-400 tracking-widest">Select Interval</div>
+                                        <template x-for="h in [2, 3, 5, 6, 12]">
+                                            <button @click="rollbackLube(h); open = false" class="w-full text-left px-4 py-3 text-[10px] font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all border-b border-slate-100 dark:border-slate-800 last:border-0 flex items-center justify-between group">
+                                                <span x-text="'Go back ' + h + ' hours'"></span>
+                                                <i data-lucide="chevron-right" class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-all"></i>
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                                <div class="ml-auto hidden md:flex items-center gap-2 px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                                    <i data-lucide="info" class="w-3 h-3 text-slate-400"></i>
+                                    <span class="text-[9px] font-bold text-slate-500">History is kept for 30 days &bull; Ctrl+Z / Ctrl+Y supported</span>
+                                </div>
+                            </div>
+
                             <div class="flex flex-wrap gap-2 p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+
                                 <button @click="lubeSubTab='products'" :class="lubeSubTab==='products' ? 'bg-white dark:bg-slate-900 text-violet-600 shadow-sm border-violet-200' : 'text-slate-500 hover:bg-white/50 border-transparent'" class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all border">
                                     <i data-lucide="package" class="w-3.5 h-3.5"></i> Products
                                     <span x-show="lubeProducts.length > 0" class="ml-1 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[9px] font-black" x-text="lubeProducts.length"></span>
@@ -1187,6 +1277,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </button>
                                 <button @click="lubeSubTab='evaluation'" :class="lubeSubTab==='evaluation' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm border-indigo-200' : 'text-slate-500 hover:bg-white/50 border-transparent'" class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all border">
                                     <i data-lucide="layers" class="w-3.5 h-3.5"></i> Evaluation
+                                </button>
+                                <button @click="lubeSubTab='margins'" :class="lubeSubTab==='margins' ? 'bg-white dark:bg-slate-900 text-teal-600 shadow-sm border-teal-200' : 'text-slate-500 hover:bg-white/50 border-transparent'" class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all border">
+                                    <i data-lucide="pie-chart" class="w-3.5 h-3.5"></i> Margins
                                 </button>
                             </div>
 
@@ -1278,6 +1371,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                     <th class="px-4 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase">Invoice #</th>
                                                     <th class="px-4 py-2.5 text-right text-[10px] font-bold text-slate-500 uppercase">Items</th>
                                                     <th class="px-4 py-2.5 text-right text-[10px] font-bold text-emerald-600 uppercase">Total Cost</th>
+                                                    <th class="px-4 py-2.5 text-center text-[10px] font-bold text-slate-500 uppercase">Status</th>
                                                     <th class="px-4 py-2.5 text-center text-[10px] font-bold uppercase">Actions</th>
                                                 </tr>
                                             </thead>
@@ -1291,15 +1385,22 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                         <td class="px-4 py-2.5 text-right text-xs font-mono" x-text="(g.items||[]).length"></td>
                                                         <td class="px-4 py-2.5 text-right font-mono font-bold text-emerald-600 text-xs" x-text="'' + parseFloat(g.total_cost||0).toLocaleString('en',{minimumFractionDigits:2})"></td>
                                                         <td class="px-4 py-2.5 text-center">
+                                                            <span x-show="(g.status||'draft')==='draft'" class="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-wider">Draft</span>
+                                                            <span x-show="g.status==='pushed'" class="px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Pushed</span>
+                                                            <span x-show="g.status==='reversed'" class="px-2 py-0.5 bg-orange-100 text-orange-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Reversed</span>
+                                                        </td>
+                                                        <td class="px-4 py-2.5 text-center">
                                                             <div class="flex items-center justify-center gap-1">
-                                                                <button @click="openLubeGrnModal(g); $nextTick(()=>lucide.createIcons())" class="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><i data-lucide="pencil" class="w-3 h-3"></i></button>
-                                                                <button @click="deleteLubeGrn(g)" class="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-all"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                                                <button x-show="(g.status||'draft')!=='pushed'" @click="openLubeGrnModal(g); $nextTick(()=>lucide.createIcons())" class="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all" title="Edit"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+                                                                <button x-show="(g.status||'draft')==='draft'" @click="pushLubeGrn(g)" class="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-all" title="Push to Inventory"><i data-lucide="arrow-up-circle" class="w-3.5 h-3.5"></i></button>
+                                                                <button x-show="g.status==='pushed'" @click="unpushLubeGrn(g); $nextTick(()=>lucide.createIcons())" class="p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-all" title="Return to Draft (Un-push)"><i data-lucide="undo" class="w-3.5 h-3.5"></i></button>
+                                                                <button x-show="(g.status||'draft')!=='pushed'" @click="deleteLubeGrn(g)" class="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                                                             </div>
                                                         </td>
                                                     </tr>
                                                 </template>
                                                 <tr x-show="lubeGrns.length === 0">
-                                                    <td colspan="7" class="px-4 py-10 text-center text-slate-400 text-xs italic">
+                                                    <td colspan="8" class="px-4 py-10 text-center text-slate-400 text-xs italic">
                                                         <i data-lucide="clipboard-list" class="w-8 h-8 mx-auto mb-2 opacity-30"></i>
                                                         <p>No GRNs yet. Click "New GRN" to record a goods receipt.</p>
                                                     </td>
@@ -1932,6 +2033,80 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                             </div>
 
+                            <!--  MARGINS SUB-TAB  -->
+                            <div x-show="lubeSubTab==='margins'" x-transition>
+                                <div class="space-y-6">
+                                    <!-- Summary Cards -->
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div class="glass-card p-5 rounded-2xl border-l-4 border-emerald-500 shadow-sm flex items-center justify-between">
+                                            <div>
+                                                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Total Profit Margin Sold</p>
+                                                <h3 class="text-2xl font-black text-slate-800 dark:text-white" x-text="'&#8358;' + lubeMarginAnalysisTotalRealized.toLocaleString('en',{minimumFractionDigits:2})"></h3>
+                                                <p class="text-[10px] text-emerald-600 font-semibold mt-1">Realized Profit (Counter Sales)</p>
+                                            </div>
+                                            <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                                                <i data-lucide="trending-up" class="w-6 h-6"></i>
+                                            </div>
+                                        </div>
+                                        <div class="glass-card p-5 rounded-2xl border-l-4 border-amber-500 shadow-sm flex items-center justify-between">
+                                            <div>
+                                                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Expected Margin Unsold</p>
+                                                <h3 class="text-2xl font-black text-slate-800 dark:text-white" x-text="'&#8358;' + lubeMarginAnalysisTotalUnrealized.toLocaleString('en',{minimumFractionDigits:2})"></h3>
+                                                <p class="text-[10px] text-amber-600 font-semibold mt-1">Unrealized Profit (Remaining Stock)</p>
+                                            </div>
+                                            <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600">
+                                                <i data-lucide="coins" class="w-6 h-6"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Margin Analysis Table -->
+                                    <div x-show="lubeMarginAnalysis.length > 0" class="glass-card rounded-2xl border border-teal-200/60 dark:border-teal-700/60 shadow-lg overflow-hidden">
+                                        <div class="px-6 py-4 border-b border-teal-100 dark:border-teal-800 bg-gradient-to-r from-teal-500/10 to-transparent flex items-center gap-3">
+                                            <div class="w-9 h-9 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
+                                                <i data-lucide="pie-chart" class="w-4 h-4 text-white"></i>
+                                            </div>
+                                            <div>
+                                                <h4 class="font-bold text-slate-900 dark:text-white text-sm">Product Profitability Analysis</h4>
+                                                <p class="text-[10px] text-slate-500">Breakdown of realized and unrealized margins per product</p>
+                                            </div>
+                                        </div>
+                                        <div class="overflow-x-auto">
+                                            <table class="w-full text-sm">
+                                                <thead class="bg-teal-50/50 dark:bg-teal-900/10">
+                                                    <tr>
+                                                        <th class="px-4 py-2.5 text-left text-[10px] font-bold text-teal-700 uppercase">Product</th>
+                                                        <th class="px-4 py-2.5 text-right text-[10px] font-bold text-slate-500 uppercase">Unit Cost</th>
+                                                        <th class="px-4 py-2.5 text-right text-[10px] font-bold text-slate-500 uppercase">Selling Price</th>
+                                                        <th class="px-4 py-2.5 text-center text-[10px] font-bold text-emerald-600 uppercase">Qty Sold</th>
+                                                        <th class="px-4 py-2.5 text-center text-[10px] font-bold text-amber-600 uppercase">Qty Unsold</th>
+                                                        <th class="px-4 py-2.5 text-right text-[10px] font-bold text-emerald-700 uppercase bg-emerald-50/50">Profit Sold</th>
+                                                        <th class="px-4 py-2.5 text-right text-[10px] font-bold text-amber-700 uppercase bg-amber-50/50">Expected Unsold</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="row in lubeMarginAnalysis" :key="row.product_name">
+                                                        <tr class="border-t border-slate-100 dark:border-slate-800 hover:bg-teal-50/20 transition-colors">
+                                                            <td class="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200 text-xs" x-text="row.product_name || ''"></td>
+                                                            <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-500" x-text="row.cp.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-500" x-text="row.sp.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-4 py-2.5 text-center font-mono text-xs font-bold text-emerald-600" x-text="row.sold_qty"></td>
+                                                            <td class="px-4 py-2.5 text-center font-mono text-xs font-bold text-amber-600" x-text="row.unsold_qty"></td>
+                                                            <td class="px-4 py-2.5 text-right font-mono font-bold text-xs" :class="row.realized_margin < 0 ? 'bg-red-50/50 text-red-600' : 'bg-emerald-50/50 text-emerald-700'" x-text="row.realized_margin.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                            <td class="px-4 py-2.5 text-right font-mono font-bold text-xs" :class="row.unrealized_margin < 0 ? 'bg-red-50/50 text-red-600' : 'bg-amber-50/50 text-amber-700'" x-text="row.unrealized_margin.toLocaleString('en',{minimumFractionDigits:2})"></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div x-show="lubeMarginAnalysis.length === 0" class="px-6 py-10 text-center text-slate-400 text-xs italic">
+                                        <i data-lucide="pie-chart" class="w-8 h-8 mx-auto mb-2 opacity-30"></i>
+                                        <p>No margin data available. Generate products and sales to analyze margins.</p>
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
                     </div>
 
@@ -2389,7 +2564,20 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                 </div>
                                 <div class="flex gap-3 pt-1">
                                     <button @click="lubeGrnModal=false" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-200 transition-all">Cancel</button>
-                                    <button @click="saveLubeGrn()" :disabled="saving" class="flex-1 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50 text-sm">Save GRN</button>
+                                    <button @click="saveLubeGrn()" :disabled="saving" class="flex-1 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50 text-sm">
+                                        <template x-if="!saving">
+                                            <span>Save GRN</span>
+                                        </template>
+                                        <template x-if="saving">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                <span>Saving...</span>
+                                            </div>
+                                        </template>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -2466,10 +2654,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                         </div>
                                                         <div class="flex items-center gap-2 flex-shrink-0">
                                                             <span class="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 px-2 py-0.5 rounded-full text-[10px] font-black" x-text="fmt(expenseCatBalance(cat))"></span>
-                                                            <button @click.stop="renameExpenseCategory(cat.id)" class="p-1 text-slate-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-all rounded" title="Rename Category">
+                                                            <button @click.stop="renameExpenseCategory(cat.id)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-blue-500 transition-all rounded" title="Rename Category">
                                                                 <i data-lucide="pencil" class="w-3 h-3"></i>
                                                             </button>
-                                                            <button @click.stop="deleteExpenseCategory(cat.id)" class="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded" title="Delete Category">
+                                                            <button @click.stop="deleteExpenseCategory(cat.id)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-all rounded" title="Delete Category">
                                                                 <i data-lucide="trash-2" class="w-3 h-3"></i>
                                                             </button>
                                                         </div>
@@ -2554,9 +2742,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                     </template>
                                                                     <template x-if="!entry._editing">
                                                                         <td class="px-2 py-2 text-center">
-                                                                            <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                                                                                <button @click="toggleEditExpenseEntry(entry)" class="p-1 text-slate-300 hover:text-blue-500 rounded" title="Edit"><i data-lucide="pencil" class="w-3 h-3"></i></button>
-                                                                                <button @click="deleteExpenseEntry(entry.id)" class="p-1 text-slate-300 hover:text-red-500 rounded" title="Delete"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                                                            <div class="flex items-center gap-0.5">
+                                                                                <button @click="toggleEditExpenseEntry(entry)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-blue-500 rounded transition-all" title="Edit"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+                                                                                <button @click="deleteExpenseEntry(entry.id)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-red-500 rounded transition-all" title="Delete"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
                                                                             </div>
                                                                         </td>
                                                                     </template>
@@ -2721,9 +2909,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                 <div class="px-3 py-1.5 text-right text-[11px] font-semibold" :class="entry.debit > 0 ? 'text-red-500' : 'text-slate-200'" x-text="entry.debit > 0 ? fmt(entry.debit) : ''"></div>
                                                                 <div class="px-3 py-1.5 text-right text-[11px] font-semibold" :class="entry.credit > 0 ? 'text-emerald-500' : 'text-slate-200'" x-text="entry.credit > 0 ? fmt(entry.credit) : ''"></div>
                                                                 <div class="px-3 py-1.5 text-right">
-                                                                    <div class="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                                                                        <button @click.stop="toggleSummaryExpenseEdit(entry); $nextTick(() => lucide.createIcons())" class="p-1 text-slate-300 hover:text-blue-500 rounded" title="Edit"><i data-lucide="pencil" class="w-3 h-3"></i></button>
-                                                                        <button @click.stop="deleteSummaryExpense(entry, row)" class="p-1 text-slate-300 hover:text-red-500 rounded" title="Delete"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                                                    <div class="flex items-center justify-end gap-0.5">
+                                                                        <button @click.stop="toggleSummaryExpenseEdit(entry); $nextTick(() => lucide.createIcons())" class="p-1 text-slate-400 dark:text-slate-500 hover:text-blue-500 rounded transition-all" title="Edit"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+                                                                        <button @click.stop="deleteSummaryExpense(entry, row)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-red-500 rounded transition-all" title="Delete"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -2834,10 +3022,10 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                         </div>
                                                         <div class="flex items-center gap-2 flex-shrink-0">
                                                             <span :class="debtorBalance(acct) > 0 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : debtorBalance(acct) < 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-slate-100 text-slate-500'" class="px-2 py-0.5 rounded-full text-[10px] font-black" x-text="fmt(Math.abs(debtorBalance(acct)))"></span>
-                                                            <button @click.stop="renameDebtorAccount(acct.id)" class="p-1 text-slate-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-all rounded" title="Rename Account">
+                                                            <button @click.stop="renameDebtorAccount(acct.id)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-blue-500 transition-all rounded" title="Rename Account">
                                                                 <i data-lucide="pencil" class="w-3 h-3"></i>
                                                             </button>
-                                                            <button @click.stop="deleteDebtorAccount(acct.id)" class="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded" title="Delete Account">
+                                                            <button @click.stop="deleteDebtorAccount(acct.id)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-all rounded" title="Delete Account">
                                                                 <i data-lucide="trash-2" class="w-3 h-3"></i>
                                                             </button>
                                                         </div>
@@ -2918,9 +3106,9 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                     </template>
                                                                     <template x-if="!entry._editing">
                                                                         <td class="px-2 py-2 text-center">
-                                                                            <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                                                                                <button @click="toggleEditDebtorEntry(entry)" class="p-1 text-slate-300 hover:text-blue-500 rounded" title="Edit"><i data-lucide="pencil" class="w-3 h-3"></i></button>
-                                                                                <button @click="deleteDebtorEntry(entry.id)" class="p-1 text-slate-300 hover:text-red-500 rounded" title="Delete"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                                                            <div class="flex items-center gap-0.5">
+                                                                                <button @click="toggleEditDebtorEntry(entry)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-blue-500 rounded transition-all" title="Edit"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+                                                                                <button @click="deleteDebtorEntry(entry.id)" class="p-1 text-slate-400 dark:text-slate-500 hover:text-red-500 rounded transition-all" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                                                                             </div>
                                                                         </td>
                                                                     </template>
@@ -2944,7 +3132,7 @@ $js_sessions = json_encode($sessions, JSON_HEX_TAG | JSON_HEX_APOS);
                                                                         <td class="px-1 py-1 text-center">
                                                                             <div class="flex items-center gap-0.5">
                                                                                 <button @click="saveDebtorEntry(entry)" class="p-1 text-emerald-500 hover:text-emerald-700 rounded" title="Save"><i data-lucide="check" class="w-3.5 h-3.5"></i></button>
-                                                                                <button @click="entry._editing = false" class="p-1 text-slate-400 hover:text-red-500 rounded" title="Cancel"><i data-lucide="x" class="w-3 h-3"></i></button>
+                                                                                <button @click="entry._editing = false" class="p-1 text-slate-400 hover:text-red-500 rounded" title="Cancel"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
                                                                             </div>
                                                                         </td>
                                                                     </template>

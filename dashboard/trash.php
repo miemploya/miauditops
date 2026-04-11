@@ -7,6 +7,10 @@
 require_once '../includes/functions.php';
 require_once '../includes/trash_helper.php';
 require_login();
+if (!is_admin_role()) {
+    header('Location: index.php');
+    exit;
+}
 require_permission('settings');
 $company_id = $_SESSION['company_id'];
 $user_id    = $_SESSION['user_id'];

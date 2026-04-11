@@ -156,7 +156,7 @@ require_subscription('hotel_revenue');
             <div class="main-inner">
 
                 <!-- Page Header -->
-                <div class="topbar anim">
+                <div class="topbar anim" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:15px">
                     <div class="topbar-left">
                         <h1>
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
@@ -168,26 +168,86 @@ require_subscription('hotel_revenue');
                         </h1>
                         <p>Analyze late checkouts, calculate expected remittance, and detect double-sold rooms.</p>
                     </div>
+                    <div>
+                        <button class="btn btn-sm" style="background:var(--bg-glass);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:6px" onclick="openPolicyModal()">
+                            <svg width="16" height="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                            Hotel Policy
+                        </button>
+                    </div>
                 </div>
 
-                <!-- Upload Zone -->
-                <div class="upload-zone anim-d1" id="uploadZone" onclick="document.getElementById('fileInput').click()">
-                    <div class="uico">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="17 8 12 3 7 8" />
-                            <line x1="12" y1="3" x2="12" y2="15" />
-                        </svg>
+                <!-- Upload Zone & Download Button -->
+                <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+                    <div class="upload-zone anim-d1" id="uploadZone" onclick="document.getElementById('fileInput').click()" style="flex:2;min-width:300px">
+                        <div class="uico">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                        </div>
+                        <h3>Drop your check-in Excel file here</h3>
+                        <p>Our intelligent system auto-detects PMS formats. If format is unknown, you can map columns manually.</p>
+                        <div class="ftypes">
+                            <span>.xlsx</span>
+                            <span>.xls</span>
+                            <span>.csv</span>
+                        </div>
+                        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
                     </div>
-                    <h3>Drop your check-in Excel file here</h3>
-                    <p>Must contain "Room", "Time of check-in & check-out", and "Default Check-Out Time" columns</p>
-                    <div class="ftypes">
-                        <span>.xlsx</span>
-                        <span>.xls</span>
-                        <span>.csv</span>
+                    <div class="template-dl-zone anim-d1" style="flex:1;min-width:250px;background:var(--bg-glass);border:1px solid var(--border);padding:25px;border-radius:16px;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%">
+                        <div style="margin-bottom:15px;color:var(--text-main)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </div>
+                        <h4 style="margin-bottom:8px">No PMS Export?</h4>
+                        <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:20px">Download our standard XLSX template, fill it out, and upload it.</p>
+                        <button class="btn btn-sm" style="background:#0f0f23;color:#fff;border:1px solid rgba(255,255,255,0.2);width:100%;font-weight:600" onclick="downloadStandardTemplate()">Download Template</button>
                     </div>
-                    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+                </div>
+
+                <!-- ====== USER GUIDE ====== -->
+                <div style="margin-top:24px;margin-bottom:24px">
+                    <div class="sec-title" style="cursor:pointer" onclick="toggleSection('userGuideWrap', this)">
+                        <h2>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="12" y1="16" x2="12" y2="12" />
+                                <line x1="12" y1="8" x2="12.01" y2="8" />
+                            </svg>
+                            User Guide & Layout Examples
+                        </h2>
+                        <div class="acts">
+                            <svg class="chevron rotate-up" width="20" height="20" xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="6 9 12 15 18 9" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="glass col-wrap open" id="userGuideWrap" style="padding:24px">
+                        <p style="font-size:.9rem;color:var(--text-sub);margin-bottom:20px;line-height:1.6">
+                            This application automatically recalculates expected checkout times against actual departure times to identify revenue leakage caused by overtime guests and double-sold rooms.
+                            <br><strong>How it works:</strong> Drop your Excel file above. The system tries to auto-detect your format. If it matches <strong>Option 1 (PMS Export)</strong> or <strong>Option 2 (Standard Template)</strong>, it runs automatically. If it's an unrecognized layout, a modal will appear allowing you to map your specific columns (<strong>Option 3</strong>).
+                        </p>
+                        <div style="display:flex;gap:20px;flex-wrap:wrap">
+                            <div style="flex:1;min-width:300px;background:rgba(0,0,0,0.1);padding:15px;border-radius:12px;border:1px dashed var(--border)">
+                                <h4 style="margin-bottom:10px;font-size:.85rem;color:var(--text-main)">Option 1: Typical PMS Export (Auto-Detected)</h4>
+                                <table class="tbl" style="font-size:0.75rem">
+                                    <thead><tr><th>Room Type</th><th>Room</th><th>Time of check-in & check-out</th><th>Default Check-Out Time</th></tr></thead>
+                                    <tbody><tr><td>Deluxe 150000</td><td>101</td><td>2026.04.01 14:00 - 2026.04.02 12:00</td><td>2026.04.02 16:00:00</td></tr></tbody>
+                                </table>
+                            </div>
+                            <div style="flex:1;min-width:300px;background:rgba(0,0,0,0.1);padding:15px;border-radius:12px;border:1px dashed var(--border)">
+                                <h4 style="margin-bottom:10px;font-size:.85rem;color:#00d4aa">Option 2: Our Standard Template (Auto-Detected)</h4>
+                                <table class="tbl" style="font-size:0.75rem">
+                                    <thead><tr><th>Room No</th><th>Room Type</th><th>Daily Rate</th><th>Check-In Date/Time</th><th>Expected Check-Out</th><th>Actual Check-Out</th></tr></thead>
+                                    <tbody><tr><td>101</td><td>Deluxe</td><td>150000</td><td>2026-04-01 14:00:00</td><td>2026-04-02 12:00:00</td><td>2026-04-02 16:00:00</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- File Info Strip -->
@@ -371,9 +431,26 @@ require_subscription('hotel_revenue');
                                             style="color:#66bb6a">₦0</span></div>
                                 </div>
 
-                                <!-- Col 3: Adjustments -->
+                                <!-- Col 3: Management Sales Report -->
                                 <div class="recon-box">
-                                    <h3>3. Adjustments</h3>
+                                    <h3>3. Management Sales (PMS)</h3>
+                                    <div id="mgtSalesList"></div>
+                                    <div class="adj-controls">
+                                        <div style="display:flex;gap:5px">
+                                            <input type="text" id="mgtSalesLabel" placeholder="E.g. Room Sales" style="flex:2">
+                                        </div>
+                                        <div style="display:flex;gap:5px;margin-top:5px">
+                                            <input type="number" id="mgtSalesAmt" placeholder="Amount" style="flex:2">
+                                            <button class="btn btn-sm" onclick="addMgtSales()" style="flex:1">Add</button>
+                                        </div>
+                                    </div>
+                                    <div class="r-divider"></div>
+                                    <div class="r-total"><span>Total Management Sales</span><span id="reconMgtTotal" style="color:#29b6f6">₦0</span></div>
+                                </div>
+
+                                <!-- Col 4: Adjustments -->
+                                <div class="recon-box">
+                                    <h3>4. Adjustments</h3>
                                     <div id="adjList"></div>
                                     <div class="adj-controls">
                                         <div style="display:flex;gap:5px">
@@ -398,9 +475,26 @@ require_subscription('hotel_revenue');
 
                             <!-- Master Variance -->
                             <div class="recon-variance" id="reconVarianceBox">
-                                <div class="v-label">AUDIT VARIANCE (SHORTAGE / SURPLUS)</div>
-                                <div class="v-amount" id="reconVarianceAmt">₦0</div>
-                                <div class="v-status" id="reconVarianceStatus">BALANCED</div>
+                                <div style="display:flex; justify-content:space-between; width:100%; max-width:600px; margin:0 auto">
+                                    <div style="text-align:center; padding:15px; flex:1">
+                                        <div class="v-label" style="font-size:0.7rem">1ST HIT : CASHIER DISCREPANCY</div>
+                                        <div style="font-size:0.6rem; color:var(--text-sub); margin-bottom:5px">Declared Tenders vs Management Sales</div>
+                                        <div class="v-amount" id="reconHit1Amt" style="font-size:1.3rem">₦0</div>
+                                        <div class="v-status" id="reconHit1Status" style="font-size:0.65rem">BALANCED</div>
+                                    </div>
+                                    <div style="width:1px; background:var(--border)"></div>
+                                    <div style="text-align:center; padding:15px; flex:1">
+                                        <div class="v-label" style="font-size:0.7rem">2ND HIT : SYSTEM DISCREPANCY</div>
+                                        <div style="font-size:0.6rem; color:var(--text-sub); margin-bottom:5px">Management Sales vs Net Adjusted Audit</div>
+                                        <div class="v-amount" id="reconHit2Amt" style="font-size:1.3rem">₦0</div>
+                                        <div class="v-status" id="reconHit2Status" style="font-size:0.65rem">BALANCED</div>
+                                    </div>
+                                </div>
+                                <div style="border-top:1px dashed var(--border); width:100%; margin-top:10px; padding-top:15px">
+                                    <div class="v-label">NET AUDIT VARIANCE (H1 + H2)</div>
+                                    <div class="v-amount" id="reconVarianceAmt">₦0</div>
+                                    <div class="v-status" id="reconVarianceStatus">BALANCED</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -426,7 +520,7 @@ require_subscription('hotel_revenue');
                             </div>
                         </div>
                         <div class="glass col-wrap open" id="doubleSalesWrap">
-                            <div class="data-wrap" style="max-height:none">
+                            <div class="data-wrap" style="max-height:600px;overflow-y:auto">
                                 <table class="tbl" id="doubleSalesTable">
                                     <thead>
                                         <tr>
@@ -446,6 +540,45 @@ require_subscription('hotel_revenue');
                         </div>
                     </div>
 
+                    <!-- Early Check-Ins Anomaly Table -->
+                    <div style="margin-bottom:24px">
+                        <div class="sec-title" style="cursor:pointer" onclick="toggleSection('earlyCheckinsWrap', this)">
+                            <h2 style="color:#ef5350">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <polyline points="12 6 12 12 8 14"></polyline>
+                                </svg>
+                                Suspicious Early Check-Ins (12 AM - 7 AM)
+                            </h2>
+                            <div class="acts">
+                                <svg class="chevron rotate-up" width="20" height="20" xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="glass col-wrap open" id="earlyCheckinsWrap">
+                            <div class="data-wrap" style="max-height:450px;overflow-y:auto">
+                                <table class="tbl" id="earlyCheckinsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Room #</th>
+                                            <th>Guest Name</th>
+                                            <th>Risk Level</th>
+                                            <th>Time Checked In</th>
+                                            <th class="amt">Nightly Rate</th>
+                                            <th class="amt">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="earlyCheckinsBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                     <!-- Risk Analysis Summary -->
                     <div style="margin-bottom:24px" id="riskSection">
                         <div class="sec-title">
@@ -473,6 +606,10 @@ require_subscription('hotel_revenue');
                                     <div style="display:flex;flex-direction:column;gap:4px;align-items:center" title="Cover Text Color">
                                         <label for="pdfTextColor" style="font-size:9px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px">TEXT COLOR</label>
                                         <input type="color" id="pdfTextColor" value="#ffffff" style="width:26px;height:26px;padding:0;border:none;border-radius:4px;cursor:pointer">
+                                    </div>
+                                    <div style="display:flex;flex-direction:column;gap:4px;align-items:center" title="Include All Records in Export">
+                                        <label for="pdfIncludeAll" style="font-size:9px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px">ALL RECORDS</label>
+                                        <input type="checkbox" id="pdfIncludeAll" checked style="width:20px;height:20px;cursor:pointer;margin:0;accent-color:#6c63ff">
                                     </div>
                                 </div>
                                 <button class="btn btn-ghost btn-sm" onclick="exportOvertimePDF()">
@@ -535,6 +672,10 @@ require_subscription('hotel_revenue');
                                     </svg></div>
                             </div>
                         </div>
+                        <div style="margin-top:20px;padding:15px;background:var(--bg-glass);border-radius:8px;border:1px solid var(--border)">
+                            <label for="pdfWrittenReport" style="display:block;font-size:.9rem;font-weight:700;color:var(--text-main);margin-bottom:8px">Auditor's Written Report (Included in PDF)</label>
+                            <textarea id="pdfWrittenReport" rows="4" placeholder="Enter findings, recommendations, or official remarks here..." style="width:100%;padding:10px;border-radius:6px;border:1px solid rgba(15,23,42,0.15);background:var(--bg-card);color:var(--text);font-family:inherit;font-size:0.85rem;resize:vertical"></textarea>
+                        </div>
                     </div>
 
                     <!-- Overtime Records Table -->
@@ -549,7 +690,14 @@ require_subscription('hotel_revenue');
                                 </svg>
                                 Overtime Records
                             </h2>
-                            <div class="acts">
+                            <div class="acts" style="display:flex;align-items:center;gap:10px">
+                                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); exportOvertimeRecordsPDF()" style="padding:4px 10px;font-size:0.75rem" title="Export overtime specific records as PDF">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px">
+                                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                                        <polyline points="14 2 14 8 20 8" />
+                                    </svg>
+                                    Export
+                                </button>
                                 <svg class="chevron rotate-up" width="20" height="20" xmlns="http://www.w3.org/2000/svg"
                                     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                                     stroke-linecap="round" stroke-linejoin="round">
@@ -558,11 +706,12 @@ require_subscription('hotel_revenue');
                             </div>
                         </div>
                         <div class="glass col-wrap open" id="overtimeWrap">
-                            <div class="data-wrap" style="max-height:none">
+                            <div class="data-wrap" style="max-height:600px;overflow-y:auto">
                                 <table class="tbl" id="overtimeTable">
                                     <thead>
                                         <tr>
                                             <th>#</th>
+                                            <th>Room #</th>
                                             <th>Room Type</th>
                                             <th>Check-In</th>
                                             <th>Expected Checkout</th>
@@ -593,8 +742,16 @@ require_subscription('hotel_revenue');
                                 </svg>
                                 All Records
                             </h2>
-                            <div class="acts">
-                                <span style="font-size:.78rem;color:var(--text-muted);margin-right:10px"
+                            <div class="acts" style="display:flex;align-items:center;gap:10px">
+                                <input type="text" id="allSearchInput" placeholder="Search room, status..." class="input" style="padding:5px 10px;font-size:0.75rem;width:150px" onclick="event.stopPropagation()" oninput="renderAllTable()">
+                                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); exportAllRecordsPDF()" style="padding:4px 10px;font-size:0.75rem" title="Export current results as PDF">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px">
+                                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                                        <polyline points="14 2 14 8 20 8" />
+                                    </svg>
+                                    Export
+                                </button>
+                                <span style="font-size:.78rem;color:var(--text-muted);"
                                     id="allCountLabel"></span>
                                 <svg class="chevron rotate-up" width="20" height="20" xmlns="http://www.w3.org/2000/svg"
                                     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -609,12 +766,16 @@ require_subscription('hotel_revenue');
                                     <thead>
                                         <tr>
                                             <th>#</th>
+                                            <th>Room #</th>
+                                            <th>Guest Name</th>
                                             <th>Room Type</th>
                                             <th>Check-In</th>
                                             <th>Expected Out</th>
                                             <th>Actual Out</th>
                                             <th>Diff</th>
+                                            <th>OT Charge</th>
                                             <th>Status</th>
+                                            <th>Comp/Voucher</th>
                                         </tr>
                                     </thead>
                                     <tbody id="allBody"></tbody>
@@ -688,11 +849,76 @@ require_subscription('hotel_revenue');
         </div>
     </div>
 
+    <!-- Mapping Modal -->
+    <div class="modal-overlay" id="mappingModal">
+        <div class="rectify-modal" style="max-width:500px">
+            <div class="rm-header">
+                <h3>Custom Column Mapping</h3>
+                <div class="rm-close" onclick="closeMappingModal()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </div>
+            </div>
+            <div class="rm-body" style="background:var(--bg-glass);padding:20px;max-height:60vh;overflow-y:auto;border-bottom:1px solid var(--border)">
+                <p style="font-size:.8rem;color:var(--text-sub);margin-bottom:20px">We didn't recognize this file's format. Please map your spreadsheet columns to the required system fields.</p>
+                <div id="mappingFieldsContainer" style="display:flex;flex-direction:column;gap:12px">
+                    <!-- Dropdowns injected by JS -->
+                </div>
+            </div>
+            <div class="rm-footer" style="padding-top:15px">
+                <button class="btn btn-sm" style="background:transparent;border:1px solid var(--border);color:var(--text)" onclick="closeMappingModal()">Cancel</button>
+                <button class="btn btn-sm" style="background:#10b981;color:#fff" onclick="applyCustomMapping()">Process File</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Policy Settings Modal -->
+    <div class="modal-overlay" id="policyModal">
+        <div class="rectify-modal" style="max-width:400px">
+            <div class="rm-header">
+                <h3>Hotel Policy Settings</h3>
+                <div class="rm-close" onclick="closePolicyModal()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </div>
+            </div>
+            <div class="rm-body" style="background:var(--bg-glass);padding:20px;border-bottom:1px solid var(--border)">
+                <p style="font-size:0.8rem;color:var(--text-sub);margin-bottom:20px;line-height:1.5">Customize the overtime penalty thresholds based on this specific hotel's operational rules.</p>
+                
+                <div class="rm-row">
+                    <label style="font-size:0.85rem;font-weight:600;margin-bottom:6px;display:block">Grace Period (Minutes)</label>
+                    <input type="number" id="polGrace" placeholder="e.g. 30" style="padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main);width:100%">
+                    <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Checkouts within this time are forgiven completely.</div>
+                </div>
+
+                <div class="rm-row" style="margin-top:18px">
+                    <label style="font-size:0.85rem;font-weight:600;margin-bottom:6px;display:block">Half-Day Threshold (Hours)</label>
+                    <input type="number" id="polHalf" step="0.5" placeholder="e.g. 3" style="padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main);width:100%">
+                    <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Checkouts over this threshold hit a 50% flat charge limit.</div>
+                </div>
+
+                <div class="rm-row" style="margin-top:18px">
+                    <label style="font-size:0.85rem;font-weight:600;margin-bottom:6px;display:block">Full-Day Threshold (Hours)</label>
+                    <input type="number" id="polFull" step="0.5" placeholder="e.g. 8" style="padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main);width:100%">
+                    <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Checkouts over this threshold hit a 100% full extra night limit.</div>
+                </div>
+            </div>
+            <div class="rm-footer" style="padding-top:15px">
+                <button class="btn btn-sm" style="background:transparent;border:1px solid var(--border);color:var(--text)" onclick="closePolicyModal()">Cancel</button>
+                <button class="btn btn-sm" style="background:#6c63ff;color:#fff" onclick="applyPolicySettings()">Save Rules</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Dependencies -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-    <script src="overtime.js?v=22"></script>
+    <script src="overtime.js?v=<?php echo filemtime('overtime.js'); ?>"></script>
 
     <script>
         // Layout logic

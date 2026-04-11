@@ -397,13 +397,13 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
 
                     <div class="h-px bg-slate-800 my-6"></div>
 
-                    <!-- Hotel Revenue Plan -->
+                    <!-- Hotel Audit & Fraud Suite Plan -->
                     <div>
                         <div class="flex items-center gap-2 mb-4">
                             <div class="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
                                 <i data-lucide="building" class="w-4 h-4 text-blue-400"></i>
                             </div>
-                            <h4 class="text-sm font-bold text-blue-400">Hotel Revenue Module</h4>
+                            <h4 class="text-sm font-bold text-blue-400">Hotel Audit & Fraud Suite</h4>
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
                             <div>
@@ -766,7 +766,7 @@ $owner_name = $_SESSION['owner_name'] ?? 'Owner';
                         <option value="starter">Starter</option>
                         <option value="professional">Professional</option>
                         <option value="enterprise">Enterprise</option>
-                        <option value="hotel_revenue">Hotel Revenue</option>
+                        <option value="hotel_revenue">Hotel Audit & Fraud Suite</option>
                     </select>
                 </div>
                 <div>
@@ -1146,9 +1146,9 @@ function ownerApp() {
                 plan_name: c.plan_name || 'free',
                 status: c.sub_status || 'trial',
                 expires_at: c.expires_at || '',
-                max_users: c.max_users || 5,
-                max_outlets: c.max_outlets || 3,
-                max_clients: c.max_clients || 1,
+                max_users: (c.max_users !== undefined && c.max_users !== null) ? c.max_users : 5,
+                max_outlets: (c.max_outlets !== undefined && c.max_outlets !== null) ? c.max_outlets : 3,
+                max_clients: (c.max_clients !== undefined && c.max_clients !== null) ? c.max_clients : 1,
                 addon_client_packs: parseInt(c.addon_client_packs) || 0,
                 notes: c.notes || ''
             };

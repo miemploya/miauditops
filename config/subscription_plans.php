@@ -89,6 +89,7 @@ $SUBSCRIPTION_PLANS = [
             'settings',        // all tabs
             'trash',
             'billing',         // Billing always accessible
+            'retail_audit',    // NEW: Retail Audit Access
         ],
 
         // ── Tab-level restrictions ──
@@ -113,6 +114,7 @@ $SUBSCRIPTION_PLANS = [
             'Department Store',
             'Financial Reports (Limited)',
             'Reports & Analytics (Limited)',
+            'Retail Audit Module',
             'Daily Report',
             'Monthly P&L Statement',
             'PDF Export',
@@ -153,6 +155,7 @@ $SUBSCRIPTION_PLANS = [
             'settings',
             'trash',
             'station_audit',
+            'retail_audit',
             'support',
             'billing',         // Billing always accessible
         ],
@@ -177,6 +180,7 @@ $SUBSCRIPTION_PLANS = [
             'Financial Reports (Full P&L)',
             'Requisitions & Procurement',
             'Reports & Analytics (Full)',
+            'Retail Audit Module',
             'Daily Report',
             'Monthly P&L Statement',
             'Station Audit',
@@ -193,7 +197,7 @@ $SUBSCRIPTION_PLANS = [
     ],
 
     'hotel_revenue' => [
-        'label'       => 'Hotel Revenue',
+        'label'       => 'Hotel Audit & Fraud Suite',
         'tag'         => 'Premium Module',
         'icon'        => 'building',
         'color'       => 'blue',
@@ -221,6 +225,7 @@ $SUBSCRIPTION_PLANS = [
             'settings',
             'trash',
             'station_audit',
+            'retail_audit',
             'support',
             'billing',
             'hotel_revenue',     // Exclusive premium module
@@ -242,7 +247,7 @@ $SUBSCRIPTION_PLANS = [
         // ── Display features (shown on billing/pricing pages) ──
         'features' => [
             'Everything in Enterprise',
-            'Hotel Revenue Audit',
+            'Hotel Audit & Fraud Suite',
             'Overtime Tracking',
             'Booking Extraction',
             'Unlimited Data Retention',

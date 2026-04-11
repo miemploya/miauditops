@@ -148,6 +148,9 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Full Audit + Stock Modules
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Retail Audit Module
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <i data-lucide="check" class="w-4 h-4 text-violet-500 mt-0.5 shrink-0"></i> Revenue & Expenses Tracking
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
@@ -203,6 +206,9 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Station Audit Module
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Retail Audit Module
+                    </li>
+                    <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <i data-lucide="check" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i> Viewer Role Access
                     </li>
                     <li class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
@@ -216,7 +222,7 @@ $dynamic_prices = get_dynamic_prices();
                 </button>
             </div>
 
-            <!-- Hotel Revenue -->
+            <!-- Hotel Audit & Fraud Suite -->
             <div class="card-glow relative bg-gradient-to-b from-blue-50 dark:from-blue-600/10 to-white dark:to-slate-950 rounded-2xl border-2 border-blue-400 dark:border-blue-500/50 p-8 flex flex-col shadow-xl shadow-blue-500/10">
                 <div class="absolute -top-4 left-1/2 -translate-x-1/2">
                     <span class="px-4 py-1 rounded-full bg-gradient-to-r from-indigo-500 to-blue-600 text-white text-xs font-bold shadow-lg shadow-blue-500/30">All-Inclusive</span>
@@ -225,8 +231,8 @@ $dynamic_prices = get_dynamic_prices();
                     <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30 mb-4">
                         <i data-lucide="building" class="w-6 h-6 text-white"></i>
                     </div>
-                    <h3 class="text-xl font-black text-slate-800 dark:text-white">Hotel Revenue</h3>
-                    <span class="inline-block mt-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300 text-[10px] font-bold uppercase tracking-wider">Premium Module</span>
+                    <h3 class="text-xl font-black text-slate-800 dark:text-white">Hotel Audit & Fraud Suite</h3>
+                    <span class="inline-block mt-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300 text-[10px] font-bold uppercase tracking-wider">Premium Suite</span>
                 </div>
                 <div class="mb-4">
                     <span class="text-4xl font-black text-slate-800 dark:text-white" x-text="'₦' + getPrice('hotel_revenue').toLocaleString()"></span>
@@ -250,7 +256,7 @@ $dynamic_prices = get_dynamic_prices();
                         <i data-lucide="check" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Full P&L, Requisitions & Reports
                     </li>
                     <li class="flex items-start gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400">
-                        <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Hotel Revenue Audit
+                        <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Hotel Audit & Fraud Suite
                     </li>
                     <li class="flex items-start gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400">
                         <i data-lucide="star" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i> Fixed Assets & Capital Allowance
@@ -287,7 +293,7 @@ $dynamic_prices = get_dynamic_prices();
                         <th class="text-left px-6 py-4 font-bold text-slate-700 dark:text-slate-300">Feature</th>
                         <th class="text-center px-6 py-4 font-bold text-violet-600 dark:text-violet-400">Professional</th>
                         <th class="text-center px-6 py-4 font-bold text-amber-600 dark:text-amber-400">Enterprise</th>
-                        <th class="text-center px-6 py-4 font-bold text-blue-600 dark:text-blue-400">Hotel Revenue</th>
+                        <th class="text-center px-6 py-4 font-bold text-blue-600 dark:text-blue-400">Hotel Audit & Fraud Suite</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-white/5">
@@ -303,9 +309,10 @@ $dynamic_prices = get_dynamic_prices();
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Reports</td><td class="px-6 py-3 text-center text-xs text-slate-500">Sales + Stock</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">PDF Export</td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Station Audit</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
+                    <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Retail Audit</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Viewer Role</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
                     <tr><td class="px-6 py-3 font-medium text-slate-700 dark:text-slate-300">Priority Support</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-emerald-500 mx-auto"></i></td></tr>
-                    <tr class="bg-blue-50/50 dark:bg-blue-500/5"><td class="px-6 py-3 font-bold text-blue-700 dark:text-blue-300">Hotel Revenue Audit</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-blue-500 mx-auto"></i></td></tr>
+                    <tr class="bg-blue-50/50 dark:bg-blue-500/5"><td class="px-6 py-3 font-bold text-blue-700 dark:text-blue-300">Hotel Audit & Fraud Suite</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-blue-500 mx-auto"></i></td></tr>
                     <tr class="bg-blue-50/50 dark:bg-blue-500/5"><td class="px-6 py-3 font-bold text-blue-700 dark:text-blue-300">Fixed Assets & Capital</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-blue-500 mx-auto"></i></td></tr>
                     <tr class="bg-blue-50/50 dark:bg-blue-500/5"><td class="px-6 py-3 font-bold text-blue-700 dark:text-blue-300">Bank Reconciliation</td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="x" class="w-4 h-4 text-slate-400 mx-auto"></i></td><td class="px-6 py-3 text-center"><i data-lucide="check" class="w-4 h-4 text-blue-500 mx-auto"></i></td></tr>
                 </tbody>

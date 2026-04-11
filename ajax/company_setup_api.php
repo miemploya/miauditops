@@ -57,7 +57,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'set_act
 
     set_active_client($client_id);
     set_flash_message('success', 'Switched to client: ' . $client['name']);
-    redirect('../dashboard/' . basename($redirect));
+    
+    // Preserve subdirectory paths (e.g. retail_audit/index.php, hotel_revenue/index.php)
+    // basename() would strip subdirs, losing the user's place in nested modules
+    $safe_redirect = preg_replace('/[^a-zA-Z0-9_\/\.\-]/', '', urldecode($redirect));
+    // Prevent directory traversal
+    $safe_redirect = str_replace('..', '', $safe_redirect);
+    if (empty($safe_redirect)) $safe_redirect = 'index.php';
+    
+    redirect('../dashboard/' . $safe_redirect);
     exit;
 }
 

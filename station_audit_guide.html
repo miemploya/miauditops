@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Station Audit Guide | MiAuditOps</title>
+    <!-- Tailwind CSS for robust styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Mermaid JS for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: { 50:'#fff7ed', 100:'#ffedd5', 600:'#ea580c', 700:'#c2410c', 900:'#7c2d12', 950:'#431407' }
+                    }
+                }
+            }
+        }
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+    </script>
+
+    <style>
+        body { background-color: #f8fafc; color: #1e293b; }
+        .document-container {
+            max-w-[850px];
+            margin: 40px auto;
+            background: white;
+            padding: 60px;
+            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        /* Print Specific Styling */
+        @media print {
+            body { background: white; }
+            .document-container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                border: none;
+            }
+            .no-print { display: none !important; }
+            .page-break { page-break-before: always; }
+            
+            /* Avoid splitting diagrams */
+            .mermaid-wrapper { page-break-inside: avoid; }
+            .section-block { page-break-inside: avoid; }
+        }
+
+        h1, h2, h3 { letter-spacing: -0.02em; }
+        .grid-bg {
+            background-image: linear-gradient(to right, #f1f5f9 1px, transparent 1px), linear-gradient(to bottom, #f1f5f9 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Floating Action Bar (Hidden on Print) -->
+    <div class="no-print fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full flex items-center justify-between gap-6 shadow-2xl border border-slate-700 z-50 transition-all hover:scale-105">
+        <span class="text-sm font-semibold tracking-wide">Download Official Operations Guide</span>
+        <button onclick="window.print()" class="bg-orange-600 hover:bg-orange-500 text-white px-5 py-2 rounded-full font-bold text-sm shadow-md transition-colors flex items-center gap-2">
+            <i data-lucide="download" class="w-4 h-4"></i> Save as PDF
+        </button>
+    </div>
+
+    <!-- Main Document -->
+    <div class="w-full max-w-[850px] mx-auto bg-white document-container rounded-xl overflow-hidden relative">
+        
+        <!-- Header -->
+        <div class="flex justify-between items-start border-b-2 border-slate-100 pb-8 mb-12">
+            <div>
+                <img src="assets/images/logo.png" alt="MiAuditOps" class="h-10 mb-2">
+                <span class="text-xs font-bold text-orange-600 tracking-widest uppercase ml-1">Platform Operations Guide</span>
+            </div>
+            <div class="text-right">
+                <div class="text-[10px] font-mono text-slate-400">DOCUMENT ID: MIA-STN-REV-1.0</div>
+                <div class="text-[10px] font-mono text-slate-400">STATUS: OFFICIAL PUBLICATION</div>
+            </div>
+        </div>
+
+        <!-- Title Section -->
+        <div class="text-center mb-12">
+            <h1 class="text-4xl font-black text-slate-900 mb-4">Filling Station Audit & Operational Control</h1>
+            <p class="text-lg text-slate-500 max-w-2xl mx-auto leading-relaxed">
+                A comprehensive guide to MiAuditOps' multi-layered Downstream Petroleum auditing architecture. Designed to eliminate fuel leakage, meter-tampering, and undocumented haulage operations.
+            </p>
+        </div>
+
+        <!-- The Problem Context -->
+        <div class="bg-orange-50 border border-orange-100 rounded-2xl p-8 mb-12 section-block">
+            <h3 class="text-orange-800 font-bold text-sm uppercase tracking-widest mb-3 flex items-center gap-2">
+                <i data-lucide="fuel" class="w-4 h-4"></i> Managing Downstream Shrinkage
+            </h3>
+            <p class="text-orange-900 text-sm leading-relaxed">
+                Filling stations operate on razor-thin margins where unaccounted product volumes severely damage profitability. Discrepancies arise from <strong>pump meter manipulation, unrecorded cash inflows, delivery shortages (haulage shrinkage), and uncontrolled lubricant sales</strong>. MiAuditOps centralizes these metrics via a session-scoped multi-module interface ensuring total reconciliation.
+            </p>
+        </div>
+
+        <!-- Mermaid Diagram Workflow -->
+        <div class="mb-14 mermaid-wrapper">
+            <h2 class="text-xl font-bold text-slate-800 mb-6 border-b pb-2">Operational Audit Workflow</h2>
+            <div class="border border-slate-200 rounded-xl p-6 bg-slate-50 flex justify-center grid-bg">
+                <div class="mermaid">
+                    graph TD
+                        A[Start Operations Session] --> B(Pump Sales Extraction)
+                        A --> C(Tank Dipping Capture)
+                        A --> D(System Sales Ingress)
+                        A --> E(Lubricants Counter Audit)
+                        
+                        B --> F{Fuel Variance Engine}
+                        D --> F
+                        
+                        F -->|Meter Volumes vs POS| G[PUMP vs DECLARATION VARIANCE]
+                        
+                        C --> H{Stock Integrity Check}
+                        H -->|Book vs Dip Volume| I[DEAD STOCK ALERT]
+                        
+                        E --> J[Lube Inventory Sync]
+                        
+                        K[Haulage Delivery System] -->|Waybill vs Reality| C
+                        
+                        style A fill:#fff7ed,stroke:#fdba74,stroke-width:2px
+                        style G fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b
+                        style I fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e
+                        style J fill:#f3e8ff,stroke:#d8b4fe,stroke-width:2px,color:#6b21a8
+                </div>
+            </div>
+        </div>
+
+        <div class="page-break"></div>
+
+    <!-- Core Modules -->
+        <div class="mb-12 mt-12">
+            <h2 class="text-2xl font-black text-slate-900 mb-8">The Six Core Control Modules</h2>
+
+            <!-- Module 1 -->
+            <div class="flex gap-6 mb-10 section-block">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center border border-blue-200 text-blue-600">
+                        <i data-lucide="calculator" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">1. System Sales & Pump Auditing</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        The station's financial health starts by comparing the <strong>Actual Liter dispensed</strong> against the <strong>Declared Value banked</strong>.
+                    </p>
+                    <ul class="text-sm text-slate-500 space-y-2 list-none pl-0">
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="text-emerald-500 w-4 h-4"></i> <strong class="text-slate-700">Pump Analytics:</strong> Opening and closing meter tracking across multiple products (PMS, AGO, DPK, LPG).</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="text-emerald-500 w-4 h-4"></i> <strong class="text-slate-700">Multi-Channel Inflows:</strong> Cash, POS, and Bank Transfers evaluated against the total value derived from liter pump margins.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Module 2 -->
+            <div class="flex gap-6 mb-10 section-block">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center border border-amber-200 text-amber-600">
+                        <i data-lucide="database" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">2. Intelligent Tank Dipping</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        Preventing fuel theft necessitates raw underground reality checks. Tank Dipping records physical parameters compared to book records.
+                    </p>
+                    <div class="bg-slate-50 border border-slate-200 rounded-lg p-5">
+                        <p class="text-slate-700 text-xs leading-relaxed">
+                            A smart-entry system capturing <strong>Dip Volume, Water Level, Initial/Final Temperature</strong>, and automated calculation of actual dead-stock capacities.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Module 3 -->
+            <div class="flex gap-6 section-block mb-10">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-rose-100 rounded-xl flex items-center justify-center border border-rose-200 text-rose-600">
+                        <i data-lucide="truck" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">3. Haulage & Delivery Verification</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        We capture every incoming tanker delivery. Tracking Waybills, Compartment Seals, Driver signatures, and expected total drops against actual drops deposited during filling. Stops short-filling completely.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Module 4 -->
+            <div class="flex gap-6 section-block mb-10">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-fuchsia-100 rounded-xl flex items-center justify-center border border-fuchsia-200 text-fuchsia-600">
+                        <i data-lucide="box" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">4. Isolated Lube & Accessories Store</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        Often neglected, the lubricant inventory operates on a sophisticated "Last-Write Wins" synchronization system.
+                    </p>
+                    <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                         <p class="text-indigo-900 text-xs leading-relaxed">
+                            It tracks Sales, Returns Inwards, and Manual Adjustments via physical stock counts directly tied to the shift's active reconciliation report. Prevents missing stock carryover bugs.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Module 5 -->
+            <div class="flex gap-6 section-block mb-10">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center border border-emerald-200 text-emerald-600">
+                        <i data-lucide="banknote" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">5. Cash Management & Expense Requisitions</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        A dedicated hub to capture and reconcile operational cash outflows during the shift, ensuring the net remittable cash is exactly what hits the bank.
+                    </p>
+                    <ul class="text-sm text-slate-500 space-y-2 list-none pl-0">
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="text-emerald-500 w-4 h-4"></i> <strong class="text-slate-700">Petty Cash & Safe Drops:</strong> Log cash dropped into the safe versus what the cashier kept.</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="text-emerald-500 w-4 h-4"></i> <strong class="text-slate-700">Station Expenses:</strong> Shift-level requisitions automatically subtracted from the Expected Cash.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Module 6 -->
+            <div class="flex gap-6 section-block mb-10">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-cyan-100 rounded-xl flex items-center justify-center border border-cyan-200 text-cyan-600">
+                        <i data-lucide="users" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">6. Debtor & Corporate Credit Management</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        Not all fuel is paid for immediately. The system specifically isolates corporate clients taking fuel on credit at the pump.
+                    </p>
+                    <div class="bg-cyan-50 border border-cyan-200 rounded-lg p-4">
+                        <p class="text-cyan-900 text-xs leading-relaxed">
+                            Credit sales are automatically tallied against the respective product meters but securely stored as <strong>"Accounts Receivable"</strong> instead of missing cash, preventing false variance alarms while managing company liabilities.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+
+        <div class="page-break"></div>
+
+        <!-- Reporting Section -->
+        <div class="mt-8 mb-10 section-block">
+            <h2 class="text-2xl font-black text-slate-900 mb-6">Unified PDF Compilation</h2>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-6 flex flex-col md:flex-row gap-6 items-center">
+                <div class="flex-1">
+                    <p class="text-slate-600 text-sm leading-relaxed mb-4">
+                        Upon finalizing an audit session, MiAuditOps packages all data from Pumps, Tanks, Deliveries, and Lube sales into a single, comprehensive PDF export.
+                    </p>
+                    <ul class="text-sm text-slate-500 space-y-2 list-none pl-0">
+                        <li class="flex items-center gap-2"><i data-lucide="clipboard-check" class="text-orange-500 w-4 h-4"></i> <strong class="text-slate-700">Digital Signatures:</strong> Built-in signing protocols.</li>
+                        <li class="flex items-center gap-2"><i data-lucide="calendar" class="text-orange-500 w-4 h-4"></i> <strong class="text-slate-700">Historical Lookups:</strong> Immediate access to any prior audit via the Historical Session interface.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="border-t border-slate-200 pt-8 mt-12 mb-6">
+            <div class="flex justify-between items-center text-xs text-slate-400 font-mono">
+                <div>GENERATED: © <?php echo date('Y') ?? '2026'; ?> MIEMPLOYA SYSTEM LIMITED</div>
+                <div>MIAUDITOPS.APP</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>

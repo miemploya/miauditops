@@ -17,6 +17,7 @@ $company_id = $_SESSION['company_id'];
 $client_id  = get_active_client();
 require_non_viewer();
 $user_id = $_SESSION['user_id'];
+$current_user = get_user($user_id);
 $action  = $_POST['action'] ?? $_GET['action'] ?? '';
 
 // Helper: reject input containing '&' character
@@ -85,8 +86,56 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS station_audit_documents (
     INDEX idx_session (session_id, company_id)
 )");
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS station_lube_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT NOT NULL,
+    session_id INT NOT NULL,
+    transaction_id VARCHAR(100) NOT NULL,
+    action_type VARCHAR(50) NOT NULL,
+    action_description TEXT,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id INT NOT NULL,
+    before_json LONGTEXT,
+    after_json LONGTEXT,
+    performed_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_session (session_id, company_id),
+    INDEX idx_trans (transaction_id)
+)");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS station_audit_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT NOT NULL,
+    setting_key VARCHAR(100) NOT NULL,
+    setting_value TEXT,
+    updated_by INT DEFAULT NULL,
+    UNIQUE INDEX idx_company_key (company_id, setting_key)
+)");
+// Ensure updated_by exists and index is UNIQUE for existing tables
+try {
+    $pdo->exec("ALTER TABLE station_audit_settings ADD COLUMN updated_by INT DEFAULT NULL");
+} catch (Exception $e) {}
+try {
+    $pdo->exec("ALTER TABLE station_audit_settings DROP INDEX idx_company_key");
+    $pdo->exec("ALTER TABLE station_audit_settings ADD UNIQUE INDEX idx_company_key (company_id, setting_key)");
+} catch (Exception $e) {}
+
 ensure_trash_table($pdo);
 purge_expired_trash($pdo);
+
+// Helper: bump updated_at on a session whenever any child data is saved
+function touch_session_updated($pdo, $session_id, $company_id) {
+    if (!$session_id) return;
+    $pdo->prepare("UPDATE station_audit_sessions SET updated_at = NOW() WHERE id = ? AND company_id = ?")
+        ->execute([$session_id, $company_id]);
+}
+
+// ── Lube History Helper ──
+function log_lube_change($pdo, $company_id, $session_id, $trans_id, $action_type, $desc, $entity_type, $entity_id, $before, $after) {
+    $ins = $pdo->prepare("INSERT INTO station_lube_history (company_id, session_id, transaction_id, action_type, action_description, entity_type, entity_id, before_json, after_json, performed_by) VALUES (?,?,?,?,?,?,?,?,?,?)");
+    $ins->execute([$company_id, $session_id, $trans_id, $action_type, $desc, $entity_type, $entity_id, json_encode($before), json_encode($after), $_SESSION['user_id'] ?? null]);
+}
+
 
 try {
     switch ($action) {
@@ -170,11 +219,16 @@ try {
 
                 $si_ins = $pdo->prepare("INSERT INTO station_lube_store_items (session_id, company_id, item_name, opening, received, return_out, selling_price, sort_order) VALUES (?, ?, ?, ?, 0, 0, ?, ?)");
                 foreach ($prev_store_items as $si) {
-                    // Compute closing of previous session: opening + received - issued - return_out
-                    $issued_stmt = $pdo->prepare("SELECT COALESCE(SUM(quantity),0) FROM station_lube_issues WHERE store_item_id = ? AND company_id = ?");
-                    $issued_stmt->execute([$si['id'], $company_id]);
-                    $prev_issued = floatval($issued_stmt->fetchColumn());
-                    $prev_closing = floatval($si['opening']) + floatval($si['received']) - $prev_issued - floatval($si['return_out']);
+                    $prev_closing = floatval($si['closing'] ?? 0);
+                    
+                    // Fallback for legacy sessions where 'closing' column was not persisted
+                    if ($prev_closing == 0 && (floatval($si['opening']) > 0 || floatval($si['received']) > 0)) {
+                        $issued_stmt = $pdo->prepare("SELECT COALESCE(SUM(quantity),0) FROM station_lube_issues WHERE store_item_id = ? AND company_id = ?");
+                        $issued_stmt->execute([$si['id'], $company_id]);
+                        $prev_issued = floatval($issued_stmt->fetchColumn());
+                        $prev_closing = floatval($si['opening']) + floatval($si['received']) + floatval($si['adjustment']) - $prev_issued - floatval($si['return_out']);
+                    }
+                    
                     $si_ins->execute([$sid, $company_id, $si['item_name'], max(0, $prev_closing), floatval($si['selling_price']), $si['sort_order']]);
                     $store_id_map[$si['id']] = $pdo->lastInsertId();
                 }
@@ -234,7 +288,7 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Missing required fields']);
                 break;
             }
-            $pdo->prepare("UPDATE station_audit_sessions SET date_from=?, date_to=? WHERE id=? AND company_id=?")
+            $pdo->prepare("UPDATE station_audit_sessions SET date_from=?, date_to=?, updated_at=NOW() WHERE id=? AND company_id=?")
                 ->execute([$date_from, $date_to, $session_id, $company_id]);
             echo json_encode(['success' => true]);
             break;
@@ -286,6 +340,7 @@ try {
 
             $stmt = $pdo->prepare("UPDATE station_system_sales SET pos_amount = ?, cash_amount = ?, transfer_amount = ?, teller_amount = ?, total = ?, notes = ?, denomination_json = ?, teller_proof_url = ?, pos_proof_url = ?, pos_terminals_json = ?, transfer_terminals_json = ? WHERE session_id = ? AND company_id = ?");
             $stmt->execute([$pos, $cash, $transfer, $teller, $total, $notes, $denom_json, $teller_url, $pos_url, $pos_terms, $xfer_terms, $session_id, $company_id]);
+            touch_session_updated($pdo, $session_id, $company_id);
 
             echo json_encode(['success' => true, 'total' => $total]);
             break;
@@ -313,8 +368,10 @@ try {
 
                 $stmt = $pdo->prepare("INSERT INTO station_pump_tables (session_id, company_id, product, station_location, rate, date_from, date_to, is_closed, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)");
                 $stmt->execute([$session_id, $company_id, $product, $station, $rate, $date_from, $date_to, $sort]);
-                echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+                $id = $pdo->lastInsertId();
             }
+            touch_session_updated($pdo, $session_id, $company_id);
+            echo json_encode(['success' => true, 'id' => $id]);
             break;
 
         // ───────── Save Pump Readings (Bulk) ─────────
@@ -346,6 +403,12 @@ try {
                 ]);
             }
 
+            // Resolve session_id
+            $stmt = $pdo->prepare("SELECT session_id FROM station_pump_tables WHERE id = ? AND company_id = ?");
+            $stmt->execute([$pump_table_id, $company_id]);
+            $sid = $stmt->fetchColumn();
+            touch_session_updated($pdo, $sid, $company_id);
+
             echo json_encode(['success' => true, 'count' => $order]);
             break;
 
@@ -355,6 +418,12 @@ try {
 
             $stmt = $pdo->prepare("UPDATE station_pump_tables SET is_closed = 1 WHERE id = ? AND company_id = ?");
             $stmt->execute([$id, $company_id]);
+
+            // Resolve session_id
+            $stmt = $pdo->prepare("SELECT session_id FROM station_pump_tables WHERE id = ? AND company_id = ?");
+            $stmt->execute([$id, $company_id]);
+            $sid = $stmt->fetchColumn();
+            touch_session_updated($pdo, $sid, $company_id);
 
             echo json_encode(['success' => true]);
             break;
@@ -383,6 +452,10 @@ try {
             $pdo->prepare("DELETE FROM station_pump_readings WHERE pump_table_id = ? AND company_id = ?")->execute([$id, $company_id]);
             $pdo->prepare("DELETE FROM station_tank_dipping WHERE pump_table_id = ? AND company_id = ?")->execute([$id, $company_id]);
             $pdo->prepare("DELETE FROM station_pump_tables WHERE id = ? AND company_id = ?")->execute([$id, $company_id]);
+
+            if (!empty($pt_row['session_id'])) {
+                touch_session_updated($pdo, $pt_row['session_id'], $company_id);
+            }
 
             echo json_encode(['success' => true]);
             break;
@@ -447,6 +520,7 @@ try {
                 ];
                 $tanks_copied++;
             }
+            touch_session_updated($pdo, $session_id, $company_id);
 
             echo json_encode(['success' => true, 'id' => $new_table_id, 'pumps_copied' => $order, 'tanks_copied' => $tanks_copied, 'tanks' => $copied_tanks]);
             break;
@@ -462,8 +536,15 @@ try {
 
             $stmt = $pdo->prepare("INSERT INTO station_pump_readings (pump_table_id, company_id, pump_name, opening, rtt, closing, sort_order) VALUES (?, ?, ?, 0, 0, 0, ?)");
             $stmt->execute([$pump_table_id, $company_id, $pump_name, $sort]);
+            $new_id = $pdo->lastInsertId();
 
-            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+            // Resolve session_id
+            $stmt = $pdo->prepare("SELECT session_id FROM station_pump_tables WHERE id = ? AND company_id = ?");
+            $stmt->execute([$pump_table_id, $company_id]);
+            $sid = $stmt->fetchColumn();
+            touch_session_updated($pdo, $sid, $company_id);
+
+            echo json_encode(['success' => true, 'id' => $new_id]);
             break;
 
         // ───────── Add Single Tank ─────────
@@ -480,7 +561,9 @@ try {
             }
             $stmt = $pdo->prepare("INSERT INTO station_tank_dipping (session_id, pump_table_id, company_id, tank_name, product, opening, added, closing, capacity_kg, max_fill_percent) VALUES (?,?,?,?,?,0,0,0,0,100)");
             $stmt->execute([$ptInfo['session_id'], $pump_table_id, $company_id, $tank_name, $ptInfo['product']]);
-            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+            $new_id = $pdo->lastInsertId();
+            touch_session_updated($pdo, $ptInfo['session_id'], $company_id);
+            echo json_encode(['success' => true, 'id' => $new_id]);
             break;
 
         // ───────── Save Tank Dipping (Bulk) ─────────
@@ -541,6 +624,7 @@ try {
                     }
                 }
             }
+            touch_session_updated($pdo, $pt_session_id, $company_id);
 
             echo json_encode(['success' => true, 'count' => count($tanks), 'synced' => $synced]);
             break;
@@ -627,6 +711,7 @@ try {
                     $tank_updates[] = ['pump_table_id' => intval($ptId), 'tank_name' => $tankName, 'total_added' => $total];
                 }
             }
+            touch_session_updated($pdo, $session_id, $company_id);
 
             echo json_encode(['success' => true, 'count' => count($entries), 'tanks_updated' => $tanks_updated, 'tank_updates' => $tank_updates]);
             break;
@@ -650,20 +735,28 @@ try {
             $stmt->execute([$session_id, $company_id]);
             $system_sales = $stmt->fetch();
 
-            // Pump tables + readings
+            // Pump tables
             $stmt = $pdo->prepare("SELECT * FROM station_pump_tables WHERE session_id = ? AND company_id = ? ORDER BY product, sort_order");
             $stmt->execute([$session_id, $company_id]);
             $pump_tables = $stmt->fetchAll();
+            $pt_ids = array_column($pump_tables, 'id');
 
+            // Bulk fetch readings and tanks for these pump tables
+            $all_readings = []; $all_tanks = [];
+            if (!empty($pt_ids)) {
+                $placeholders = implode(',', array_fill(0, count($pt_ids), '?'));
+                // Readings
+                $stmt = $pdo->prepare("SELECT * FROM station_pump_readings WHERE pump_table_id IN ($placeholders) AND company_id = ? ORDER BY sort_order");
+                $stmt->execute(array_merge($pt_ids, [$company_id]));
+                while ($row = $stmt->fetch()) $all_readings[$row['pump_table_id']][] = $row;
+                // Tanks
+                $stmt = $pdo->prepare("SELECT * FROM station_tank_dipping WHERE pump_table_id IN ($placeholders) AND company_id = ? ORDER BY tank_name");
+                $stmt->execute(array_merge($pt_ids, [$company_id]));
+                while ($row = $stmt->fetch()) $all_tanks[$row['pump_table_id']][] = $row;
+            }
             foreach ($pump_tables as &$pt) {
-                $stmt = $pdo->prepare("SELECT * FROM station_pump_readings WHERE pump_table_id = ? AND company_id = ? ORDER BY sort_order");
-                $stmt->execute([$pt['id'], $company_id]);
-                $pt['readings'] = $stmt->fetchAll();
-
-                // Tanks linked to this pump table
-                $stmt = $pdo->prepare("SELECT * FROM station_tank_dipping WHERE pump_table_id = ? AND company_id = ? ORDER BY tank_name");
-                $stmt->execute([$pt['id'], $company_id]);
-                $pt['tanks'] = $stmt->fetchAll();
+                $pt['readings'] = $all_readings[$pt['id']] ?? [];
+                $pt['tanks'] = $all_tanks[$pt['id']] ?? [];
             }
 
             // Haulage
@@ -671,63 +764,77 @@ try {
             $stmt->execute([$session_id, $company_id]);
             $haulage = $stmt->fetchAll();
 
-            // Expense Categories + Ledger
+            // Expense categories
             $stmt = $pdo->prepare("SELECT * FROM station_expense_categories WHERE session_id = ? AND company_id = ? ORDER BY category_name");
             $stmt->execute([$session_id, $company_id]);
             $expense_categories = $stmt->fetchAll();
-            foreach ($expense_categories as &$ec) {
-                $lstmt = $pdo->prepare("SELECT * FROM station_expense_ledger WHERE category_id = ? AND company_id = ? ORDER BY entry_date, id");
-                $lstmt->execute([$ec['id'], $company_id]);
-                $ec['ledger'] = $lstmt->fetchAll();
+            $ec_ids = array_column($expense_categories, 'id');
+            // Bulk ledger
+            if (!empty($ec_ids)) {
+                $placeholders = implode(',', array_fill(0, count($ec_ids), '?'));
+                $stmt = $pdo->prepare("SELECT * FROM station_expense_ledger WHERE category_id IN ($placeholders) AND company_id = ? ORDER BY entry_date, id");
+                $stmt->execute(array_merge($ec_ids, [$company_id]));
+                $all_ledgers = [];
+                while ($row = $stmt->fetch()) $all_ledgers[$row['category_id']][] = $row;
+                foreach ($expense_categories as &$ec) $ec['ledger'] = $all_ledgers[$ec['id']] ?? [];
             }
 
-            // Debtor Accounts + Ledger
+            // Debtor accounts
             $stmt = $pdo->prepare("SELECT * FROM station_debtor_accounts WHERE session_id = ? AND company_id = ? ORDER BY customer_name");
             $stmt->execute([$session_id, $company_id]);
             $debtor_accounts = $stmt->fetchAll();
-            foreach ($debtor_accounts as &$da) {
-                $lstmt = $pdo->prepare("SELECT * FROM station_debtor_ledger WHERE account_id = ? AND company_id = ? ORDER BY entry_date, id");
-                $lstmt->execute([$da['id'], $company_id]);
-                $da['ledger'] = $lstmt->fetchAll();
+            $da_ids = array_column($debtor_accounts, 'id');
+            // Bulk ledger
+            if (!empty($da_ids)) {
+                $placeholders = implode(',', array_fill(0, count($da_ids), '?'));
+                $stmt = $pdo->prepare("SELECT * FROM station_debtor_ledger WHERE account_id IN ($placeholders) AND company_id = ? ORDER BY entry_date, id");
+                $stmt->execute(array_merge($da_ids, [$company_id]));
+                $all_ledgers = [];
+                while ($row = $stmt->fetch()) $all_ledgers[$row['account_id']][] = $row;
+                foreach ($debtor_accounts as &$da) $da['ledger'] = $all_ledgers[$da['id']] ?? [];
             }
 
-            // Lube store items
+            // Lube Store
             $stmt = $pdo->prepare("SELECT * FROM station_lube_store_items WHERE session_id = ? AND company_id = ? ORDER BY sort_order");
             $stmt->execute([$session_id, $company_id]);
             $lube_store_items = $stmt->fetchAll();
 
-            // Lube issues (store → counter)
+            // Lube Issues
             $stmt = $pdo->prepare("SELECT li.* FROM station_lube_issues li INNER JOIN station_lube_store_items si ON li.store_item_id = si.id WHERE si.session_id = ? AND li.company_id = ?");
             $stmt->execute([$session_id, $company_id]);
             $lube_issues = $stmt->fetchAll();
 
-            // Lube issue log (for history display)
+            // Lube Log
             $stmt = $pdo->prepare("SELECT il.* FROM station_lube_issue_log il INNER JOIN station_lube_store_items si ON il.store_item_id = si.id WHERE si.session_id = ? AND il.company_id = ? ORDER BY il.created_at DESC");
             $stmt->execute([$session_id, $company_id]);
             $lube_issue_log = $stmt->fetchAll();
 
-            // Lube sections + items
+            // Lube Sections
             $stmt = $pdo->prepare("SELECT * FROM station_lube_sections WHERE session_id = ? AND company_id = ? ORDER BY sort_order");
             $stmt->execute([$session_id, $company_id]);
             $lube_sections = $stmt->fetchAll();
-
-            foreach ($lube_sections as &$ls) {
-                $stmt = $pdo->prepare("SELECT * FROM station_lube_items WHERE section_id = ? AND company_id = ? ORDER BY sort_order");
-                $stmt->execute([$ls['id'], $company_id]);
-                $ls['items'] = $stmt->fetchAll();
+            $ls_ids = array_column($lube_sections, 'id');
+            if (!empty($ls_ids)) {
+                $placeholders = implode(',', array_fill(0, count($ls_ids), '?'));
+                $stmt = $pdo->prepare("SELECT * FROM station_lube_items WHERE section_id IN ($placeholders) AND company_id = ? ORDER BY sort_order");
+                $stmt->execute(array_merge($ls_ids, [$company_id]));
+                $all_lube_items = [];
+                while ($row = $stmt->fetch()) $all_lube_items[$row['section_id']][] = $row;
+                foreach ($lube_sections as &$ls) $ls['items'] = $all_lube_items[$ls['id']] ?? [];
             }
 
-            // Counter stock counts (per section)
-            $csc_stmt = $pdo->prepare("SELECT csc.* FROM station_counter_stock_counts csc 
-                INNER JOIN station_lube_sections ls ON csc.section_id = ls.id 
-                WHERE ls.session_id = ? AND csc.company_id = ? ORDER BY csc.date_from DESC");
+            // Counter stock counts
+            $csc_stmt = $pdo->prepare("SELECT csc.* FROM station_counter_stock_counts csc INNER JOIN station_lube_sections ls ON csc.section_id = ls.id WHERE ls.session_id = ? AND csc.company_id = ? ORDER BY csc.date_from DESC");
             $csc_stmt->execute([$session_id, $company_id]);
-            $counter_stock_counts = [];
-            foreach ($csc_stmt->fetchAll(PDO::FETCH_ASSOC) as $csc) {
-                $csc_items = $pdo->prepare("SELECT * FROM station_counter_stock_count_items WHERE count_id=? AND company_id=? ORDER BY id");
-                $csc_items->execute([$csc['id'], $company_id]);
-                $csc['items'] = $csc_items->fetchAll(PDO::FETCH_ASSOC);
-                $counter_stock_counts[] = $csc;
+            $counter_stock_counts = $csc_stmt->fetchAll(PDO::FETCH_ASSOC);
+            $csc_ids = array_column($counter_stock_counts, 'id');
+            if (!empty($csc_ids)) {
+                $placeholders = implode(',', array_fill(0, count($csc_ids), '?'));
+                $stmt = $pdo->prepare("SELECT * FROM station_counter_stock_count_items WHERE count_id IN ($placeholders) AND company_id = ? ORDER BY id");
+                $stmt->execute(array_merge($csc_ids, [$company_id]));
+                $all_csc_items = [];
+                while ($row = $stmt->fetch()) $all_csc_items[$row['count_id']][] = $row;
+                foreach ($counter_stock_counts as &$csc) $csc['items'] = $all_csc_items[$csc['id']] ?? [];
             }
 
             echo json_encode([
@@ -776,6 +883,7 @@ try {
                 $url = '../uploads/teller_proofs/' . $filename;
                 $stmt = $pdo->prepare("UPDATE station_system_sales SET teller_proof_url = ? WHERE session_id = ? AND company_id = ?");
                 $stmt->execute([$url, $session_id, $company_id]);
+                touch_session_updated($pdo, $session_id, $company_id);
                 echo json_encode(['success' => true, 'url' => $url]);
             } else {
                 echo json_encode(['success' => false, 'message' => 'Failed to save file']);
@@ -812,6 +920,7 @@ try {
                 $url = '../uploads/pos_proofs/' . $filename;
                 $stmt = $pdo->prepare("UPDATE station_system_sales SET pos_proof_url = ? WHERE session_id = ? AND company_id = ?");
                 $stmt->execute([$url, $session_id, $company_id]);
+                touch_session_updated($pdo, $session_id, $company_id);
                 echo json_encode(['success' => true, 'url' => $url]);
             } else {
                 echo json_encode(['success' => false, 'message' => 'Failed to save file']);
@@ -833,6 +942,7 @@ try {
             }
 
             log_audit($company_id, $user_id, "station_signoff_$role", 'station_audit', $session_id);
+            touch_session_updated($pdo, $session_id, $company_id);
             echo json_encode(['success' => true]);
             break;
 
@@ -1110,7 +1220,9 @@ try {
 
             $stmt = $pdo->prepare("INSERT INTO station_lube_sections (session_id, company_id, name, sort_order) VALUES (?, ?, ?, ?)");
             $stmt->execute([$session_id, $company_id, $name, $next_order]);
-            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+            $new_id = $pdo->lastInsertId();
+            touch_session_updated($pdo, $session_id, $company_id);
+            echo json_encode(['success' => true, 'id' => $new_id]);
             break;
 
         // ───────── Delete Lube Section ─────────
@@ -1131,6 +1243,11 @@ try {
 
             $pdo->prepare("DELETE FROM station_lube_items WHERE section_id = ? AND company_id = ?")->execute([$section_id, $company_id]);
             $pdo->prepare("DELETE FROM station_lube_sections WHERE id = ? AND company_id = ?")->execute([$section_id, $company_id]);
+
+            if (!empty($sec_row['session_id'])) {
+                touch_session_updated($pdo, $sec_row['session_id'], $company_id);
+            }
+
             echo json_encode(['success' => true]);
             break;
 
@@ -1140,35 +1257,99 @@ try {
             $items_json = $_POST['items'] ?? '[]';
             $items = json_decode($items_json, true);
 
-            if (!is_array($items)) {
-                echo json_encode(['success' => false, 'message' => 'Invalid item data']);
+            if (!is_array($items) || !$section_id) {
+                echo json_encode(['success' => false, 'message' => 'Invalid section or item data']);
                 break;
             }
 
-            // Delete & re-insert
-            $pdo->prepare("DELETE FROM station_lube_items WHERE section_id = ? AND company_id = ?")->execute([$section_id, $company_id]);
+            // Resolve session_id
+            $stmt_sid = $pdo->prepare("SELECT session_id FROM station_lube_sections WHERE id = ? AND company_id = ?");
+            $stmt_sid->execute([$section_id, $company_id]);
+            $sid = $stmt_sid->fetchColumn();
 
-            $ins = $pdo->prepare("INSERT INTO station_lube_items (section_id, store_item_id, company_id, item_name, opening, received, adjustment, return_inward, sold, closing, selling_price, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            // ── History Capture (Before) ──
+            $trans_id = 'litem_'.time().'_'.rand(100,999);
+            $stmt_before = $pdo->prepare("SELECT * FROM station_lube_items WHERE section_id=? AND company_id=?");
+            $stmt_before->execute([$section_id, $company_id]);
+            $before_all = $stmt_before->fetchAll(PDO::FETCH_ASSOC);
+
+            // Stable Upsert
             $order = 0;
+            $new_ids = [];
             foreach ($items as $it) {
-                $ins->execute([
-                    $section_id,
-                    !empty($it['store_item_id']) ? intval($it['store_item_id']) : null,
-                    $company_id,
-                    clean_input($it['item_name'] ?? ''),
-                    floatval($it['opening'] ?? 0),
-                    floatval($it['received'] ?? 0),
-                    floatval($it['adjustment'] ?? 0),
-                    floatval($it['return_inward'] ?? 0),
-                    floatval($it['sold'] ?? 0),
-                    floatval($it['closing'] ?? 0),
-                    floatval($it['selling_price'] ?? 0),
-                    $order++
-                ]);
+                $item_id = intval($it['id'] ?? 0);
+                if ($item_id > 0) {
+                    $pdo->prepare("UPDATE station_lube_items SET store_item_id=?, item_name=?, opening=?, received=?, adjustment=?, return_inward=?, sold=?, closing=?, selling_price=?, sort_order=? WHERE id=? AND section_id=? AND company_id=?")
+                        ->execute([
+                            !empty($it['store_item_id']) ? intval($it['store_item_id']) : null,
+                            clean_input($it['item_name'] ?? ''),
+                            floatval($it['opening'] ?? 0),
+                            floatval($it['received'] ?? 0),
+                            floatval($it['adjustment'] ?? 0),
+                            floatval($it['return_inward'] ?? 0),
+                            floatval($it['sold'] ?? 0),
+                            floatval($it['closing'] ?? 0),
+                            floatval($it['selling_price'] ?? 0),
+                            $order++,
+                            $item_id, $section_id, $company_id
+                        ]);
+                    $new_ids[] = $item_id;
+                } else {
+                    $pdo->prepare("INSERT INTO station_lube_items (section_id, store_item_id, company_id, item_name, opening, received, adjustment, return_inward, sold, closing, selling_price, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([
+                            $section_id,
+                            !empty($it['store_item_id']) ? intval($it['store_item_id']) : null,
+                            $company_id,
+                            clean_input($it['item_name'] ?? ''),
+                            floatval($it['opening'] ?? 0),
+                            floatval($it['received'] ?? 0),
+                            floatval($it['adjustment'] ?? 0),
+                            floatval($it['return_inward'] ?? 0),
+                            floatval($it['sold'] ?? 0),
+                            floatval($it['closing'] ?? 0),
+                            floatval($it['selling_price'] ?? 0),
+                            $order++
+                        ]);
+                    $new_ids[] = $pdo->lastInsertId();
+                }
             }
 
+            // Delete missing items
+            if (!empty($new_ids)) {
+                $placeholders = implode(',', array_fill(0, count($new_ids), '?'));
+                $del_params = array_merge([$section_id, $company_id], $new_ids);
+                $pdo->prepare("DELETE FROM station_lube_items WHERE section_id=? AND company_id=? AND id NOT IN ($placeholders)")
+                    ->execute($del_params);
+            }
+
+            // ── History Logging (Calculated Diff) ──
+            foreach ($before_all as $b) {
+                $found = false;
+                foreach ($new_ids as $nid) if ($nid == $b['id']) $found = true;
+                if ($found) {
+                    $stmt_after = $pdo->prepare("SELECT * FROM station_lube_items WHERE id=?");
+                    $stmt_after->execute([$b['id']]);
+                    $after = $stmt_after->fetch(PDO::FETCH_ASSOC);
+                    if ($after != $b) log_lube_change($pdo, $company_id, $sid, $trans_id, 'save', 'Update Counter Item', 'lube_item', $b['id'], $b, $after);
+                } else {
+                    log_lube_change($pdo, $company_id, $sid, $trans_id, 'delete', 'Delete Counter Item', 'lube_item', $b['id'], $b, null);
+                }
+            }
+            foreach ($new_ids as $nid) {
+                $found_in_before = false;
+                foreach ($before_all as $b) if ($b['id'] == $nid) $found_in_before = true;
+                if (!$found_in_before) {
+                    $stmt_new = $pdo->prepare("SELECT * FROM station_lube_items WHERE id=?");
+                    $stmt_new->execute([$nid]);
+                    $after = $stmt_new->fetch(PDO::FETCH_ASSOC);
+                    log_lube_change($pdo, $company_id, $sid, $trans_id, 'save', 'New Counter Item', 'lube_item', $nid, null, $after);
+                }
+            }
+
+            touch_session_updated($pdo, $sid, $company_id);
             echo json_encode(['success' => true, 'count' => count($items)]);
             break;
+
 
         // ───────── Save Lube Store Items (Bulk) ─────────
         case 'save_lube_store_items':
@@ -1181,21 +1362,40 @@ try {
                 break;
             }
 
+            // ── History Logging ──
+            $trans_id = 'lstore_'.time().'_'.rand(100,999);
+            $before_all = [];
+            // Fetch before states
+            $stmt_before = $pdo->prepare("SELECT * FROM station_lube_store_items WHERE session_id=? AND company_id=?");
+            $stmt_before->execute([$session_id, $company_id]);
+            $before_all = $stmt_before->fetchAll(PDO::FETCH_ASSOC);
+
             // Upsert: update existing items, insert new ones, remove deleted ones
             $order = 0;
             $new_ids = [];
             $existing_ids = [];
             foreach ($items as $it) {
                 $item_id = intval($it['id'] ?? 0);
+                $opening = floatval($it['opening'] ?? 0);
+                $received = floatval($it['received'] ?? 0);
+                $adj = floatval($it['adjustment'] ?? 0);
+                $ret = floatval($it['return_out'] ?? 0);
+                $total = $opening + $received;
+                
+                // Fetch current issued qty for this specific item to compute closing correctly
+                $issued = 0;
                 if ($item_id > 0) {
-                    // Update existing
-                    $pdo->prepare("UPDATE station_lube_store_items SET item_name=?, opening=?, received=?, return_out=?, adjustment=?, selling_price=?, sort_order=? WHERE id=? AND session_id=? AND company_id=?")
+                    $istmt = $pdo->prepare("SELECT COALESCE(SUM(quantity),0) FROM station_lube_issues WHERE store_item_id=? AND company_id=?");
+                    $istmt->execute([$item_id, $company_id]);
+                    $issued = floatval($istmt->fetchColumn());
+                }
+                $closing = $total - $issued - $ret + $adj;
+
+                if ($item_id > 0) {
+                    $pdo->prepare("UPDATE station_lube_store_items SET item_name=?, opening=?, received=?, return_out=?, adjustment=?, total=?, closing=?, selling_price=?, sort_order=? WHERE id=? AND session_id=? AND company_id=?")
                         ->execute([
                             clean_input($it['item_name'] ?? ''),
-                            floatval($it['opening'] ?? 0),
-                            floatval($it['received'] ?? 0),
-                            floatval($it['return_out'] ?? 0),
-                            floatval($it['adjustment'] ?? 0),
+                            $opening, $received, $ret, $adj, $total, $closing,
                             floatval($it['selling_price'] ?? 0),
                             $order++,
                             $item_id, $session_id, $company_id
@@ -1203,15 +1403,11 @@ try {
                     $existing_ids[] = $item_id;
                     $new_ids[] = $item_id;
                 } else {
-                    // Insert new
-                    $pdo->prepare("INSERT INTO station_lube_store_items (session_id, company_id, item_name, opening, received, return_out, adjustment, selling_price, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    $pdo->prepare("INSERT INTO station_lube_store_items (session_id, company_id, item_name, opening, received, return_out, adjustment, total, closing, selling_price, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                         ->execute([
                             $session_id, $company_id,
                             clean_input($it['item_name'] ?? ''),
-                            floatval($it['opening'] ?? 0),
-                            floatval($it['received'] ?? 0),
-                            floatval($it['return_out'] ?? 0),
-                            floatval($it['adjustment'] ?? 0),
+                            $opening, $received, $ret, $adj, $total, $closing,
                             floatval($it['selling_price'] ?? 0),
                             $order++
                         ]);
@@ -1220,16 +1416,52 @@ try {
                     $new_ids[] = $new_id;
                 }
             }
-            // Remove items that were deleted from the UI
+            // Remove items that were deleted from the UI (and their issues)
+            $deleted_items = [];
             if (!empty($existing_ids)) {
                 $placeholders = implode(',', array_fill(0, count($existing_ids), '?'));
                 $del_params = array_merge([$session_id, $company_id], $existing_ids);
+                
+                // Track deleted rows for history
+                $stmt_del = $pdo->prepare("SELECT * FROM station_lube_store_items WHERE session_id=? AND company_id=? AND id NOT IN ($placeholders)");
+                $stmt_del->execute($del_params);
+                $deleted_items = $stmt_del->fetchAll(PDO::FETCH_ASSOC);
+
                 $pdo->prepare("DELETE FROM station_lube_issues WHERE store_item_id IN (SELECT id FROM station_lube_store_items WHERE session_id=? AND company_id=? AND id NOT IN ($placeholders))")
                     ->execute($del_params);
                 $pdo->prepare("DELETE FROM station_lube_store_items WHERE session_id=? AND company_id=? AND id NOT IN ($placeholders)")
                     ->execute($del_params);
             }
 
+            // Log History for each modified row
+            foreach ($before_all as $b) {
+                $found = false;
+                foreach ($new_ids as $nid) if ($nid == $b['id']) $found = true;
+                
+                if ($found) {
+                    $stmt_after = $pdo->prepare("SELECT * FROM station_lube_store_items WHERE id=?");
+                    $stmt_after->execute([$b['id']]);
+                    $after = $stmt_after->fetch(PDO::FETCH_ASSOC);
+                    if ($after != $b) log_lube_change($pdo, $company_id, $session_id, $trans_id, 'save', 'Update Store Item', 'lube_store_item', $b['id'], $b, $after);
+                } else {
+                    // It was deleted
+                    log_lube_change($pdo, $company_id, $session_id, $trans_id, 'delete', 'Delete Store Item', 'lube_store_item', $b['id'], $b, null);
+                }
+            }
+            // Log new inserts
+            foreach ($new_ids as $nid) {
+                $found_in_before = false;
+                foreach ($before_all as $b) if ($b['id'] == $nid) $found_in_before = true;
+                if (!$found_in_before) {
+                    $stmt_new = $pdo->prepare("SELECT * FROM station_lube_store_items WHERE id=?");
+                    $stmt_new->execute([$nid]);
+                    $after = $stmt_new->fetch(PDO::FETCH_ASSOC);
+                    log_lube_change($pdo, $company_id, $session_id, $trans_id, 'save', 'New Store Item', 'lube_store_item', $nid, null, $after);
+                }
+            }
+
+
+            touch_session_updated($pdo, $session_id, $company_id);
             echo json_encode(['success' => true, 'count' => count($items), 'ids' => $new_ids]);
             break;
 
@@ -1244,21 +1476,34 @@ try {
                 break;
             }
 
-            // Accumulative upsert (unique key on store_item_id + section_id)
+            // History Capture
+            $stmt_bef = $pdo->prepare("SELECT * FROM station_lube_issues WHERE store_item_id=? AND section_id=? AND company_id=?");
+            $stmt_bef->execute([$store_item_id, $section_id, $company_id]);
+            $before = $stmt_bef->fetch(PDO::FETCH_ASSOC);
+
+            // Accumulative upsert
             $stmt = $pdo->prepare("INSERT INTO station_lube_issues (store_item_id, section_id, company_id, quantity)
                 VALUES (?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)");
             $stmt->execute([$store_item_id, $section_id, $company_id, $quantity]);
 
-            // Log the issue event for audit history
+            // Resolve session_id & capture After
+            $stmt_after = $pdo->prepare("SELECT * FROM station_lube_issues WHERE store_item_id=? AND section_id=? AND company_id=?");
+            $stmt_after->execute([$store_item_id, $section_id, $company_id]);
+            $after = $stmt_after->fetch(PDO::FETCH_ASSOC);
+
+            $stmt_sid = $pdo->prepare("SELECT session_id FROM station_lube_store_items WHERE id = ? AND company_id = ?");
+            $stmt_sid->execute([$store_item_id, $company_id]);
+            $sid = $stmt_sid->fetchColumn();
+
             $pname_stmt = $pdo->prepare("SELECT item_name FROM station_lube_store_items WHERE id=? AND company_id=?");
             $pname_stmt->execute([$store_item_id, $company_id]);
-            $product_name = $pname_stmt->fetchColumn() ?: '';
-            $cname_stmt = $pdo->prepare("SELECT name FROM station_lube_sections WHERE id=? AND company_id=?");
-            $cname_stmt->execute([$section_id, $company_id]);
-            $counter_name = $cname_stmt->fetchColumn() ?: '';
-            $pdo->prepare("INSERT INTO station_lube_issue_log (store_item_id, section_id, company_id, quantity, product_name, counter_name) VALUES (?,?,?,?,?,?)")
-                ->execute([$store_item_id, $section_id, $company_id, $quantity, $product_name, $counter_name]);
+            $pname = $pname_stmt->fetchColumn() ?: 'Item';
+
+            log_lube_change($pdo, $company_id, $sid, 'issue_'.time(), 'issue', "Issued $quantity L of $pname", 'lube_issue', $after['id'], $before, $after);
+
+            touch_session_updated($pdo, $sid, $company_id);
+
 
             echo json_encode(['success' => true]);
             break;
@@ -1356,7 +1601,9 @@ try {
             } else {
                 $stmt = $pdo->prepare("INSERT INTO station_lube_products (company_id, session_id, product_name, unit, cost_price, selling_price, reorder_level) VALUES (?,?,?,?,?,?,?)");
                 $stmt->execute([$company_id, $sid, $product_name, $unit, $cost_price, $selling_price, $reorder_level]);
-                echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+                $new_id = $pdo->lastInsertId();
+                touch_session_updated($pdo, $sid, $company_id);
+                echo json_encode(['success' => true, 'id' => $new_id]);
             }
             break;
 
@@ -1368,6 +1615,7 @@ try {
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row) move_to_trash($pdo, $company_id, 'lube_product', $id, $row['product_name'] ?? 'Lube Product', $row, $user_id);
             $pdo->prepare("DELETE FROM station_lube_products WHERE id=? AND company_id=? AND session_id=?")->execute([$id, $company_id, $sid]);
+            touch_session_updated($pdo, $sid, $company_id);
             echo json_encode(['success' => true]);
             break;
 
@@ -1440,6 +1688,20 @@ try {
             $total_cost = 0;
             foreach ($items as $it) { $total_cost += floatval($it['total_cost'] ?? (floatval($it['quantity'] ?? 0) * floatval($it['cost_price'] ?? 0))); }
 
+            // ── History Capture ──
+            $trans_id = 'lgrn_'.time().'_'.rand(100,999);
+            $before_grn = null;
+            $before_items = [];
+            if ($id) {
+                $stmt_b = $pdo->prepare("SELECT * FROM station_lube_grn WHERE id=? AND company_id=?");
+                $stmt_b->execute([$id, $company_id]);
+                $before_grn = $stmt_b->fetch(PDO::FETCH_ASSOC);
+                
+                $stmt_bi = $pdo->prepare("SELECT * FROM station_lube_grn_items WHERE grn_id=? AND company_id=?");
+                $stmt_bi->execute([$id, $company_id]);
+                $before_items = $stmt_bi->fetchAll(PDO::FETCH_ASSOC);
+            }
+
             if ($id) {
                 $pdo->prepare("UPDATE station_lube_grn SET supplier_id=?, session_id=?, grn_number=?, grn_date=?, invoice_number=?, notes=?, total_cost=? WHERE id=? AND company_id=?")
                     ->execute([$supplier_id, $session_id_grn, $grn_number, $grn_date, $invoice_number, $notes, $total_cost, $id, $company_id]);
@@ -1448,6 +1710,7 @@ try {
                 $stmt->execute([$company_id, $supplier_id, $session_id_grn, $grn_number, $grn_date, $invoice_number, $notes, $total_cost]);
                 $id = $pdo->lastInsertId();
             }
+
             $pdo->prepare("DELETE FROM station_lube_grn_items WHERE grn_id=? AND company_id=?")->execute([$id, $company_id]);
             $ins = $pdo->prepare("INSERT INTO station_lube_grn_items (grn_id, company_id, product_id, product_name, quantity, unit, cost_price, selling_price, line_total) VALUES (?,?,?,?,?,?,?,?,?)");
             foreach ($items as $it) {
@@ -1459,109 +1722,91 @@ try {
                 $unit_v = clean_input($it['unit'] ?? 'Litre');
                 $ins->execute([$id, $company_id, $pid, $pname, $qty, $unit_v, $cp, $sp, floatval($it['total_cost'] ?? $qty * $cp)]);
 
-                // GRN cost/selling price overrides product catalog price (session-scoped)
+                // GRN cost/selling price overrides product catalog price 
                 if ($pid && ($cp > 0 || $sp > 0)) {
-                    $upd_fields = [];
-                    $upd_vals   = [];
-                    // Always sync both prices when either is provided
+                    $upd_fields = []; $upd_vals = [];
                     if ($cp > 0) { $upd_fields[] = 'cost_price=?';    $upd_vals[] = $cp; }
                     if ($sp > 0) { $upd_fields[] = 'selling_price=?'; $upd_vals[] = $sp; }
                     if (!empty($upd_fields)) {
-                        $upd_vals[] = $pid;
-                        $upd_vals[] = $company_id;
-                        $upd_vals[] = $session_id_grn;
+                        $upd_vals[] = $pid; $upd_vals[] = $company_id; $upd_vals[] = $session_id_grn;
                         $pdo->prepare("UPDATE station_lube_products SET " . implode(', ', $upd_fields) . " WHERE id=? AND company_id=? AND session_id=?")
                             ->execute($upd_vals);
                     }
                 }
             }
 
-            // ── Sync GRN received quantities → Lube Store ──
-            // Recalculate total received per product from ALL GRNs for this session
-            if ($session_id_grn) {
-                $grn_totals = $pdo->prepare("
-                    SELECT gi.product_name, SUM(gi.quantity) AS total_qty, 
-                           MAX(gi.cost_price) AS cost_price, MAX(gi.selling_price) AS sell_price
-                    FROM station_lube_grn_items gi
-                    JOIN station_lube_grn g ON g.id = gi.grn_id AND g.company_id = gi.company_id
-                    WHERE g.session_id = ? AND g.company_id = ?
-                    GROUP BY gi.product_name
-                ");
-                $grn_totals->execute([$session_id_grn, $company_id]);
-                $received_map = $grn_totals->fetchAll(PDO::FETCH_ASSOC);
+            // ── Logging ──
+            $stmt_aft = $pdo->prepare("SELECT * FROM station_lube_grn WHERE id=? AND company_id=?");
+            $stmt_aft->execute([$id, $company_id]);
+            $after_grn = $stmt_aft->fetch(PDO::FETCH_ASSOC);
+            log_lube_change($pdo, $company_id, $session_id_grn, $trans_id, 'save', ($before_grn ? 'Update' : 'New').' GRN #'.$id, 'lube_grn', $id, $before_grn, $after_grn);
 
-                foreach ($received_map as $row) {
-                    $pname_clean = $row['product_name'];
-                    $recv_qty    = floatval($row['total_qty']);
-                    $sell_price  = floatval($row['sell_price']);
-                    // Check if a store item already exists for this product + session
-                    $existing = $pdo->prepare("SELECT id FROM station_lube_store_items WHERE session_id=? AND company_id=? AND item_name=?");
-                    $existing->execute([$session_id_grn, $company_id, $pname_clean]);
-                    $store_row = $existing->fetch(PDO::FETCH_ASSOC);
-
-                    if ($store_row) {
-                        // Always update received quantity AND selling_price
-                        $pdo->prepare("UPDATE station_lube_store_items SET received=?, selling_price=? WHERE id=?")
-                            ->execute([$recv_qty, $sell_price, $store_row['id']]);
-                    } else {
-                        // Create new store item with received quantity
-                        $pdo->prepare("INSERT INTO station_lube_store_items (session_id, company_id, item_name, opening, received, return_out, selling_price, sort_order) VALUES (?,?,?,0,?,0,?,999)")
-                            ->execute([$session_id_grn, $company_id, $pname_clean, $recv_qty, $sell_price]);
-                    }
-                }
-
-                // ── Sync GRN prices → Stock Count Items ──
-                // Update cost_price in store stock count items
-                $sc_ids_grn = $pdo->prepare("SELECT id FROM station_lube_stock_counts WHERE session_id=? AND company_id=?");
-                $sc_ids_grn->execute([$session_id_grn, $company_id]);
-                foreach ($sc_ids_grn->fetchAll(PDO::FETCH_COLUMN) as $sc_id_grn) {
-                    foreach ($received_map as $row2) {
-                        $grn_cp = floatval($row2['cost_price']);
-                        $grn_sp = floatval($row2['sell_price']);
-                        if ($grn_cp > 0) {
-                            $pdo->prepare("UPDATE station_lube_stock_count_items SET cost_price=?, selling_price=?, sold_value_cost=sold_qty*? WHERE count_id=? AND company_id=? AND product_name=?")
-                                ->execute([$grn_cp, $grn_sp, $grn_cp, $sc_id_grn, $company_id, $row2['product_name']]);
-                        }
-                    }
-                }
-                // Update cost_price in counter stock count items
-                $grn_secs = $pdo->prepare("SELECT id FROM station_lube_sections WHERE session_id=? AND company_id=?");
-                $grn_secs->execute([$session_id_grn, $company_id]);
-                foreach ($grn_secs->fetchAll(PDO::FETCH_COLUMN) as $grn_sec_id) {
-                    $csc_ids2 = $pdo->prepare("SELECT id FROM station_counter_stock_counts WHERE section_id=? AND company_id=?");
-                    $csc_ids2->execute([$grn_sec_id, $company_id]);
-                    foreach ($csc_ids2->fetchAll(PDO::FETCH_COLUMN) as $csc_id2) {
-                        foreach ($received_map as $row3) {
-                            $grn_cp2 = floatval($row3['cost_price']);
-                            if ($grn_cp2 > 0) {
-                                $pdo->prepare("UPDATE station_counter_stock_count_items SET cost_price=? WHERE count_id=? AND company_id=? AND product_name=?")
-                                    ->execute([$grn_cp2, $csc_id2, $company_id, $row3['product_name']]);
-                            }
-                        }
-                    }
-                }
+            // Log item deletions (before items that don't exist anymore)
+            // Since we wipe-and-reinsert, we just log all before as deleted and all after as new in this transaction
+            foreach ($before_items as $bi) {
+                log_lube_change($pdo, $company_id, $session_id_grn, $trans_id, 'delete', 'Delete GRN Item', 'lube_grn_item', $bi['id'], $bi, null);
+            }
+            $stmt_afti = $pdo->prepare("SELECT * FROM station_lube_grn_items WHERE grn_id=? AND company_id=?");
+            $stmt_afti->execute([$id, $company_id]);
+            foreach ($stmt_afti->fetchAll(PDO::FETCH_ASSOC) as $ai) {
+                 log_lube_change($pdo, $company_id, $session_id_grn, $trans_id, 'save', 'New GRN Item', 'lube_grn_item', $ai['id'], null, $ai);
             }
 
-            echo json_encode(['success' => true, 'id' => $id, 'total_cost' => $total_cost]);
+
+            // Check status to see if sync is needed upon save
+            $stmt_status = $pdo->prepare("SELECT status FROM station_lube_grn WHERE id=? AND company_id=?");
+            $stmt_status->execute([$id, $company_id]);
+            $grn_status = $stmt_status->fetchColumn() ?: 'draft';
+
+            if ($grn_status === 'pushed') {
+                sync_lube_inventory_from_grns($pdo, $session_id_grn, $company_id);
+            }
+
+            echo json_encode(['success' => true, 'id' => $id, 'total_cost' => $total_cost, 'status' => $grn_status]);
+            touch_session_updated($pdo, $session_id_grn, $company_id);
+            break;
+            
+        case 'push_lube_grn':
+            $id = intval($_POST['id'] ?? 0);
+            $stmt_b = $pdo->prepare("SELECT * FROM station_lube_grn WHERE id=? AND company_id=?");
+            $stmt_b->execute([$id, $company_id]);
+            $before = $stmt_b->fetch(PDO::FETCH_ASSOC);
+            $sid = $before['session_id'] ?? 0;
+
+            $pdo->prepare("UPDATE station_lube_grn SET status='pushed' WHERE id=? AND company_id=?")->execute([$id, $company_id]);
+            
+            $stmt_b->execute([$id, $company_id]);
+            $after = $stmt_b->fetch(PDO::FETCH_ASSOC);
+
+            log_lube_change($pdo, $company_id, $sid, 'push_'.time(), 'finalize', "Pushed GRN #$id", 'lube_grn', $id, $before, $after);
+            sync_lube_inventory_from_grns($pdo, $sid, $company_id);
+            echo json_encode(['success' => true]);
             break;
 
         case 'delete_lube_grn':
             $id = intval($_POST['id'] ?? 0);
             $stmt = $pdo->prepare("SELECT * FROM station_lube_grn WHERE id=? AND company_id=?");
             $stmt->execute([$id, $company_id]);
-            $grn_row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($grn_row) {
-                $snap = $grn_row;
-                $stmt2 = $pdo->prepare("SELECT * FROM station_lube_grn_items WHERE grn_id=? AND company_id=?");
-                $stmt2->execute([$id, $company_id]);
-                $snap['items'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
-                $label = 'GRN #' . $id . ' — ' . ($grn_row['grn_date'] ?? '');
-                move_to_trash($pdo, $company_id, 'lube_grn', $id, $label, $snap, $user_id);
+            $grn = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$grn) { echo json_encode(['success' => false, 'message' => 'GRN not found']); break; }
+            
+            $tid = 'delgrn_'.time();
+            log_lube_change($pdo, $company_id, $grn['session_id'], $tid, 'delete', "Deleted GRN #$id", 'lube_grn', $id, $grn, null);
+            
+            $stmt2 = $pdo->prepare("SELECT * FROM station_lube_grn_items WHERE grn_id=? AND company_id=?");
+            $stmt2->execute([$id, $company_id]);
+            foreach ($stmt2->fetchAll(PDO::FETCH_ASSOC) as $item) {
+                log_lube_change($pdo, $company_id, $grn['session_id'], $tid, 'delete', 'Deleted GRN Item', 'lube_grn_item', $item['id'], $item, null);
             }
+
             $pdo->prepare("DELETE FROM station_lube_grn_items WHERE grn_id=? AND company_id=?")->execute([$id, $company_id]);
             $pdo->prepare("DELETE FROM station_lube_grn WHERE id=? AND company_id=?")->execute([$id, $company_id]);
+            
+            if ($grn['status'] === 'pushed') sync_lube_inventory_from_grns($pdo, $grn['session_id'], $company_id);
+            touch_session_updated($pdo, $grn['session_id'], $company_id);
             echo json_encode(['success' => true]);
             break;
+
 
         // ───────── Lube Stock Count ─────────
         case 'get_lube_stock_counts':
@@ -1592,6 +1837,18 @@ try {
             $items_json = $_POST['items'] ?? '[]';
             $items      = json_decode($items_json, true) ?: [];
 
+            $tid = 'lsc_'.time();
+            $before_sc = null;
+            $before_items = [];
+            if ($id) {
+                $stmt_b = $pdo->prepare("SELECT * FROM station_lube_stock_counts WHERE id=? AND company_id=?");
+                $stmt_b->execute([$id, $company_id]);
+                $before_sc = $stmt_b->fetch(PDO::FETCH_ASSOC);
+                $stmt_bi = $pdo->prepare("SELECT * FROM station_lube_stock_count_items WHERE count_id=? AND company_id=?");
+                $stmt_bi->execute([$id, $company_id]);
+                $before_items = $stmt_bi->fetchAll(PDO::FETCH_ASSOC);
+            }
+
             if ($id) {
                 $pdo->prepare("UPDATE station_lube_stock_counts SET session_id=?, date_from=?, date_to=?, notes=? WHERE id=? AND company_id=?")
                     ->execute([$session_id_sc, $date_from, $date_to, $notes, $id, $company_id]);
@@ -1600,7 +1857,7 @@ try {
                 $stmt->execute([$company_id, $session_id_sc, $date_from, $date_to, $notes]);
                 $id = $pdo->lastInsertId();
             }
-            // Delete & re-insert items
+
             $pdo->prepare("DELETE FROM station_lube_stock_count_items WHERE count_id=? AND company_id=?")->execute([$id, $company_id]);
             $ins = $pdo->prepare("INSERT INTO station_lube_stock_count_items (count_id, company_id, product_name, system_stock, physical_count, variance, cost_price, selling_price, sold_qty, sold_value_cost) VALUES (?,?,?,?,?,?,?,?,?,?)");
             foreach ($items as $it) {
@@ -1613,26 +1870,48 @@ try {
                 $sold_val = $sold * $cp;
                 $ins->execute([$id, $company_id, clean_input($it['product_name'] ?? ''), $sys, $phys, $var, $cp, $sp, $sold, $sold_val]);
             }
+
+            $stmt_aft = $pdo->prepare("SELECT * FROM station_lube_stock_counts WHERE id=? AND company_id=?");
+            $stmt_aft->execute([$id, $company_id]);
+            $after_sc = $stmt_aft->fetch(PDO::FETCH_ASSOC);
+            log_lube_change($pdo, $company_id, $session_id_sc, $tid, 'save', ($before_sc ? 'Update' : 'New').' Stock Count #'.$id, 'lube_stock_count', $id, $before_sc, $after_sc);
+            
+            foreach ($before_items as $bi) {
+                log_lube_change($pdo, $company_id, $session_id_sc, $tid, 'delete', 'Deleted Lube Stock Count Item', 'lube_stock_count_item', $bi['id'], $bi, null);
+            }
+            $stmt_afti = $pdo->prepare("SELECT * FROM station_lube_stock_count_items WHERE count_id=? AND company_id=?");
+            $stmt_afti->execute([$id, $company_id]);
+            foreach($stmt_afti->fetchAll(PDO::FETCH_ASSOC) as $ai) {
+                 log_lube_change($pdo, $company_id, $session_id_sc, $tid, 'save', 'New Lube Stock Count Item', 'lube_stock_count_item', $ai['id'], null, $ai);
+            }
+
+            touch_session_updated($pdo, $session_id_sc, $company_id);
             echo json_encode(['success' => true, 'id' => $id]);
             break;
+
 
         case 'delete_lube_stock_count':
             $id = intval($_POST['id'] ?? 0);
             $stmt = $pdo->prepare("SELECT * FROM station_lube_stock_counts WHERE id=? AND company_id=?");
             $stmt->execute([$id, $company_id]);
-            $sc_row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($sc_row) {
-                $snap = $sc_row;
-                $stmt2 = $pdo->prepare("SELECT * FROM station_lube_stock_count_items WHERE count_id=? AND company_id=?");
-                $stmt2->execute([$id, $company_id]);
-                $snap['items'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
-                $label = 'Stock Count — ' . ($sc_row['date_from'] ?? '') . ' to ' . ($sc_row['date_to'] ?? '');
-                move_to_trash($pdo, $company_id, 'lube_stock_count', $id, $label, $snap, $user_id);
+            $sc = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$sc) { echo json_encode(['success' => false]); break; }
+
+            $tid = 'delsc_'.time();
+            log_lube_change($pdo, $company_id, $sc['session_id'], $tid, 'delete', 'Deleted Stock Count #'.$id, 'lube_stock_count', $id, $sc, null);
+            
+            $stmt2 = $pdo->prepare("SELECT * FROM station_lube_stock_count_items WHERE count_id=? AND company_id=?");
+            $stmt2->execute([$id, $company_id]);
+            foreach ($stmt2->fetchAll(PDO::FETCH_ASSOC) as $item) {
+                log_lube_change($pdo, $company_id, $sc['session_id'], $tid, 'delete', 'Deleted Stock Count Item', 'lube_stock_count_item', $item['id'], $item, null);
             }
+
             $pdo->prepare("DELETE FROM station_lube_stock_count_items WHERE count_id=? AND company_id=?")->execute([$id, $company_id]);
             $pdo->prepare("DELETE FROM station_lube_stock_counts WHERE id=? AND company_id=?")->execute([$id, $company_id]);
+            touch_session_updated($pdo, $sc['session_id'], $company_id);
             echo json_encode(['success' => true]);
             break;
+
 
         case 'finalize_lube_stock_count':
             $id = intval($_POST['id'] ?? 0);
@@ -1641,13 +1920,28 @@ try {
             break;
 
         case 'save_lube_adjustment':
-            $store_item_id = intval($_POST['store_item_id'] ?? 0);
-            $adjustment_qty = floatval($_POST['adjustment_qty'] ?? 0);
-            $reason = clean_input($_POST['adjustment_reason'] ?? '');
-            $pdo->prepare("UPDATE station_lube_store_items SET adjustment=? WHERE id=? AND company_id=?")
-                ->execute([$adjustment_qty, $store_item_id, $company_id]);
+            $sid = intval($_POST['session_id'] ?? 0);
+            $item_id = intval($_POST['item_id'] ?? 0);
+            $val     = floatval($_POST['value'] ?? 0);
+            $type    = $_POST['type'] ?? 'store'; 
+            
+            $table = ($type === 'store') ? 'station_lube_store_items' : 'station_lube_items';
+            $ent   = ($type === 'store') ? 'lube_store_item' : 'lube_item';
+
+            $stmt_b = $pdo->prepare("SELECT * FROM $table WHERE id=? AND company_id=?");
+            $stmt_b->execute([$item_id, $company_id]);
+            $before = $stmt_b->fetch(PDO::FETCH_ASSOC);
+
+            $pdo->prepare("UPDATE $table SET adjustment=? WHERE id=? AND company_id=?")->execute([$val, $item_id, $company_id]);
+            
+            $stmt_b->execute([$item_id, $company_id]);
+            $after = $stmt_b->fetch(PDO::FETCH_ASSOC);
+            log_lube_change($pdo, $company_id, $sid, 'adj_'.time(), 'save', "Adjustment for ".($after['item_name']??"Item"), $ent, $item_id, $before, $after);
+
+            touch_session_updated($pdo, $sid, $company_id);
             echo json_encode(['success' => true]);
             break;
+
 
         // ───────── Counter Stock Count (period-based per counter) ─────────
         case 'get_counter_stock_counts':
@@ -1673,6 +1967,22 @@ try {
             $items_json = $_POST['items'] ?? '[]';
             $items      = json_decode($items_json, true) ?: [];
 
+            $stmt_sid = $pdo->prepare("SELECT session_id FROM station_lube_sections WHERE id = ? AND company_id = ?");
+            $stmt_sid->execute([$section_id, $company_id]);
+            $sid = $stmt_sid->fetchColumn();
+
+            $tid = 'csc_'.time();
+            $before_sc = null;
+            $before_items = [];
+            if ($id) {
+                $stmt_b = $pdo->prepare("SELECT * FROM station_counter_stock_counts WHERE id=? AND company_id=?");
+                $stmt_b->execute([$id, $company_id]);
+                $before_sc = $stmt_b->fetch(PDO::FETCH_ASSOC);
+                $stmt_bi = $pdo->prepare("SELECT * FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?");
+                $stmt_bi->execute([$id, $company_id]);
+                $before_items = $stmt_bi->fetchAll(PDO::FETCH_ASSOC);
+            }
+
             if ($id) {
                 $pdo->prepare("UPDATE station_counter_stock_counts SET section_id=?, date_from=?, date_to=?, notes=? WHERE id=? AND company_id=?")
                     ->execute([$section_id, $date_from, $date_to, $notes, $id, $company_id]);
@@ -1681,47 +1991,170 @@ try {
                 $stmt->execute([$company_id, $section_id, $date_from, $date_to, $notes]);
                 $id = $pdo->lastInsertId();
             }
-            // Delete & re-insert items
+
             $pdo->prepare("DELETE FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?")->execute([$id, $company_id]);
             $ins = $pdo->prepare("INSERT INTO station_counter_stock_count_items (count_id, company_id, product_name, system_stock, physical_count, variance, cost_price, selling_price, sold_qty, sold_value) VALUES (?,?,?,?,?,?,?,?,?,?)");
             foreach ($items as $it) {
-                $sys   = intval($it['system_stock'] ?? 0);
-                $phys  = intval($it['physical_count'] ?? 0);
-                $var   = $phys - $sys;
-                $cp    = floatval($it['cost_price'] ?? 0);
-                $sp    = floatval($it['selling_price'] ?? $cp);
-                $sold  = intval($it['sold_qty'] ?? 0);
+                $sys = intval($it['system_stock'] ?? 0);
+                $phys = intval($it['physical_count'] ?? 0);
+                $var = $phys - $sys;
+                $cp = floatval($it['cost_price'] ?? 0);
+                $sp = floatval($it['selling_price'] ?? $cp);
+                $sold = intval($it['sold_qty'] ?? 0);
                 $sold_val = floatval($it['sold_value'] ?? ($sold * ($cp ?: $sp)));
                 $ins->execute([$id, $company_id, clean_input($it['product_name'] ?? ''), $sys, $phys, $var, $cp, $sp, $sold, $sold_val]);
             }
+
+            $stmt_aft = $pdo->prepare("SELECT * FROM station_counter_stock_counts WHERE id=? AND company_id=?");
+            $stmt_aft->execute([$id, $company_id]);
+            $after_sc = $stmt_aft->fetch(PDO::FETCH_ASSOC);
+            log_lube_change($pdo, $company_id, $sid, $tid, 'save', ($before_sc ? 'Update' : 'New').' Counter Stock Count #'.$id, 'lube_stock_count', $id, $before_sc, $after_sc);
+            
+            foreach ($before_items as $bi) {
+                log_lube_change($pdo, $company_id, $sid, $tid, 'delete', 'Deleted Counter Stock Count Item', 'lube_stock_count_item', $bi['id'], $bi, null);
+            }
+            $stmt_afti = $pdo->prepare("SELECT * FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?");
+            $stmt_afti->execute([$id, $company_id]);
+            foreach($stmt_afti->fetchAll(PDO::FETCH_ASSOC) as $ai) {
+                 log_lube_change($pdo, $company_id, $sid, $tid, 'save', 'New Counter Stock Count Item', 'lube_stock_count_item', $ai['id'], null, $ai);
+            }
+
+            touch_session_updated($pdo, $sid, $company_id);
             echo json_encode(['success' => true, 'id' => $id]);
             break;
+
 
         case 'delete_counter_stock_count':
             $id = intval($_POST['id'] ?? 0);
             $stmt = $pdo->prepare("SELECT * FROM station_counter_stock_counts WHERE id=? AND company_id=?");
             $stmt->execute([$id, $company_id]);
-            $csc_row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($csc_row) {
-                $snap = $csc_row;
-                $stmt2 = $pdo->prepare("SELECT * FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?");
-                $stmt2->execute([$id, $company_id]);
-                $snap['items'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
-                $label = 'Counter Stock — ' . ($csc_row['date_from'] ?? '') . ' to ' . ($csc_row['date_to'] ?? '');
-                move_to_trash($pdo, $company_id, 'counter_stock_count', $id, $label, $snap, $user_id);
+            $csc = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$csc) { echo json_encode(['success' => false]); break; }
+
+            $stmt_sid = $pdo->prepare("SELECT session_id FROM station_lube_sections WHERE id = ? AND company_id = ?");
+            $stmt_sid->execute([$csc['section_id'], $company_id]);
+            $sid = $stmt_sid->fetchColumn();
+
+            $tid = 'delcsc_'.time();
+            log_lube_change($pdo, $company_id, $sid, $tid, 'delete', 'Deleted Counter Stock Count #'.$id, 'lube_stock_count', $id, $csc, null);
+            
+            $stmt2 = $pdo->prepare("SELECT * FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?");
+            $stmt2->execute([$id, $company_id]);
+            foreach ($stmt2->fetchAll(PDO::FETCH_ASSOC) as $item) {
+                log_lube_change($pdo, $company_id, $sid, $tid, 'delete', 'Deleted Counter Stock Count Item', 'lube_stock_count_item', $item['id'], $item, null);
             }
+
             $pdo->prepare("DELETE FROM station_counter_stock_count_items WHERE count_id=? AND company_id=?")->execute([$id, $company_id]);
             $pdo->prepare("DELETE FROM station_counter_stock_counts WHERE id=? AND company_id=?")->execute([$id, $company_id]);
+            touch_session_updated($pdo, $sid, $company_id);
             echo json_encode(['success' => true]);
             break;
 
-        case 'finalize_counter_stock_count':
+        case 'unpush_lube_grn':
             $id = intval($_POST['id'] ?? 0);
-            $pdo->prepare("UPDATE station_counter_stock_counts SET status='closed' WHERE id=? AND company_id=?")->execute([$id, $company_id]);
+            $session_id = intval($_POST['session_id'] ?? 0);
+            if (!$id || !$session_id) { echo json_encode(['success' => false, 'message' => 'Invalid ID or Session']); break; }
+
+            // Check if already draft
+            $stmt = $pdo->prepare("SELECT status FROM station_lube_grn WHERE id=? AND company_id=?");
+            $stmt->execute([$id, $company_id]);
+            if ($stmt->fetchColumn() === 'draft') { echo json_encode(['success' => false, 'message' => 'GRN is already in draft status']); break; }
+
+            // Log before
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_grn WHERE id=? AND company_id=?");
+            $stmt->execute([$id, $company_id]);
+            $before = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $pdo->prepare("UPDATE station_lube_grn SET status='draft' WHERE id=? AND company_id=?")->execute([$id, $company_id]);
+            
+            // Re-sync quantities (this will subtract the quantities from the store because status is no longer 'pushed')
+            sync_lube_inventory_from_grns($pdo, $session_id, $company_id);
+            
+            // Log after
+            $stmt->execute([$id, $company_id]);
+            $after = $stmt->fetch(PDO::FETCH_ASSOC);
+            log_lube_change($pdo, $company_id, $session_id, 'unpush_'.time(), 'unpush', "Returned GRN #$id to draft", 'lube_grn', $id, $before, $after);
+
+            touch_session_updated($pdo, $session_id, $company_id);
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'undo_lube_action':
+            $session_id = intval($_POST['session_id'] ?? 0);
+            // Find latest transaction_id that is NOT undone
+            $stmt = $pdo->prepare("SELECT transaction_id, action_description FROM station_lube_history WHERE session_id=? AND company_id=? AND is_undone=0 ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$session_id, $company_id]);
+            $last = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$last) { echo json_encode(['success' => false, 'message' => 'Nothing to undo']); break; }
+
+            $tid = $last['transaction_id'];
+            $desc = $last['action_description'];
+            
+            // Get all rows for this transaction
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_history WHERE transaction_id=?");
+            $stmt->execute([$tid]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            execute_lube_history_reversal($pdo, $rows, 'before');
+            
+            // Mark as undone
+            $pdo->prepare("UPDATE station_lube_history SET is_undone=1 WHERE transaction_id=?")->execute([$tid]);
+            
+            touch_session_updated($pdo, $session_id, $company_id);
+            echo json_encode(['success' => true, 'description' => $desc]);
+            break;
+
+        case 'redo_lube_action':
+            $session_id = intval($_POST['session_id'] ?? 0);
+            // Find latest transaction_id that IS undone
+            $stmt = $pdo->prepare("SELECT transaction_id, action_description FROM station_lube_history WHERE session_id=? AND company_id=? AND is_undone=1 ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$session_id, $company_id]);
+            $last = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$last) { echo json_encode(['success' => false, 'message' => 'Nothing to redo']); break; }
+
+            $tid = $last['transaction_id'];
+            $desc = $last['action_description'];
+            
+            // Get all rows for this transaction
+            $stmt = $pdo->prepare("SELECT * FROM station_lube_history WHERE transaction_id=?");
+            $stmt->execute([$tid]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            execute_lube_history_reversal($pdo, $rows, 'after');
+            
+            // Mark as NOT undone
+            $pdo->prepare("UPDATE station_lube_history SET is_undone=0 WHERE transaction_id=?")->execute([$tid]);
+            
+            touch_session_updated($pdo, $session_id, $company_id);
+            echo json_encode(['success' => true, 'description' => $desc]);
+            break;
+
+        case 'rollback_lube_to_time':
+            $session_id = intval($_POST['session_id'] ?? 0);
+            $hours = intval($_POST['hours'] ?? 0);
+            if (!$hours) { echo json_encode(['success' => false, 'message' => 'Invalid interval']); break; }
+            
+            // Find all transactions since (NOW - hours) that are NOT undone
+            $stmt = $pdo->prepare("SELECT DISTINCT transaction_id FROM station_lube_history WHERE session_id=? AND company_id=? AND is_undone=0 AND created_at > DATE_SUB(NOW(), INTERVAL ? HOUR) ORDER BY id DESC");
+            $stmt->execute([$session_id, $company_id, $hours]);
+            $tids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            
+            if (empty($tids)) { echo json_encode(['success' => false, 'message' => "No changes found in the last $hours hours"]); break; }
+            
+            foreach ($tids as $tid) {
+                $stmt2 = $pdo->prepare("SELECT * FROM station_lube_history WHERE transaction_id=?");
+                $stmt2->execute([$tid]);
+                $rows = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+                execute_lube_history_reversal($pdo, $rows, 'before');
+                $pdo->prepare("UPDATE station_lube_history SET is_undone=1 WHERE transaction_id=?")->execute([$tid]);
+            }
+            
+            touch_session_updated($pdo, $session_id, $company_id);
             echo json_encode(['success' => true]);
             break;
 
         // ───────── Create Expense Category ─────────
+
         case 'create_expense_category':
             $session_id = intval($_POST['session_id'] ?? 0);
             $category_name = clean_input($_POST['category_name'] ?? '');
@@ -1733,6 +2166,7 @@ try {
             $stmt = $pdo->prepare("INSERT INTO station_expense_categories (session_id, company_id, category_name) VALUES (?, ?, ?)");
             $stmt->execute([$session_id, $company_id, $category_name]);
             $cat_id = $pdo->lastInsertId();
+            touch_session_updated($pdo, $session_id, $company_id);
             echo json_encode(['success' => true, 'id' => $cat_id, 'category_name' => $category_name]);
             break;
 
@@ -1748,6 +2182,12 @@ try {
             $stmt = $pdo->prepare("INSERT INTO station_expense_ledger (category_id, company_id, entry_date, description, debit, credit, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$category_id, $company_id, $entry_date, $description, $debit, $credit, $payment_method]);
             $entry_id = $pdo->lastInsertId();
+
+            $stmt = $pdo->prepare("SELECT session_id FROM station_expense_categories WHERE id = ? AND company_id = ?");
+            $stmt->execute([$category_id, $company_id]);
+            $sid = $stmt->fetchColumn();
+            touch_session_updated($pdo, $sid, $company_id);
+
             echo json_encode(['success' => true, 'id' => $entry_id]);
             break;
 
@@ -1759,6 +2199,14 @@ try {
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row) move_to_trash($pdo, $company_id, 'expense_entry', $entry_id, ($row['description'] ?? 'Expense') . ' — ' . ($row['entry_date'] ?? ''), $row, $user_id);
             $pdo->prepare("DELETE FROM station_expense_ledger WHERE id = ? AND company_id = ?")->execute([$entry_id, $company_id]);
+
+            if ($row) {
+                $stmt = $pdo->prepare("SELECT session_id FROM station_expense_categories WHERE id = ? AND company_id = ?");
+                $stmt->execute([$row['category_id'], $company_id]);
+                $sid = $stmt->fetchColumn();
+                touch_session_updated($pdo, $sid, $company_id);
+            }
+
             echo json_encode(['success' => true]);
             break;
 
@@ -1772,6 +2220,12 @@ try {
             $payment_method = clean_input($_POST['payment_method'] ?? 'cash');
             $stmt = $pdo->prepare("UPDATE station_expense_ledger SET entry_date = ?, description = ?, debit = ?, credit = ?, payment_method = ? WHERE id = ? AND company_id = ?");
             $stmt->execute([$entry_date, $description, $debit, $credit, $payment_method, $entry_id, $company_id]);
+
+            $stmt = $pdo->prepare("SELECT el.category_id, ec.session_id FROM station_expense_ledger el JOIN station_expense_categories ec ON el.category_id = ec.id WHERE el.id = ? AND el.company_id = ?");
+            $stmt->execute([$entry_id, $company_id]);
+            $ids = $stmt->fetch();
+            if ($ids) touch_session_updated($pdo, $ids['session_id'], $company_id);
+
             echo json_encode(['success' => true]);
             break;
 
@@ -1790,6 +2244,11 @@ try {
             }
             $pdo->prepare("DELETE FROM station_expense_ledger WHERE category_id = ? AND company_id = ?")->execute([$category_id, $company_id]);
             $pdo->prepare("DELETE FROM station_expense_categories WHERE id = ? AND company_id = ?")->execute([$category_id, $company_id]);
+
+            if ($cat_row) {
+                touch_session_updated($pdo, $cat_row['session_id'], $company_id);
+            }
+
             echo json_encode(['success' => true]);
             break;
 
@@ -1804,6 +2263,12 @@ try {
             if (reject_ampersand($new_name, 'Category name')) break;
             $stmt = $pdo->prepare("UPDATE station_expense_categories SET category_name = ? WHERE id = ? AND company_id = ?");
             $stmt->execute([$new_name, $category_id, $company_id]);
+
+            $stmt = $pdo->prepare("SELECT session_id FROM station_expense_categories WHERE id = ? AND company_id = ?");
+            $stmt->execute([$category_id, $company_id]);
+            $sid = $stmt->fetchColumn();
+            touch_session_updated($pdo, $sid, $company_id);
+
             echo json_encode(['success' => true, 'new_name' => $new_name]);
             break;
 
@@ -1819,6 +2284,7 @@ try {
             $stmt = $pdo->prepare("INSERT INTO station_debtor_accounts (session_id, company_id, customer_name) VALUES (?, ?, ?)");
             $stmt->execute([$session_id, $company_id, $customer_name]);
             $acct_id = $pdo->lastInsertId();
+            touch_session_updated($pdo, $session_id, $company_id);
             echo json_encode(['success' => true, 'id' => $acct_id, 'customer_name' => $customer_name]);
             break;
 
@@ -1833,6 +2299,12 @@ try {
             $stmt = $pdo->prepare("INSERT INTO station_debtor_ledger (account_id, company_id, entry_date, description, debit, credit) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$account_id, $company_id, $entry_date, $description, $debit, $credit]);
             $entry_id = $pdo->lastInsertId();
+
+            $stmt = $pdo->prepare("SELECT session_id FROM station_debtor_accounts WHERE id = ? AND company_id = ?");
+            $stmt->execute([$account_id, $company_id]);
+            $sid = $stmt->fetchColumn();
+            touch_session_updated($pdo, $sid, $company_id);
+
             echo json_encode(['success' => true, 'id' => $entry_id]);
             break;
 
@@ -1844,6 +2316,14 @@ try {
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row) move_to_trash($pdo, $company_id, 'debtor_entry', $entry_id, ($row['description'] ?? 'Debtor Entry') . ' — ' . ($row['entry_date'] ?? ''), $row, $user_id);
             $pdo->prepare("DELETE FROM station_debtor_ledger WHERE id = ? AND company_id = ?")->execute([$entry_id, $company_id]);
+
+            if ($row) {
+                $stmt = $pdo->prepare("SELECT session_id FROM station_debtor_accounts WHERE id = ? AND company_id = ?");
+                $stmt->execute([$row['account_id'], $company_id]);
+                $sid = $stmt->fetchColumn();
+                touch_session_updated($pdo, $sid, $company_id);
+            }
+
             echo json_encode(['success' => true]);
             break;
 
@@ -1856,6 +2336,12 @@ try {
             $credit      = floatval($_POST['credit'] ?? 0);
             $stmt = $pdo->prepare("UPDATE station_debtor_ledger SET entry_date = ?, description = ?, debit = ?, credit = ? WHERE id = ? AND company_id = ?");
             $stmt->execute([$entry_date, $description, $debit, $credit, $entry_id, $company_id]);
+
+            $stmt = $pdo->prepare("SELECT dl.account_id, da.session_id FROM station_debtor_ledger dl JOIN station_debtor_accounts da ON dl.account_id = da.id WHERE dl.id = ? AND dl.company_id = ?");
+            $stmt->execute([$entry_id, $company_id]);
+            $ids = $stmt->fetch();
+            if ($ids) touch_session_updated($pdo, $ids['session_id'], $company_id);
+
             echo json_encode(['success' => true]);
             break;
 
@@ -1874,6 +2360,11 @@ try {
             }
             $pdo->prepare("DELETE FROM station_debtor_ledger WHERE account_id = ? AND company_id = ?")->execute([$account_id, $company_id]);
             $pdo->prepare("DELETE FROM station_debtor_accounts WHERE id = ? AND company_id = ?")->execute([$account_id, $company_id]);
+
+            if ($acct_row) {
+                touch_session_updated($pdo, $acct_row['session_id'], $company_id);
+            }
+
             echo json_encode(['success' => true]);
             break;
 
@@ -1888,6 +2379,12 @@ try {
             if (reject_ampersand($new_name, 'Customer name')) break;
             $stmt = $pdo->prepare("UPDATE station_debtor_accounts SET customer_name = ? WHERE id = ? AND company_id = ?");
             $stmt->execute([$new_name, $account_id, $company_id]);
+
+            $stmt = $pdo->prepare("SELECT session_id FROM station_debtor_accounts WHERE id = ? AND company_id = ?");
+            $stmt->execute([$account_id, $company_id]);
+            $sid = $stmt->fetchColumn();
+            touch_session_updated($pdo, $sid, $company_id);
+
             echo json_encode(['success' => true, 'new_name' => $new_name]);
             break;
 
@@ -1939,8 +2436,10 @@ try {
                 $label = $doc_label ?: pathinfo($original, PATHINFO_FILENAME);
                 $ftype = $_FILES['file']['type'] ?: 'application/octet-stream';
 
-                $stmt = $pdo->prepare("INSERT INTO station_audit_documents (company_id, session_id, uploaded_by, original_name, stored_name, file_path, file_size, file_type, doc_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO station_audit_documents (company_id, session_id, uploaded_by, original_name, stored_name, file_path, file_size, ftype, doc_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([$company_id, $session_id ?: null, $user_id, $original, $stored_name, $filepath, $_FILES['file']['size'], $ftype, $label]);
+
+                touch_session_updated($pdo, $session_id, $company_id);
 
                 echo json_encode([
                     'success' => true,
@@ -2018,6 +2517,12 @@ try {
             }
             $stmt = $pdo->prepare("UPDATE station_audit_documents SET doc_label = ? WHERE id = ? AND company_id = ?");
             $stmt->execute([$new_label, $doc_id, $company_id]);
+
+            $stmt = $pdo->prepare("SELECT session_id FROM station_audit_documents WHERE id = ? AND company_id = ?");
+            $stmt->execute([$doc_id, $company_id]);
+            $sid = $stmt->fetchColumn();
+            touch_session_updated($pdo, $sid, $company_id);
+
             echo json_encode(['success' => true]);
             break;
 
@@ -2043,6 +2548,11 @@ try {
             // Delete DB record
             $pdo->prepare("DELETE FROM station_audit_documents WHERE id = ? AND company_id = ?")->execute([$doc_id, $company_id]);
             log_audit($company_id, $user_id, 'document_deleted', 'station_audit_documents', $doc_id, $doc['original_name'] ?? '');
+
+            if (!empty($doc['session_id'])) {
+                touch_session_updated($pdo, $doc['session_id'], $company_id);
+            }
+
             echo json_encode(['success' => true]);
             break;
 
@@ -2052,5 +2562,112 @@ try {
 } catch (Exception $e) {
     error_log("Station Audit API Error: " . $e->getMessage());
     echo json_encode(['success' => false, 'message' => 'Server error: ' . $e->getMessage()]);
+}
+
+// ── Lube History Core ──
+function execute_lube_history_reversal($pdo, $history_rows, $direction = 'before') {
+    foreach ($history_rows as $h) {
+        $data = json_decode($h[$direction . '_json'], true);
+        if (!$data) continue;
+        
+        $table_map = [
+            'lube_item' => 'station_lube_items',
+            'lube_store_item' => 'station_lube_store_items',
+            'lube_issue' => 'station_lube_issues',
+            'lube_grn' => 'station_lube_grn',
+            'lube_grn_item' => 'station_lube_grn_items',
+            'lube_stock_count' => 'station_lube_stock_counts',
+            'lube_stock_count_item' => 'station_lube_stock_count_items'
+        ];
+        
+        $table = $table_map[$h['entity_type']] ?? null;
+        if (!$table) continue;
+        
+        // Dynamic Update/Insert based on reversed data
+        $fields = array_keys($data);
+        $set_sql = implode('=?, ', $fields) . '=?';
+        $vals = array_values($data);
+        $vals[] = $h['entity_id'];
+        
+        // Try update first
+        $upd = $pdo->prepare("UPDATE $table SET $set_sql WHERE id=?");
+        $upd->execute($vals);
+        
+        // If row doesn't exist (it was a delete), re-insert
+        if ($upd->rowCount() == 0) {
+            $cols = implode(', ', $fields);
+            $placeholders = implode(', ', array_fill(0, count($fields), '?'));
+            $pdo->prepare("INSERT INTO $table ($cols) VALUES ($placeholders)")->execute(array_values($data));
+        }
+    }
+}
+
+
+// ── Helper Function: Sync Inventory from Pushed GRNs ──
+function sync_lube_inventory_from_grns($pdo, $session_id_grn, $company_id) {
+    if (!$session_id_grn) return;
+    
+    // 1. Reset all received quantities
+    $pdo->prepare("UPDATE station_lube_store_items SET received=0 WHERE session_id=? AND company_id=?")->execute([$session_id_grn, $company_id]);
+
+    // 2. Sum up pushed GRNs
+    $grn_totals = $pdo->prepare("
+        SELECT gi.product_name, SUM(gi.quantity) AS total_qty, 
+               MAX(gi.cost_price) AS cost_price, MAX(gi.selling_price) AS sell_price
+        FROM station_lube_grn_items gi
+        JOIN station_lube_grn g ON g.id = gi.grn_id AND g.company_id = gi.company_id
+        WHERE g.session_id = ? AND g.company_id = ? AND g.status = 'pushed'
+        GROUP BY gi.product_name
+    ");
+    $grn_totals->execute([$session_id_grn, $company_id]);
+    $received_map = $grn_totals->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($received_map as $row) {
+        $pname_clean = $row['product_name'];
+        $recv_qty    = floatval($row['total_qty']);
+        $sell_price  = floatval($row['sell_price']);
+        
+        $existing = $pdo->prepare("SELECT id FROM station_lube_store_items WHERE session_id=? AND company_id=? AND item_name=?");
+        $existing->execute([$session_id_grn, $company_id, $pname_clean]);
+        $store_row = $existing->fetch(PDO::FETCH_ASSOC);
+
+        if ($store_row) {
+            $pdo->prepare("UPDATE station_lube_store_items SET received=?, selling_price=? WHERE id=?")
+                ->execute([$recv_qty, $sell_price, $store_row['id']]);
+        } else {
+            $pdo->prepare("INSERT INTO station_lube_store_items (session_id, company_id, item_name, opening, received, return_out, selling_price, sort_order) VALUES (?,?,?,0,?,0,?,999)")
+                ->execute([$session_id_grn, $company_id, $pname_clean, $recv_qty, $sell_price]);
+        }
+    }
+
+    // Update prices in stock counts
+    $sc_ids_grn = $pdo->prepare("SELECT id FROM station_lube_stock_counts WHERE session_id=? AND company_id=?");
+    $sc_ids_grn->execute([$session_id_grn, $company_id]);
+    foreach ($sc_ids_grn->fetchAll(PDO::FETCH_COLUMN) as $sc_id_grn) {
+        foreach ($received_map as $row2) {
+            $grn_cp = floatval($row2['cost_price']);
+            $grn_sp = floatval($row2['sell_price']);
+            if ($grn_cp > 0) {
+                $pdo->prepare("UPDATE station_lube_stock_count_items SET cost_price=?, selling_price=?, sold_value_cost=sold_qty*? WHERE count_id=? AND company_id=? AND product_name=?")
+                    ->execute([$grn_cp, $grn_sp, $grn_cp, $sc_id_grn, $company_id, $row2['product_name']]);
+            }
+        }
+    }
+
+    $grn_secs = $pdo->prepare("SELECT id FROM station_lube_sections WHERE session_id=? AND company_id=?");
+    $grn_secs->execute([$session_id_grn, $company_id]);
+    foreach ($grn_secs->fetchAll(PDO::FETCH_COLUMN) as $grn_sec_id) {
+        $csc_ids2 = $pdo->prepare("SELECT id FROM station_counter_stock_counts WHERE section_id=? AND company_id=?");
+        $csc_ids2->execute([$grn_sec_id, $company_id]);
+        foreach ($csc_ids2->fetchAll(PDO::FETCH_COLUMN) as $csc_id2) {
+            foreach ($received_map as $row3) {
+                $grn_cp2 = floatval($row3['cost_price']);
+                if ($grn_cp2 > 0) {
+                    $pdo->prepare("UPDATE station_counter_stock_count_items SET cost_price=?, sold_value_cost=sold_qty*? WHERE count_id=? AND company_id=? AND product_name=?")
+                        ->execute([$grn_cp2, $grn_cp2, $csc_id2, $company_id, $row3['product_name']]);
+                }
+            }
+        }
+    }
 }
 ?>

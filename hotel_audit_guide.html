@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotel Audit & Fraud Suite Guide | MiAuditOps</title>
+    <!-- Tailwind CSS for robust styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Mermaid JS for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: { 50:'#f5f3ff', 100:'#ede9fe', 600:'#7c3aed', 700:'#6d28d9', 900:'#4c1d95', 950:'#2e1065' }
+                    }
+                }
+            }
+        }
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+    </script>
+
+    <style>
+        body { background-color: #f8fafc; color: #1e293b; }
+        .document-container {
+            max-w-[850px];
+            margin: 40px auto;
+            background: white;
+            padding: 60px;
+            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        /* Print Specific Styling */
+        @media print {
+            body { background: white; }
+            .document-container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                border: none;
+            }
+            .no-print { display: none !important; }
+            .page-break { page-break-before: always; }
+            
+            /* Avoid splitting diagrams */
+            .mermaid-wrapper { page-break-inside: avoid; }
+            .section-block { page-break-inside: avoid; }
+        }
+
+        h1, h2, h3 { letter-spacing: -0.02em; }
+        .grid-bg {
+            background-image: linear-gradient(to right, #f1f5f9 1px, transparent 1px), linear-gradient(to bottom, #f1f5f9 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Floating Action Bar (Hidden on Print) -->
+    <div class="no-print fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full flex items-center justify-between gap-6 shadow-2xl border border-slate-700 z-50 transition-all hover:scale-105">
+        <span class="text-sm font-semibold tracking-wide">Download Official Operations Guide</span>
+        <button onclick="window.print()" class="bg-violet-600 hover:bg-violet-500 text-white px-5 py-2 rounded-full font-bold text-sm shadow-md transition-colors flex items-center gap-2">
+            <i data-lucide="download" class="w-4 h-4"></i> Save as PDF
+        </button>
+    </div>
+
+    <!-- Main Document -->
+    <div class="w-full max-w-[850px] mx-auto bg-white document-container rounded-xl overflow-hidden relative">
+        
+        <!-- Header -->
+        <div class="flex justify-between items-start border-b-2 border-slate-100 pb-8 mb-12">
+            <div>
+                <img src="assets/images/logo.png" alt="MiAuditOps" class="h-10 mb-2">
+                <span class="text-xs font-bold text-violet-600 tracking-widest uppercase ml-1">Platform Operations Guide</span>
+            </div>
+            <div class="text-right">
+                <div class="text-[10px] font-mono text-slate-400">DOCUMENT ID: MIA-HTL-REV-1.0</div>
+                <div class="text-[10px] font-mono text-slate-400">STATUS: OFFICIAL PUBLICATION</div>
+            </div>
+        </div>
+
+        <!-- Title Section -->
+        <div class="text-center mb-12">
+            <h1 class="text-4xl font-black text-slate-900 mb-4">Hotel Audit & Fraud Suite</h1>
+            <p class="text-lg text-slate-500 max-w-2xl mx-auto leading-relaxed">
+                A comprehensive overview of MiAuditOps' multi-layered anomaly detection architecture, designed specifically to secure hospitality revenue streams and eliminate front-desk manipulation.
+            </p>
+        </div>
+
+        <!-- The Problem Context -->
+        <div class="bg-rose-50 border border-rose-100 rounded-2xl p-8 mb-12 section-block">
+            <h3 class="text-rose-800 font-bold text-sm uppercase tracking-widest mb-3 flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-4 h-4"></i> The Extractor's Purpose
+            </h3>
+            <p class="text-rose-900 text-sm leading-relaxed">
+                Hospitality front desks frequently suffer from sophisticated revenue leakage—where cashiers manipulate Check-In/Check-Out times within the Property Management System (PMS) to pocket cash payments. <strong>"Ghost stays," "Short-time Overlaps," and "Shift-Clearances"</strong> are virtually undetectable via standard accounting. MiAuditOps bridges this gap by combining raw Data Extractions with Time-Series Anomaly Detection.
+            </p>
+        </div>
+
+        <!-- Mermaid Diagram Workflow -->
+        <div class="mb-14 mermaid-wrapper">
+            <h2 class="text-xl font-bold text-slate-800 mb-6 border-b pb-2">System Processing Workflow</h2>
+            <div class="border border-slate-200 rounded-xl p-6 bg-slate-50 flex justify-center grid-bg">
+                <div class="mermaid">
+                    graph TD
+                        A[Raw PMS Export<br/>Excel/CSV] --> B(Dynamic Parsing Engine)
+                        B --> C{Hybrid Analytics Engine}
+                        
+                        C -->|Automated P&L| D[Financial Master Recon]
+                        C -->|Rule Engine| E[Time-Overlap Scanner]
+                        C -->|Overstay Rules| F[Overtime Calculator]
+                        
+                        E --> G{Double Sales Matcher}
+                        G -->|Base Revenue > 0| H[Auto-Cleared Safe]
+                        G -->|Base Revenue = 0| I[Shadow Booking Fraud]
+                        
+                        E --> J{Stealth Check-Out Tracker}
+                        J -->|Midninght to Morning| K[Shift-Clearance Detected]
+                        
+                        style A fill:#f8fafc,stroke:#cbd5e1,stroke-width:2px
+                        style C fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px
+                        style I fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b
+                        style H fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#166534
+                </div>
+            </div>
+        </div>
+
+        <div class="page-break"></div>
+
+        <!-- Three Pillars of Protection -->
+        <div class="mb-12 mt-12">
+            <h2 class="text-2xl font-black text-slate-900 mb-8">The Three Pillars of Protection</h2>
+
+            <!-- Pillar 1 -->
+            <div class="flex gap-6 mb-10 section-block">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center border border-blue-200 text-blue-600">
+                        <i data-lucide="clock" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">1. Strict Overtime Policy Enforcement</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        The system cross-references the <em>Expected Checkout Time</em> (default 12:00 PM) against the <em>Actual Realized Checkout</em> timestamp. If a guest overstays, the engine calculates the exact hour differential minus management grace periods.
+                    </p>
+                    <ul class="text-sm text-slate-500 space-y-2 list-none pl-0">
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="text-emerald-500 w-4 h-4"></i> <strong class="text-slate-700">Fractional Detection:</strong> Automatically flags 1 - 4 hours of delay as Minor Risk.</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="text-emerald-500 w-4 h-4"></i> <strong class="text-slate-700">Half-Day Charges:</strong> Over 4 hours rigorously escalates to a 50% Daily Rate surcharge.</li>
+                        <li class="flex items-center gap-2"><i data-lucide="check" class="text-emerald-500 w-4 h-4"></i> <strong class="text-slate-700">Full-Day Critical:</strong> Delays over 12 hours convert the room to a full night's payment expectation.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Pillar 2 -->
+            <div class="flex gap-6 mb-10 section-block">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center border border-amber-200 text-amber-600">
+                        <i data-lucide="copy" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">2. Hybrid Double-Sales Matcher</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        When a room is booked multiple times on the exact same calendar date, cashiers often hide short-stays. The engine groups same-day entries and evaluates the Time-Overlaps. But it doesn't stop there.
+                    </p>
+                    <div class="bg-amber-50 border border-amber-100 rounded-lg p-5">
+                        <h4 class="text-xs font-bold uppercase text-amber-700 tracking-wider mb-2">Intelligent Auto-Clearance Workflow</h4>
+                        <p class="text-amber-900 text-xs leading-relaxed">
+                            If the system detects a manipulated double-booking, but the cashier <em>did</em> properly enter a price into the PMS Base Revenue stream (`Rate > 0`), the Engine will flag it but instantly mark it as <span class="bg-emerald-100 text-emerald-700 px-2 rounded-sm border border-emerald-200 mx-1">✓ AUTO-CLEARED</span>. This prevents the master ledger from double-charging the cashier for money they truthfully declared. Only "zero-rated" or unpriced shadow-bookings are left highlighted in Red as true uncaptured fraud.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pillar 3 -->
+            <div class="flex gap-6 section-block mb-10">
+                <div class="flex-shrink-0 mt-1">
+                    <div class="w-12 h-12 bg-rose-100 rounded-xl flex items-center justify-center border border-rose-200 text-rose-600">
+                        <i data-lucide="moon" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">3. Stealth Early Check-Out Tracking</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed mb-3">
+                        The ultimate counter-measure against "Ghost Stays." If guests check in between <strong>12:00 AM (Midnight) and 6:59 AM</strong>, the platform generates a Critical Risk Alert.
+                    </p>
+                    <div class="bg-slate-100 rounded-lg p-4 border border-slate-200 flex justify-between items-center mt-3">
+                        <div>
+                            <div class="text-sm font-bold text-slate-800">Night-Shift "Ghost Clearance" Alert</div>
+                            <div class="text-[11px] text-slate-500 mt-0.5">Captures cashiers checking guests out before morning shifts arrive. (Out before 9:00 AM on the same day).</div>
+                        </div>
+                        <div class="bg-rose-100 text-rose-700 border border-rose-300 px-3 py-1 rounded text-xs font-black shadow-sm">
+                            ⚠️ STEALTH CHECKOUT
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+            
+            <div class="page-break"></div>
+
+            <!-- Master Reconciliation -->
+            <div class="mt-8 mb-10">
+                <h2 class="text-2xl font-black text-slate-900 mb-6">The Two-Hit Reconciliation System</h2>
+                <p class="text-slate-600 text-sm leading-relaxed mb-6">
+                    Our platform ensures no discrepancy slips through the cracks by employing a sequential "Two-Hit" accounting flow.
+                </p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-6">
+                        <div class="text-indigo-600 font-black text-4xl mb-2 opacity-50">01</div>
+                        <h4 class="font-bold text-slate-800 text-lg mb-2">First Hit: System Discrepancy</h4>
+                        <p class="text-slate-600 text-xs leading-relaxed">
+                            This is the immediate baseline check. The system calculates the total <strong>Expected Room Revenue</strong> exported from the PMS and subtracts the <strong>Actual Banked Cash/Transfers</strong> declared by the cashier. This first hit catches raw missing funds.
+                        </p>
+                    </div>
+                    <div class="bg-violet-50 border border-violet-100 rounded-xl p-6">
+                        <div class="text-violet-600 font-black text-4xl mb-2 opacity-50">02</div>
+                        <h4 class="font-bold text-slate-800 text-lg mb-2">Second Hit: Master Variance</h4>
+                        <p class="text-slate-600 text-xs leading-relaxed">
+                            This is the forensic layer. The system takes the First Hit anomaly and adds all <strong>Uncaptured Fraud Value</strong>—this includes Zero-Rated Double Sales, unpriced Stealth Check-ins, and critically, all fractional and full-day <strong>Overtime Penalties</strong>. The result is the absolute Net Variance owed by the shift.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Automated Reporting -->
+            <div class="mt-12 section-block">
+                <h2 class="text-2xl font-black text-slate-900 mb-6">Comprehensive Report Generation</h2>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-6 flex flex-col md:flex-row gap-6 items-center">
+                    <div class="flex-1">
+                        <p class="text-slate-600 text-sm leading-relaxed mb-4">
+                            All findings are crystallized into professional, immutable PDF reports optimized for Senior Management and Board Reviews. 
+                        </p>
+                        <ul class="text-sm text-slate-500 space-y-2 list-none pl-0">
+                            <li class="flex items-center gap-2"><i data-lucide="file-text" class="text-violet-500 w-4 h-4"></i> <strong class="text-slate-700">Detailed Rectification Logs:</strong> Tracks every edit made by an auditor.</li>
+                            <li class="flex items-center gap-2"><i data-lucide="printer" class="text-violet-500 w-4 h-4"></i> <strong class="text-slate-700">Auto-Cleared Formatting:</strong> Shadow bookings recognized by the system print directly with `[AUTO-CLEARED]` strike-through aesthetics.</li>
+                            <li class="flex items-center gap-2"><i data-lucide="pie-chart" class="text-violet-500 w-4 h-4"></i> <strong class="text-slate-700">Expense Requisitions:</strong> Summarizes all verified payouts to show net remittable cash.</li>
+                        </ul>
+                    </div>
+                    <div class="w-full md:w-48 h-64 bg-slate-200 rounded-lg border-2 border-slate-300 shadow-inner flex flex-col justify-start p-4 bg-gradient-to-br from-white to-slate-100 relative overflow-hidden">
+                        <div class="w-full h-2 bg-slate-300 rounded mb-2"></div>
+                        <div class="w-2/3 h-2 bg-slate-300 rounded mb-6"></div>
+                        <div class="w-full h-8 bg-rose-100 border border-rose-200 rounded mb-2"></div>
+                        <div class="w-full h-8 bg-emerald-50 border border-emerald-100 rounded mb-2"></div>
+                        <div class="w-full h-8 bg-rose-100 border border-rose-200 rounded mb-2"></div>
+                        <div class="absolute bottom-2 right-2 text-[8px] font-bold text-slate-400">AUDIT REPORT</div>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+
+        <div class="border-t border-slate-200 pt-8 mt-12 mb-6">
+            <div class="flex justify-between items-center text-xs text-slate-400 font-mono">
+                <div>GENERATED: © <?php echo date('Y') ?? '2026'; ?> MIEMPLOYA SYSTEM LIMITED</div>
+                <div>MIAUDITOPS.APP</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>

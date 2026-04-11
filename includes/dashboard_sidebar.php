@@ -5,6 +5,14 @@
  */
 require_once __DIR__ . '/../config/sector_config.php';
 $current_page = basename($_SERVER['PHP_SELF']);
+// For nested modules (e.g. retail_audit/index.php), preserve the subdirectory path
+// relative to /dashboard/ so client switching redirects correctly
+$_script_path = $_SERVER['PHP_SELF'] ?? '';
+if (preg_match('#/dashboard/(.+)$#', $_script_path, $_m)) {
+    $current_page_full = $_m[1]; // e.g. "retail_audit/index.php" or "station_audit.php"
+} else {
+    $current_page_full = $current_page;
+}
 $company = $company ?? get_company($_SESSION['company_id']);
 $company_initial = strtoupper(substr($company['name'] ?? 'M', 0, 1));
 $user_role = get_user_role();
@@ -46,6 +54,7 @@ $page_permission_map = [
     'fixed_assets.php'     => 'finance',
     'capital_allowance.php' => 'finance',
     'hotel_revenue/index.php' => 'dashboard',
+    'retail_audit/index.php' => 'dashboard',
 ];
 
 // Map page hrefs to subscription module keys (may differ from permission keys)
@@ -70,6 +79,7 @@ $page_subscription_map = [
     'fixed_assets.php'     => 'finance',
     'capital_allowance.php' => 'finance',
     'hotel_revenue/index.php' => 'hotel_revenue',
+    'retail_audit/index.php' => 'retail_audit',
 ];
 try {
     $_current_plan_key = get_current_plan();
@@ -109,6 +119,25 @@ $nav_sections = [
     ],
 ];
 
+// Add Retail Audit: show if plan includes retail_audit module OR ANY of user's clients is retail/supermarket
+$_has_retail_client = in_array($_sidebar_client_sector, ['retail', 'supermarket', 'pharmacy', 'boutique']);
+if (!$_has_retail_client && !empty($sidebar_clients)) {
+    foreach ($sidebar_clients as $_sc) {
+        if (in_array(strtolower($_sc['industry'] ?? ''), ['retail', 'supermarket', 'pharmacy', 'boutique'])) {
+            $_has_retail_client = true;
+            break;
+        }
+    }
+}
+if ($_has_retail_client || plan_includes_module($_current_plan_key, 'retail_audit')) {
+    $nav_sections['Retail'] = [
+        'items' => [
+            ['label' => 'Retail Audit', 'icon' => 'shopping-cart', 'href' => 'retail_audit/index.php', 'gradient' => 'from-pink-500 to-rose-600', 'roles' => 'all', 'badge' => 'NEW'],
+        ]
+    ];
+}
+
+
 // Add Station Audit: show if plan includes station_audit module OR ANY of user's clients is petroleum
 $_has_petroleum_client = $_is_petroleum;
 if (!$_has_petroleum_client && !empty($sidebar_clients)) {
@@ -137,10 +166,10 @@ $nav_sections['P&L'] = [
     ]
 ];
 
-// Hotel Revenue
+// Hotel Audit & Fraud Suite
 $nav_sections['Hotel'] = [
     'items' => [
-        ['label' => 'Hotel Revenue', 'icon' => 'building', 'href' => 'hotel_revenue/index.php', 'gradient' => 'from-fuchsia-500 to-purple-600', 'roles' => 'all', 'badge' => 'NEW'],
+        ['label' => 'Hotel Audit & Fraud Suite', 'icon' => 'building', 'href' => 'hotel_revenue/index.php', 'gradient' => 'from-fuchsia-500 to-purple-600', 'roles' => 'all', 'badge' => 'NEW'],
     ]
 ];
 
@@ -161,7 +190,7 @@ $nav_sections['Support'] = [
 // Trash — after Support Services
 $nav_sections['Cleanup'] = [
     'items' => [
-        ['label' => 'Trash', 'icon' => 'trash-2', 'href' => 'trash.php', 'gradient' => 'from-red-500 to-rose-600', 'roles' => 'all'],
+        ['label' => 'Trash', 'icon' => 'trash-2', 'href' => 'trash.php', 'gradient' => 'from-red-500 to-rose-600', 'roles' => ['super_admin', 'business_owner', 'ceo']],
     ]
 ];
 
@@ -202,7 +231,7 @@ $nav_sections['Admin'] = [
             </button>
             <div x-show="open" @click.away="open=false" x-transition class="mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-y-auto z-50 relative">
                 <?php foreach ($sidebar_clients as $sc): ?>
-                <a href="../ajax/company_setup_api.php?action=set_active_client&client_id=<?php echo $sc['id']; ?>&redirect=<?php echo urlencode($current_page); ?>" 
+                <a href="<?php echo $sidebar_base ?? ''; ?>../ajax/company_setup_api.php?action=set_active_client&client_id=<?php echo $sc['id']; ?>&redirect=<?php echo urlencode($current_page_full); ?>" 
                    class="flex items-center gap-2 px-3 py-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors <?php echo ($sc['id'] == $active_client_id) ? 'bg-indigo-50 dark:bg-indigo-900/30 font-bold text-indigo-700' : 'text-slate-600 dark:text-slate-400'; ?>">
                     <span class="w-6 h-6 rounded-md bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white text-[9px] font-bold"><?php echo strtoupper(substr($sc['name'], 0, 2)); ?></span>
                     <span class="truncate"><?php echo htmlspecialchars($sc['name']); ?></span>
@@ -238,8 +267,9 @@ $nav_sections['Admin'] = [
 
             <?php if ($section_name === 'main' || count($visible_items) === 1): ?>
                 <?php $item = $visible_items[0]; ?>
+                <?php $s_base = $sidebar_base ?? ''; ?>
                 <?php if ($item['is_locked']): ?>
-                <a href="<?php echo $item['href']; ?>" 
+                <a href="<?php echo $s_base . $item['href']; ?>" 
                    class="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 text-slate-400 dark:text-slate-600 opacity-60 hover:opacity-80 border-l-2 border-transparent cursor-pointer mb-1"
                    title="Upgrade to access <?php echo $item['label']; ?>">
                     <span class="w-8 h-8 rounded-lg bg-slate-300 dark:bg-slate-700 flex items-center justify-center shadow-sm">
@@ -249,7 +279,7 @@ $nav_sections['Admin'] = [
                     <span class="ml-auto px-1.5 py-0.5 rounded-md text-[8px] font-black tracking-wider bg-gradient-to-r from-violet-500 to-amber-500 text-white">PRO</span>
                 </a>
                 <?php else: ?>
-                <a href="<?php echo $item['href']; ?>" 
+                <a href="<?php echo $s_base . $item['href']; ?>" 
                    class="group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 hover:translate-x-0.5 mb-1
                    <?php echo $item['is_active'] 
                        ? 'text-violet-700 dark:text-violet-300 bg-gradient-to-r from-violet-50 to-violet-100/50 dark:from-violet-900/30 dark:to-violet-800/20 border-l-2 border-violet-500' 
@@ -283,12 +313,12 @@ $nav_sections['Admin'] = [
                         <div class="mt-1 space-y-0.5 pb-1">
                             <?php foreach ($visible_items as $item): ?>
                                 <?php if ($item['is_locked']): ?>
-                                <a href="<?php echo $item['href']; ?>" class="group flex items-center gap-3 px-4 py-2 ml-[3.25rem] text-xs font-semibold rounded-lg opacity-60 text-slate-500 hover:opacity-80 transition-colors">
+                                <a href="<?php echo $s_base . $item['href']; ?>" class="group flex items-center gap-3 px-4 py-2 ml-[3.25rem] text-xs font-semibold rounded-lg opacity-60 text-slate-500 hover:opacity-80 transition-colors">
                                     <i data-lucide="lock" class="w-3.5 h-3.5"></i>
                                     <span><?php echo $item['label']; ?></span>
                                 </a>
                                 <?php else: ?>
-                                <a href="<?php echo $item['href']; ?>" 
+                                <a href="<?php echo $s_base . $item['href']; ?>" 
                                    class="group flex items-center gap-3 px-4 py-2 ml-[3.25rem] text-[13px] font-medium rounded-lg transition-all duration-200 
                                    <?php echo $item['is_active'] ? 'text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50'; ?>">
                                     <div class="w-1.5 h-1.5 rounded-full <?php echo $item['is_active'] ? 'bg-violet-600 dark:bg-violet-400' : 'bg-slate-300 dark:bg-slate-600 group-hover:bg-slate-400'; ?>"></div>
